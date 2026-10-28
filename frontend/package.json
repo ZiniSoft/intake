@@ -1,0 +1,35 @@
+{
+  "name": "private-intake-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit -p tsconfig.app.json && vite build --configLoader runner",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "test:e2e:gate-d": "node e2e/gate-d.mjs",
+    "test:e2e:gate-e": "node e2e/gate-e.mjs",
+    "test:e2e:gitlab": "node e2e/gate-gitlab.mjs",
+    "test:e2e:planning": "node e2e/planning-ui.mjs",
+    "test:e2e:composer": "node e2e/intake-composer.mjs",
+    "test:e2e:meeting": "node e2e/meeting-capture.mjs",
+    "test:e2e:planning-live": "node e2e/planning-live-mutation.mjs"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.2",
+    "lucide-react": "^1.49.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.9.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "playwright-core": "^1.63.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9",
+    "vitest": "^5.0.2"
+  }
+}

@@ -1,0 +1,173 @@
+"""Acceptance as its own queue (FR-PLAN-31, ADR-0055): a report saying done with an Issue becomes an acceptance, the
+CTO's sample of the day, the Project Owner's word beside the CTO's, rework on "not done", and the tracker write."""
+import hashlib
+from datetime import date, datetime, timezone
+from uuid import uuid4
+
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from app.db import get_session
+from app.main import app
+from app.models import EmailMessage, GitLabIssueSnapshot, IssueVerification, PlanningCandidate, PlanningRun, PlanningWarning, Project, ReportItem, WorkforceMember
+from app.modules.planning import acceptance
+
+cto = TestClient(app, headers={"X-User-Subject": "cto"})
+owner = TestClient(app, headers={"X-User-Subject": "project-owner"})
+SENDER = "acceptance-test@example.test"
+ISSUES = {"9701": "Xuất báo cáo tuần ra PDF", "9702": "Sửa lỗi gửi email trễ"}
+
+
+def _project_id() -> str:
+    with get_session() as session:
+        return str(session.scalar(select(Project).where(Project.code == "orbit")).id)
+
+
+def _member() -> str:
+    with get_session() as session:
+        existing = session.scalar(select(WorkforceMember).where(WorkforceMember.email_reference == SENDER))
+        if existing is not None:
+            return str(existing.id)
+    created = cto.post("/api/v1/planning/members", json={
+        "display_name": "Acceptance Test", "email_reference": SENDER,
+        "project_mappings": [{"project_id": _project_id(), "gitlab_user_external_id": "78", "role": "Developer"}],
+    })
+    assert created.status_code == 201, created.text
+    return created.json()["data"]["id"]
+
+
+def _issues() -> None:
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        for issue, title in ISSUES.items():
+            session.add(GitLabIssueSnapshot(
+                id=str(uuid4()), project_id=_project_id(), issue_external_id=issue, title=title, state="opened", labels=["priority:p1" if issue == "9701" else "priority:p3"],
+                assignee_external_ids=["78"], milestone_external_id=None, milestone_title=None, due_date=None, web_url=None,
+                payload_hash=hashlib.sha256(f"acceptance:{issue}".encode()).hexdigest(), is_current=True, fetched_at=now, last_seen_at=now,
+            ))
+        session.commit()
+
+
+def _report(uid: str, day: str, items: str) -> dict:
+    body = f"BÁO CÁO NGÀY\nNgày: {day} | Nhân sự: Acceptance Test | Tổng thời gian: 6 giờ\n\n=== ORBIT | Orbit ===\n{items}\n"
+    response = cto.post("/api/v1/reports/daily/ingest", json={
+        "mailbox": "report@example.test", "uid_validity": "20261013", "uid": uid, "message_id": f"<acceptance-{uid}@example.test>",
+        "sender_address": SENDER, "sender_name": "Acceptance Test", "subject": f"DAILY REPORT | {day} | Acceptance Test | ORBIT",
+        "body": body, "received_at": f"{day}T10:30:00Z",
+    })
+    assert response.status_code == 201, response.text
+    return response.json()["data"]
+
+
+def _cleanup() -> None:
+    with get_session() as session:
+        for row in session.scalars(select(IssueVerification).where(IssueVerification.issue_external_id.in_(list(ISSUES)), IssueVerification.project_id == _project_id())).all():
+            session.delete(row)
+        for row in session.scalars(select(PlanningCandidate).where(PlanningCandidate.gitlab_issue_external_id.in_(list(ISSUES)))).all():
+            session.delete(row)
+        for row in session.scalars(select(EmailMessage).where(EmailMessage.sender_address == SENDER)).all():
+            for item in session.scalars(select(ReportItem).where(ReportItem.email_message_id == row.id)).all():
+                session.delete(item)
+            session.delete(row)
+        for row in session.scalars(select(GitLabIssueSnapshot).where(GitLabIssueSnapshot.issue_external_id.in_(list(ISSUES)), GitLabIssueSnapshot.project_id == _project_id())).all():
+            session.delete(row)
+        session.commit()
+
+
+def test_reported_done_with_an_issue_becomes_an_acceptance_and_the_cto_gets_a_sample() -> None:
+    _member()
+    _issues()
+    today = date.today().isoformat()
+    try:
+        report = _report("acc-1", today, "[DONE] Xuất báo cáo tuần ra PDF | Thời gian: 4 giờ | Tiến độ: 100%\nTham chiếu: GitLab #9701 | Plane: Không có | Intake: Không có\n\n[DONE] Sửa lỗi gửi email trễ | Thời gian: 2 giờ | Tiến độ: 100%\nTham chiếu: GitLab #9702 | Plane: Không có | Intake: Không có")
+        assert report["unlinked_items"] == 0
+        with get_session() as session:
+            rows = session.scalars(select(IssueVerification).where(IssueVerification.issue_external_id.in_(list(ISSUES)), IssueVerification.project_id == _project_id())).all()
+            assert {row.issue_external_id for row in rows} == set(ISSUES)
+            assert all(row.source == "REPORT" and row.decision == "PENDING" and row.reported_on == date.fromisoformat(today) for row in rows)
+        again = acceptance.collect()
+        assert isinstance(again["from_reports"], int)
+        with get_session() as session:
+            assert len(session.scalars(select(IssueVerification).where(IssueVerification.issue_external_id.in_(list(ISSUES)), IssueVerification.project_id == _project_id())).all()) == 2
+        shown = cto.get("/api/v1/acceptance")
+        assert shown.status_code == 200, shown.text
+        data = shown.json()["data"]
+        mine = [row for row in data["today"] + data["more"] if row["issue_external_id"] in ISSUES]
+        assert len(mine) == 2 and all(row["reporter_name"] == "Acceptance Test" and row["reported_hours"] in (4.0, 2.0) for row in mine)
+        picked = [row for row in data["today"] if row["issue_external_id"] in ISSUES]
+        # P1 before P3 in the sample order wherever both are in today's five.
+        if len(picked) == 2:
+            assert [row["issue_external_id"] for row in picked] == ["9701", "9702"]
+        assert cto.post("/api/v1/acceptance/sample?extra=5").status_code == 200
+    finally:
+        _cleanup()
+
+
+def test_the_owner_confirms_the_cto_accepts_and_not_done_goes_back_to_the_plan() -> None:
+    _member()
+    _issues()
+    today = date.today().isoformat()
+    try:
+        _report("acc-2", today, "[DONE] Xuất báo cáo tuần ra PDF | Thời gian: 4 giờ | Tiến độ: 100%\nTham chiếu: GitLab #9701 | Plane: Không có | Intake: Không có\n\n[DONE] Sửa lỗi gửi email trễ | Thời gian: 2 giờ | Tiến độ: 100%\nTham chiếu: GitLab #9702 | Plane: Không có | Intake: Không có")
+        with get_session() as session:
+            by_issue = {row.issue_external_id: str(row.id) for row in session.scalars(select(IssueVerification).where(IssueVerification.issue_external_id.in_(list(ISSUES)), IssueVerification.project_id == _project_id())).all()}
+        # The Project Owner's word is recorded beside the CTO's, and does not decide for the CTO.
+        theirs = owner.post(f"/api/v1/acceptance/{by_issue['9701']}/accept", json={"evidence_missing_reason": "xem PDF tại chỗ"})
+        assert theirs.status_code in (200, 404), theirs.text
+        if theirs.status_code == 200:
+            assert theirs.json()["data"]["po_decision"] == "ACCEPTED" and theirs.json()["data"]["decision"] == "PENDING"
+        # The CTO accepts: the decision stands and the tracker write is recorded (queued or not, with no broker here).
+        accepted = cto.post(f"/api/v1/acceptance/{by_issue['9701']}/accept", json={"evidence_missing_reason": "xem PDF tại chỗ"})
+        assert accepted.status_code == 200, accepted.text
+        body = accepted.json()["data"]
+        assert body["decision"] == "ACCEPTED" and body["level_name"] == "ACCEPTED" and body["sync_status"] in ("PENDING", "QUEUE_FAILED")
+        assert cto.post(f"/api/v1/acceptance/{by_issue['9701']}/accept", json={}).status_code == 409
+        assert cto.post(f"/api/v1/acceptance/{by_issue['9702']}/reject", json={}).status_code == 422
+        # Not done: rework lands in the project's open plan when there is one.
+        run = cto.post("/api/v1/planning/runs", json={"plan_date": date(2031, 4, 7).isoformat(), "project_ids": [_project_id()], "timezone": "Asia/Ho_Chi_Minh"})
+        assert run.status_code in (200, 201), run.text
+        run_id = run.json()["data"]["id"]
+        try:
+            rejected = cto.post(f"/api/v1/acceptance/{by_issue['9702']}/reject", json={"reason": "email vẫn trễ khi hàng đợi đầy"})
+            assert rejected.status_code == 200, rejected.text
+            assert rejected.json()["data"]["decision"] == "REJECTED"
+            with get_session() as session:
+                rework = session.scalars(select(PlanningCandidate).where(PlanningCandidate.gitlab_issue_external_id == "9702", PlanningCandidate.source_type == "VERIFICATION")).all()
+                assert rework and any(str(row.planning_run_id) == run_id for row in rework)
+                assert session.get(PlanningRun, run_id).status == "REVIEW_REQUIRED"
+            decided = cto.get("/api/v1/acceptance").json()["data"]["decided"]
+            assert {row["issue_external_id"] for row in decided} >= set(ISSUES)
+        finally:
+            with get_session() as session:
+                for model in (PlanningCandidate, PlanningWarning):
+                    for row in session.scalars(select(model).where(model.planning_run_id == run_id)).all():
+                        session.delete(row)
+                run_row = session.get(PlanningRun, run_id)
+                if run_row is not None:
+                    session.delete(run_row)
+                session.commit()
+    finally:
+        _cleanup()
+
+
+def test_sync_target_says_what_to_write_and_record_sync_closes_the_snapshot() -> None:
+    _member()
+    _issues()
+    today = date.today().isoformat()
+    try:
+        _report("acc-3", today, "[DONE] Xuất báo cáo tuần ra PDF | Thời gian: 4 giờ | Tiến độ: 100%\nTham chiếu: GitLab #9701 | Plane: Không có | Intake: Không có")
+        with get_session() as session:
+            row = session.scalar(select(IssueVerification).where(IssueVerification.issue_external_id == "9701", IssueVerification.project_id == _project_id()))
+            row.decision, row.decided_at, row.sync_status = "ACCEPTED", datetime.now(timezone.utc), "PENDING"
+            session.commit()
+            verification_id = str(row.id)
+        target = acceptance.sync_target(verification_id)
+        if target is not None:
+            assert target["issue"] == "9701" and target["close"] is True and "nghiệm thu" in target["note"] and target["system"] in ("GITLAB", "GITHUB")
+        acceptance.record_sync(verification_id, "DONE")
+        with get_session() as session:
+            snapshot = session.scalar(select(GitLabIssueSnapshot).where(GitLabIssueSnapshot.issue_external_id == "9701", GitLabIssueSnapshot.project_id == _project_id(), GitLabIssueSnapshot.is_current.is_(True)))
+            assert snapshot.state == "closed" and snapshot.closed_at is not None
+            assert session.get(IssueVerification, verification_id).sync_status == "DONE"
+    finally:
+        _cleanup()

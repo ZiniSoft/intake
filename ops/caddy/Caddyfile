@@ -1,0 +1,14 @@
+# The public entrance on the server: HTTPS for INTAKE_DOMAIN with a certificate Caddy obtains and renews by itself.
+# Everything goes to the web container, which serves the interface and passes /api to the API.
+{
+	email {$ACME_EMAIL}
+}
+
+{$INTAKE_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy web:8080
+}

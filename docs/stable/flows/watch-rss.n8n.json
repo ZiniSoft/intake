@@ -1,0 +1,118 @@
+{
+  "name": "Intake watch: RSS, Google Trends, YouTube",
+  "meta": {
+    "note": "Mẫu luồng quét cho Intake (docs/stable/watch-flow.md, ADR-0068). Nhập vào n8n, đặt ba credential: INTAKE_WATCH_API_KEY (Bearer), INTAKE_WATCH_WEBHOOK_SECRET (ký), YOUTUBE_API_KEY (tùy chọn). Đổi INTAKE_BASE ở node 'Config'. Nhánh Instagram, Threads, dịch vụ cào để sẵn và tắt: bật khi CTO có token hoặc dịch vụ."
+  },
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 30 }] } },
+      "id": "cron", "name": "Mỗi 30 phút", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2, "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Where Intake is, and the secrets from the environment of n8n (never written into the flow).\nreturn [{ json: { base: 'https://intake.example.com', apiKey: $env.INTAKE_WATCH_API_KEY, secret: $env.INTAKE_WATCH_WEBHOOK_SECRET, youtubeKey: $env.YOUTUBE_API_KEY || '' } }];"
+      },
+      "id": "config", "name": "Config", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.base }}/api/v1/watch/config",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $json.apiKey }}" }] },
+        "options": {}
+      },
+      "id": "read-config", "name": "Đọc cấu hình Intake", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per project due a scan: its sources, its terms by pillar (priority first), its networks and quota.\nconst now = Date.now();\nconst out = [];\nfor (const project of $json.data.projects || []) {\n  if (project.next_scan_at && new Date(project.next_scan_at).getTime() > now) continue; // not yet\n  for (const track of project.tracks || []) {\n    const demand = track.demand || {};\n    if (demand.accept_up_to !== null && demand.accept_up_to !== undefined && demand.accept_up_to <= 0) continue; // enough this week\n    const terms = [];\n    for (const pillar of track.pillars || []) for (const term of pillar.terms || []) terms.push({ pillar: pillar.pillar, ...term });\n    terms.sort((a, b) => (a.priority === 'high' ? -1 : 0) - (b.priority === 'high' ? -1 : 0));\n    out.push({ json: { project: project.project, track: track.track, networks: project.networks || [], sources: track.sources || [], terms, lookback_days: demand.lookback_days || 7, accept_up_to: demand.accept_up_to } });\n  }\n}\nreturn out;"
+      },
+      "id": "split", "name": "Dự án tới giờ quét", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RSS sources: web, blog, press, Google Trends. Each source becomes one HTTP read; the filter runs after.\nconst out = [];\nfor (const source of $json.sources) {\n  if (!['WEB', 'OTHER'].includes(source.kind)) continue;\n  out.push({ json: { ...$json, source } });\n}\nreturn out;"
+      },
+      "id": "rss-list", "name": "Nguồn RSS", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [880, 200]
+    },
+    {
+      "parameters": { "url": "={{ $json.source.url }}", "options": {} },
+      "id": "rss-read", "name": "Đọc RSS", "type": "n8n-nodes-base.rssFeedRead", "typeVersion": 1.1, "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keep an entry when a keyword or hashtag of a pillar appears in its title or summary, within lookback_days.\n// Everything read here is untrusted text: it is passed on, never executed, and Intake trims it again.\nconst ctx = $('Nguồn RSS').item.json;\nconst since = Date.now() - ctx.lookback_days * 86400000;\nconst hay = `${$json.title || ''} ${$json.contentSnippet || $json.content || ''}`.toLowerCase();\nconst when = $json.isoDate || $json.pubDate;\nif (when && new Date(when).getTime() < since) return [];\nconst hit = ctx.terms.find((term) => hay.includes(term.text.toLowerCase().replace(/^#/, '')));\nif (!hit) return [];\nreturn [{ json: { url: $json.link, title: ($json.title || '').slice(0, 300), excerpt: ($json.contentSnippet || '').slice(0, 1000), author: ($json.creator || '').slice(0, 120), source_id: ctx.source.id, project: ctx.project, track: ctx.track, pillar: hit.pillar, keyword: hit.text, priority: hit.priority, via: 'api', published_at: when ? new Date(when).toISOString() : null } }];"
+      },
+      "id": "rss-filter", "name": "Lọc theo từ khóa", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1320, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// YouTube Data API search, only for projects that turned YouTube on and only for priority terms (100 searches a day are free).\nconst cfg = $('Config').first().json;\nif (!cfg.youtubeKey || !$json.networks.includes('YOUTUBE')) return [];\nreturn $json.terms.filter((t) => t.priority === 'high' && t.kind === 'keyword').slice(0, 3).map((term) => ({ json: { ...$json, term, url: `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&order=date&maxResults=10&q=${encodeURIComponent(term.text)}&key=${cfg.youtubeKey}` } }));"
+      },
+      "id": "yt-list", "name": "YouTube theo từ khóa ưu tiên", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [880, 420]
+    },
+    {
+      "parameters": { "url": "={{ $json.url }}", "options": {} },
+      "id": "yt-read", "name": "Tìm YouTube", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [1100, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('YouTube theo từ khóa ưu tiên').item.json;\nconst since = Date.now() - ctx.lookback_days * 86400000;\nconst out = [];\nfor (const item of $json.items || []) {\n  const when = item.snippet?.publishedAt;\n  if (when && new Date(when).getTime() < since) continue;\n  out.push({ json: { url: `https://www.youtube.com/watch?v=${item.id?.videoId}`, title: (item.snippet?.title || '').slice(0, 300), excerpt: (item.snippet?.description || '').slice(0, 1000), author: (item.snippet?.channelTitle || '').slice(0, 120), project: ctx.project, track: ctx.track, pillar: ctx.term.pillar, keyword: ctx.term.text, priority: ctx.term.priority, via: 'api', published_at: when || null } });\n}\nreturn out;"
+      },
+      "id": "yt-items", "name": "Video thành tín hiệu", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1320, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Instagram hashtags and Threads keyword search (Meta Graph API, after app review): fill in the token and turn this node on.\n// Each result becomes { url, title, excerpt, project, track, pillar, keyword, priority, via: 'api', published_at }.\nreturn [];"
+      },
+      "id": "meta", "name": "Instagram, Threads (tắt)", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [880, 640], "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// A scraping service (for Facebook public pages, TikTok): call it here and send what it returns with via: 'scrape'.\n// Intake scores these one notch below whitelisted sources and never learns which service was used.\nreturn [];"
+      },
+      "id": "scrape", "name": "Dịch vụ cào (tắt)", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [880, 820], "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Everything found, deduplicated by url, cut to the project's quota, in batches of 50, each signed.\nconst crypto = require('crypto');\nconst cfg = $('Config').first().json;\nconst seen = new Set();\nconst byProject = {};\nfor (const item of $input.all()) {\n  const row = item.json;\n  if (!row.url || !row.title || seen.has(row.url)) continue;\n  seen.add(row.url);\n  (byProject[row.project] = byProject[row.project] || []).push(row);\n}\nconst quotas = {};\nfor (const ctx of $('Dự án tới giờ quét').all()) quotas[ctx.json.project] = ctx.json.accept_up_to;\nconst out = [];\nfor (const [project, rows] of Object.entries(byProject)) {\n  const limit = quotas[project] === null || quotas[project] === undefined ? rows.length : quotas[project];\n  const kept = rows.slice(0, limit);\n  for (let i = 0; i < kept.length; i += 50) {\n    const body = JSON.stringify({ items: kept.slice(i, i + 50) });\n    const timestamp = String(Math.floor(Date.now() / 1000));\n    const signature = crypto.createHmac('sha256', cfg.secret).update(`${timestamp}.${body}`).digest('hex');\n    out.push({ json: { body, timestamp, signature, base: cfg.base } });\n  }\n}\nreturn out;"
+      },
+      "id": "sign", "name": "Gom, cắt hạn mức, ký", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base }}/api/v1/watch/signals",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }, { "name": "X-Intake-Timestamp", "value": "={{ $json.timestamp }}" }, { "name": "X-Intake-Signature", "value": "={{ $json.signature }}" }] },
+        "sendBody": true, "specifyBody": "string", "body": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "send", "name": "Gửi tín hiệu về Intake", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [1780, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// What Intake refused, for the n8n log: a reason per index. Nothing else to do; Intake keeps its own counts.\nconst data = $json.data || {};\nif ((data.rejected || []).length) console.log('Intake rejected', JSON.stringify(data.rejected));\nreturn [{ json: { accepted: data.accepted, duplicates: data.duplicates, rejected: (data.rejected || []).length } }];"
+      },
+      "id": "log", "name": "Ghi log", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [2000, 400]
+    }
+  ],
+  "connections": {
+    "Mỗi 30 phút": { "main": [[{ "node": "Config", "type": "main", "index": 0 }]] },
+    "Config": { "main": [[{ "node": "Đọc cấu hình Intake", "type": "main", "index": 0 }]] },
+    "Đọc cấu hình Intake": { "main": [[{ "node": "Dự án tới giờ quét", "type": "main", "index": 0 }]] },
+    "Dự án tới giờ quét": { "main": [[{ "node": "Nguồn RSS", "type": "main", "index": 0 }, { "node": "YouTube theo từ khóa ưu tiên", "type": "main", "index": 0 }, { "node": "Instagram, Threads (tắt)", "type": "main", "index": 0 }, { "node": "Dịch vụ cào (tắt)", "type": "main", "index": 0 }]] },
+    "Nguồn RSS": { "main": [[{ "node": "Đọc RSS", "type": "main", "index": 0 }]] },
+    "Đọc RSS": { "main": [[{ "node": "Lọc theo từ khóa", "type": "main", "index": 0 }]] },
+    "Lọc theo từ khóa": { "main": [[{ "node": "Gom, cắt hạn mức, ký", "type": "main", "index": 0 }]] },
+    "YouTube theo từ khóa ưu tiên": { "main": [[{ "node": "Tìm YouTube", "type": "main", "index": 0 }]] },
+    "Tìm YouTube": { "main": [[{ "node": "Video thành tín hiệu", "type": "main", "index": 0 }]] },
+    "Video thành tín hiệu": { "main": [[{ "node": "Gom, cắt hạn mức, ký", "type": "main", "index": 0 }]] },
+    "Instagram, Threads (tắt)": { "main": [[{ "node": "Gom, cắt hạn mức, ký", "type": "main", "index": 0 }]] },
+    "Dịch vụ cào (tắt)": { "main": [[{ "node": "Gom, cắt hạn mức, ký", "type": "main", "index": 0 }]] },
+    "Gom, cắt hạn mức, ký": { "main": [[{ "node": "Gửi tín hiệu về Intake", "type": "main", "index": 0 }]] },
+    "Gửi tín hiệu về Intake": { "main": [[{ "node": "Ghi log", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

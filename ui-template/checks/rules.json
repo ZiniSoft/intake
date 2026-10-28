@@ -1,0 +1,7 @@
+{
+  "allowedLiteralText": ["Tiếng Việt", "English", "·"],
+  "bannedWords": {
+    "vi": ["override", "capacity", "payload", "snapshot", "sync", "MFA", "OTP", "null", "undefined", "run", "accept", "proposal", "submit", "pending", "vui lòng"],
+    "en": ["please", "simply", "just", "oops", "whoops", "sorry", "MFA", "null", "undefined", "payload", "invalid"]
+  }
+}

@@ -1,0 +1,70 @@
+/* Design tokens: the only file where a colour, a size or a shadow is given as a raw value.
+   Components and pages use these variables; they never write a hex colour or a pixel font size of their own. */
+:root {
+  /* Surfaces and text. The same in every project. */
+  --paper: #fff;
+  --ink: #0f0f10;
+  --copy: #6b6f76;
+  --line: #e6e7ea;
+  --fill: #f3f3f5;
+  --hover: #f5f5f6;
+  --strong: #18181b;
+  --strong-hover: #000;
+  --on-strong: #fff;
+
+  /* Brand accent. The value comes from src/brand.ts; the two shades follow it. */
+  --accent: #f58220;
+  --accent-soft: color-mix(in srgb, var(--accent) 13%, white);
+  --accent-ink: color-mix(in srgb, var(--accent) 68%, black);
+
+  /* Meaning. Never swap these for the accent: a warning stays amber whatever the brand colour is. */
+  --good: #116747;
+  --good-soft: #e7f5ed;
+  --warn: #a4510e;
+  --warn-soft: #fff0e3;
+  --warn-line: #f3dfb8;
+  --bad: #b3261e;
+  --bad-soft: #fff0ed;
+  --bad-line: #e6b8b2;
+  --info: #1d4f91;
+  --info-soft: #e6effa;
+
+  /* Type. Five sizes; body text is --text-md. */
+  --font: "CerebriSans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --text-2xs: 10px; /* counters on icons only */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 24px;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-bold: 600;
+
+  /* Space, in steps of 4. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Shape. */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+  --shadow-pop: 0 12px 32px rgba(15, 15, 16, .14);
+
+  /* Controls: one height for buttons and fields, one smaller height for tight rows. */
+  --control: 36px;
+  --control-sm: 30px;
+
+  /* Layout. */
+  --nav-width: 248px;
+  --nav-width-collapsed: 60px;
+  --panel-width: 344px;
+  --topbar-height: 52px;
+  --page-max: 1320px;
+}
