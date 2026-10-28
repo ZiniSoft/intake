@@ -1,0 +1,47 @@
+{
+  "master_dna_file": "master-dna.md",
+  "tracks": {
+    "business": {
+      "name": "Kinh doanh",
+      "direction_note": "Nói với chủ doanh nghiệp nhỏ về việc phần mềm giúp họ bán và vận hành nhẹ hơn.",
+      "positioning": "Nova Labs là xưởng phần mềm nhỏ (hư cấu) làm công cụ gọn cho cửa hàng và dịch vụ địa phương.",
+      "audience": "Chủ cửa hàng, quản lý vận hành, người không rành kỹ thuật.",
+      "pillars": ["Câu chuyện khách hàng", "Mẹo vận hành", "Hậu trường làm sản phẩm"],
+      "tone": "Gần gũi, nói thẳng, có ví dụ cụ thể, không hô khẩu hiệu.",
+      "avoid": "Từ ngữ chuyên ngành không giải thích; hứa hẹn con số không có bằng chứng.",
+      "default_channel": "FACEBOOK",
+      "references": [{"title": "Tóm tắt thương hiệu Nova Labs", "file": "references/tom-tat-thuong-hieu.md"}],
+      "notes": [
+        {"kind": "FACT", "text": "Nova Labs là công ty hư cấu dùng làm dữ liệu mẫu, thay bằng thông tin của bạn."}
+      ],
+      "samples": [
+        {"channel": "FACEBOOK", "file": "samples/kinh-doanh-1.md"},
+        {"channel": "FACEBOOK", "file": "samples/kinh-doanh-2.md"}
+      ],
+      "rhythm": [
+        {"weekday": 2, "time": "08:00", "channel": "FACEBOOK", "pillar": "Mẹo vận hành"},
+        {"weekday": 5, "time": "08:00", "channel": "FACEBOOK", "pillar": "Câu chuyện khách hàng"}
+      ]
+    },
+    "technical": {
+      "name": "Kỹ thuật",
+      "direction_note": "Nói với kỹ sư về cách đội làm ra sản phẩm: quyết định, đánh đổi, bài học.",
+      "positioning": "Chia sẻ thẳng thắn những lựa chọn kỹ thuật của một đội nhỏ.",
+      "audience": "Kỹ sư phần mềm, trưởng nhóm kỹ thuật.",
+      "pillars": ["Quyết định kiến trúc", "Sự cố và bài học", "Công cụ cho đội nhỏ"],
+      "tone": "Chính xác, ít tính từ, nêu đánh đổi rõ ràng.",
+      "avoid": "Khoe công nghệ mới vì mới; so sánh công cụ mà không nêu bối cảnh.",
+      "default_channel": "LINKEDIN",
+      "references": [],
+      "notes": [
+        {"kind": "DECISION", "text": "Mẫu: chọn một hàng đợi đơn giản trước, chỉ đổi khi đo được nghẽn."}
+      ],
+      "samples": [
+        {"channel": "LINKEDIN", "file": "samples/ky-thuat-1.md"}
+      ],
+      "rhythm": [
+        {"weekday": 3, "time": "09:00", "channel": "LINKEDIN", "pillar": "Quyết định kiến trúc"}
+      ]
+    }
+  }
+}

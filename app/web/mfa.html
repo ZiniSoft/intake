@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MFA Console | Private Feedback Intake</title>
+  <link rel="stylesheet" href="/mfa/assets/mfa.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">PI</span><div><strong>Private Intake</strong><span>Security console</span></div></div>
+      <button id="logoutButton" class="button button-quiet hidden" type="button">Log out</button>
+    </header>
+
+    <section id="loginPanel" class="login-panel panel">
+      <div class="eyebrow">LOCAL ACCOUNT</div>
+      <h1>Protect your intake workspace.</h1>
+      <p class="lede">Sign in to configure multi-factor authentication for your pilot account.</p>
+      <form id="loginForm" class="stack">
+        <label>Account subject<input id="subject" name="subject" value="cto" autocomplete="username" required></label>
+        <label>Password<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <button class="button button-primary" type="submit">Sign in</button>
+      </form>
+      <p id="loginMessage" class="message" role="status"></p>
+    </section>
+
+    <section id="consolePanel" class="hidden">
+      <div class="console-heading">
+        <div><div class="eyebrow">ACCOUNT SECURITY</div><h1>MFA management</h1><p class="lede">Keep access to raw intake data and approvals behind a second factor.</p></div>
+        <div class="identity"><span class="status-dot"></span><span id="identityLabel">Signed in</span></div>
+      </div>
+
+      <div class="grid">
+        <article class="panel setup-card">
+          <div class="card-heading"><span class="step">01</span><div><h2>Authenticator app</h2><p>Generate a secret, add it to your authenticator, then confirm a current code.</p></div></div>
+          <button id="setupButton" class="button button-primary" type="button">Generate setup secret</button>
+          <div id="setupResult" class="result hidden">
+            <div class="result-label">Manual setup secret</div>
+            <code id="secretValue"></code>
+            <p class="hint">Keep this secret private. Enter it manually in your authenticator app.</p>
+            <form id="confirmForm" class="inline-form">
+              <input id="otpCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit code" aria-label="Authenticator code" required>
+              <button class="button button-dark" type="submit">Confirm MFA</button>
+            </form>
+          </div>
+          <p id="setupMessage" class="message" role="status"></p>
+        </article>
+
+        <article class="panel recovery-card">
+          <div class="card-heading"><span class="step">02</span><div><h2>Recovery codes</h2><p>Generate a fresh set for offline storage. Generating again invalidates the previous set.</p></div></div>
+          <button id="recoveryButton" class="button button-outline" type="button">Generate recovery codes</button>
+          <div id="recoveryResult" class="result hidden">
+            <div class="result-label">Store these codes offline</div>
+            <div id="codesGrid" class="codes-grid"></div>
+            <button id="copyButton" class="button button-dark" type="button">Copy codes</button>
+          </div>
+          <p id="recoveryMessage" class="message" role="status"></p>
+        </article>
+      </div>
+
+      <footer class="security-note"><span class="shield">+</span><span>Recovery codes are shown only once. Treat them like passwords and never place them in chat or source control.</span></footer>
+    </section>
+  </main>
+  <script src="/mfa/assets/mfa.js"></script>
+</body>
+</html>

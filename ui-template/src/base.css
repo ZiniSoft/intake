@@ -1,0 +1,11 @@
+/* Element defaults. Component styles are in ui/ui.css, the frame in shell/shell.css. */
+*, *::before, *::after { box-sizing: border-box; }
+html { font-family: var(--font); font-size: var(--text-md); line-height: 1.5; color: var(--ink); background: var(--paper); -webkit-font-smoothing: antialiased; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+h1, h2, h3, p { margin: 0; }
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; color: inherit; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+code { padding: 1px 5px; border-radius: var(--radius-sm); background: var(--fill); font-size: var(--text-sm); }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

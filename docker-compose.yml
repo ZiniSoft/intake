@@ -1,0 +1,530 @@
+name: intake
+
+x-app-environment: &app-environment
+  APP_ENV: ${APP_ENV:-development}
+  # The build that is running, shown under "what's new": export GIT_SHA and BUILD_TIME before `docker compose up`.
+  GIT_SHA: ${GIT_SHA:-dev}
+  BUILD_TIME: ${BUILD_TIME:-}
+  APP_NAME: ${APP_NAME:-Private Feedback Intake}
+  PROJECT_NAME: ${PROJECT_NAME:-}
+  GITLAB_BASE_URL: ${GITLAB_BASE_URL:-https://gitlab.com}
+  GITLAB_INTEGRATION_ENABLED: ${GITLAB_INTEGRATION_ENABLED:-false}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-intake}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-intake}
+  REDIS_URL: redis://:${REDIS_PASSWORD:-change-me}@redis:6379/0
+  CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-change-me}@redis:6379/1
+  REDIS_REQUIRED: "true"
+  OUTBOX_POLL_SECONDS: ${OUTBOX_POLL_SECONDS:-1}
+  OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-20}
+  OUTBOX_LEASE_SECONDS: ${OUTBOX_LEASE_SECONDS:-60}
+  OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-8}
+  PIPELINE_RUN_LEASE_SECONDS: ${PIPELINE_RUN_LEASE_SECONDS:-600}
+  STORAGE_BACKEND: seaweedfs
+  S3_ENDPOINT_URL: http://seaweed-s3:8333
+  S3_BUCKET: ${S3_BUCKET:-intake-attachments}
+  S3_ACCESS_KEY: ${SEAWEEDFS_S3_ACCESS_KEY:-intake-local-access}
+  S3_SECRET_KEY: ${SEAWEEDFS_S3_SECRET_KEY:-change-me-seaweedfs-secret}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  ALLOW_SUBJECT_HEADER_AUTH: "false"
+  CTO_INITIAL_PASSWORD: ${CTO_INITIAL_PASSWORD:-dev-cto-password}
+  PROJECT_OWNER_INITIAL_PASSWORD: ${PROJECT_OWNER_INITIAL_PASSWORD:-dev-owner-password}
+  FIRST_RUN_WIZARD: ${FIRST_RUN_WIZARD:-false}
+  AI_PROVIDER_PRIMARY: ${AI_PROVIDER_PRIMARY:-umodelverse}
+  AI_PROVIDER_FALLBACK: ${AI_PROVIDER_FALLBACK:-openrouter}
+  AI_REQUEST_TIMEOUT_SECONDS: ${AI_REQUEST_TIMEOUT_SECONDS:-45}
+  AI_REPORT_TIMEOUT_SECONDS: ${AI_REPORT_TIMEOUT_SECONDS:-120}
+  REPORT_AI_BATCH_SIZE: ${REPORT_AI_BATCH_SIZE:-5}
+  REPORT_LATE_CUTOFF: ${REPORT_LATE_CUTOFF:-23:30}
+  UMODELVERSE_API_KEY: ${UMODELVERSE_API_KEY:-}
+  UMODELVERSE_BASE_URL: ${UMODELVERSE_BASE_URL:-https://api-sg.umodelverse.ai/v1}
+  UMODELVERSE_MODEL: ${UMODELVERSE_MODEL:-deepseek-v4.1-flash}
+  UMODELVERSE_PRO_MODEL: ${UMODELVERSE_PRO_MODEL:-deepseek-v4-pro-0813}
+  UMODELVERSE_VISION_MODEL: ${UMODELVERSE_VISION_MODEL:-deepseek-v4-flash-vision-exp}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  OPENROUTER_MODEL: ${OPENROUTER_MODEL:-deepseek/deepseek-chat}
+  AI_TASK_MAX_RETRIES: ${AI_TASK_MAX_RETRIES:-3}
+  SYNC_JOB_MAX_ATTEMPTS: ${SYNC_JOB_MAX_ATTEMPTS:-5}
+  SYNC_JOB_LEASE_SECONDS: ${SYNC_JOB_LEASE_SECONDS:-120}
+  RAW_RETENTION_DAYS: ${RAW_RETENTION_DAYS:-90}
+  REPORT_IMAP_ENABLED: ${REPORT_IMAP_ENABLED:-false}
+  REPORT_IMAP_HOST: ${REPORT_IMAP_HOST:-}
+  REPORT_IMAP_PORT: ${REPORT_IMAP_PORT:-993}
+  REPORT_IMAP_USERNAME: ${REPORT_IMAP_USERNAME:-}
+  REPORT_IMAP_PASSWORD: ${REPORT_IMAP_PASSWORD:-}
+  REPORT_IMAP_FOLDER: ${REPORT_IMAP_FOLDER:-INBOX}
+  REPORT_IMAP_POLL_SECONDS: ${REPORT_IMAP_POLL_SECONDS:-1800}
+  REPORT_IMAP_FETCH_LIMIT: ${REPORT_IMAP_FETCH_LIMIT:-200}
+  APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
+  MAILGUN_DOMAIN: ${MAILGUN_DOMAIN:-}
+  MAILGUN_FROM: ${MAILGUN_FROM:-}
+  MAILGUN_API_BASE_URL: ${MAILGUN_API_BASE_URL:-https://api.mailgun.net}
+  PASSWORD_RESET_TTL_MINUTES: ${PASSWORD_RESET_TTL_MINUTES:-30}
+  PASSWORD_RESET_RESEND_SECONDS: ${PASSWORD_RESET_RESEND_SECONDS:-60}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-intake}
+      POSTGRES_USER: ${POSTGRES_USER:-intake}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [backend]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks: [backend]
+
+  seaweed-master:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    command: "master -ip=seaweed-master -ip.bind=0.0.0.0 -mdir=/data"
+    volumes:
+      - seaweed-master-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9333/cluster/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [storage]
+
+  seaweed-volume:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    command: "volume -ip=seaweed-volume -ip.bind=0.0.0.0 -port=8080 -dir=/data -master=seaweed-master:9333 -max=0"
+    volumes:
+      - seaweed-volume-data:/data
+    depends_on:
+      seaweed-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [storage]
+
+  seaweed-filer:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    command: "filer -ip=seaweed-filer -ip.bind=0.0.0.0 -port=8888 -master=seaweed-master:9333 -defaultStoreDir=/data"
+    volumes:
+      - seaweed-filer-data:/data
+    depends_on:
+      seaweed-master:
+        condition: service_healthy
+      seaweed-volume:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8888/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [storage]
+
+  seaweed-s3-config:
+    image: python:3.12-alpine
+    restart: "no"
+    environment:
+      SEAWEEDFS_S3_ACCESS_KEY: ${SEAWEEDFS_S3_ACCESS_KEY:-intake-local-access}
+      SEAWEEDFS_S3_SECRET_KEY: ${SEAWEEDFS_S3_SECRET_KEY:-change-me-seaweedfs-secret}
+    command:
+      - python
+      - -c
+      - |
+        import json, os, pathlib
+        config = {"identities": [{"name": "intake-app", "credentials": [{"accessKey": os.environ["SEAWEEDFS_S3_ACCESS_KEY"], "secretKey": os.environ["SEAWEEDFS_S3_SECRET_KEY"]}], "actions": ["Admin", "Read", "List", "Write", "Tagging"]}]}
+        path = pathlib.Path("/config/s3.json")
+        path.write_text(json.dumps(config), encoding="utf-8")
+        path.chmod(0o644)
+    volumes:
+      - seaweed-s3-config:/config
+    networks: [storage]
+
+  seaweed-s3:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    command: "s3 -filer=seaweed-filer:8888 -ip.bind=0.0.0.0 -port=8333 -config=/etc/seaweedfs/s3.json"
+    volumes:
+      - seaweed-s3-config:/etc/seaweedfs:ro
+    depends_on:
+      seaweed-filer:
+        condition: service_healthy
+      seaweed-s3-config:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8333"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+    networks: [storage]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+      GITLAB_TOKEN: ""
+      REPORT_IMAP_PASSWORD: ""
+      CONTACT_IMAP_PASSWORD: ""
+      ELEVENLABS_API_KEY: ""
+      TELEGRAM_BOT_TOKEN: ""
+      MAILGUN_API_KEY: ${MAILGUN_API_KEY:-}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8001}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seaweed-s3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/live', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    # Ollama or vLLM on the Docker host (ADR-0070).
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    networks: [frontend, backend, storage]
+
+  outbox-dispatcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+      GITLAB_TOKEN: ""
+      REPORT_IMAP_PASSWORD: ""
+      CONTACT_IMAP_PASSWORD: ""
+      ELEVENLABS_API_KEY: ""
+      TELEGRAM_BOT_TOKEN: ""
+      MAILGUN_API_KEY: ""
+    command: ["python", "-m", "app.workers.outbox_dispatcher"]
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pathlib import Path; raise SystemExit(0 if Path('/tmp/outbox-dispatcher-ready').exists() else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks: [backend]
+
+  ai-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+      GITLAB_TOKEN: ""
+      REPORT_IMAP_PASSWORD: ""
+      CONTACT_IMAP_PASSWORD: ""
+      ELEVENLABS_API_KEY: ""
+      TELEGRAM_BOT_TOKEN: ""
+      MAILGUN_API_KEY: ""
+    command: ["celery", "-A", "app.queue.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues=ai.normalize", "--concurrency=${AI_WORKER_CONCURRENCY:-2}"]
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # storage: the AI worker reads attachments to transcribe them (ADR-0061).
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    networks: [backend, storage, ai-egress]
+
+  integration-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+      # One GITHUB_TOKEN_<NAME> per customer repository (ADR-0021). Only this service loads the file.
+      - path: .env.github
+        required: false
+    environment:
+      <<: *app-environment
+      GITLAB_TOKEN: ${GITLAB_TOKEN:-}
+      REPORT_IMAP_PASSWORD: ""
+      CONTACT_IMAP_PASSWORD: ""
+      ELEVENLABS_API_KEY: ""
+      TELEGRAM_BOT_TOKEN: ""
+      MAILGUN_API_KEY: ""
+    command: ["celery", "-A", "app.queue.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues=integration.sync", "--concurrency=${INTEGRATION_WORKER_CONCURRENCY:-1}"]
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # GitLab/GitHub writes need outbound access. Keep this separate from the
+    # retired Plane integration so removing one tracker cannot cut off another.
+    networks: [backend, integration-egress]
+
+  # Reads docs/agent/CONTEXT.md from each project's repository with a read-only token (ADR-0063); no write token, no AI key.
+  repo-reader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+      # One GITHUB_REPO_READ_TOKEN_<NAME> per customer repository, read-only. Only this service loads the file.
+      - path: .env.repo
+        required: false
+    environment:
+      <<: *app-environment
+      GITLAB_REPO_READ_TOKEN: ${GITLAB_REPO_READ_TOKEN:-}
+      GITLAB_TOKEN: ""
+      REPORT_IMAP_PASSWORD: ""
+      CONTACT_IMAP_PASSWORD: ""
+      ELEVENLABS_API_KEY: ""
+      TELEGRAM_BOT_TOKEN: ""
+      UMODELVERSE_API_KEY: ""
+      MAILGUN_API_KEY: ""
+    command: ["celery", "-A", "app.queue.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues=repo.read", "--concurrency=1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [backend, repo-egress]
+
+  planning-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+      GITLAB_TOKEN: ""
+      REPORT_IMAP_PASSWORD: ""
+      CONTACT_IMAP_PASSWORD: ""
+      ELEVENLABS_API_KEY: ""
+      TELEGRAM_BOT_TOKEN: ""
+      MAILGUN_API_KEY: ""
+    command: ["celery", "-A", "app.queue.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues=planning.schedule", "--concurrency=1"]
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [backend]
+
+  planning-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+      GITLAB_TOKEN: ""
+      REPORT_IMAP_PASSWORD: ""
+      CONTACT_IMAP_PASSWORD: ""
+      ELEVENLABS_API_KEY: ""
+      TELEGRAM_BOT_TOKEN: ""
+      MAILGUN_API_KEY: ""
+    command: ["celery", "-A", "app.queue.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [backend]
+
+  # The only process holding the Telegram bot token: link commands in, reminders out (ADR-0057).
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      GITLAB_TOKEN: ""
+      REPORT_IMAP_PASSWORD: ""
+      CONTACT_IMAP_PASSWORD: ""
+      ELEVENLABS_API_KEY: ""
+      UMODELVERSE_API_KEY: ""
+      MAILGUN_API_KEY: ""
+    command: ["python", "-m", "app.workers.telegram_bot"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # backend is internal; the bot needs its own way out to api.telegram.org; storage: pictures sent to the bot become attachments (ADR-0061).
+    networks: [backend, storage, telegram-egress]
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [frontend]
+
+  meeting-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+      GITLAB_TOKEN: ""
+      REPORT_IMAP_PASSWORD: ""
+      CONTACT_IMAP_PASSWORD: ""
+      UMODELVERSE_API_KEY: ""
+      OPENROUTER_API_KEY: ""
+      MAILGUN_API_KEY: ""
+    command: ["uvicorn", "app.gateway:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${MEETING_GATEWAY_PORT:-8002}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/gateway-health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [frontend, backend, storage, stt-egress]
+
+  imap-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+      GITLAB_TOKEN: ""
+      ELEVENLABS_API_KEY: ""
+      TELEGRAM_BOT_TOKEN: ""
+      MAILGUN_API_KEY: ""
+    command: ["python", "-m", "app.workers.imap_probe"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pathlib import Path; raise SystemExit(0 if Path('/tmp/imap-worker-ready').exists() else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      backend:
+      mail-egress:
+        ipv4_address: 172.29.10.10
+
+  # Daily encrypted backup into BACKUP_DIR (ADR-0025). No route to the internet.
+  backup:
+    build:
+      context: ops/backup
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-intake}
+      PGUSER: ${POSTGRES_USER:-intake}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      S3_ENDPOINT_URL: http://seaweed-s3:8333
+      S3_BUCKET: ${S3_BUCKET:-intake-attachments}
+      S3_ACCESS_KEY: ${SEAWEEDFS_S3_ACCESS_KEY:-intake-local-access}
+      S3_SECRET_KEY: ${SEAWEEDFS_S3_SECRET_KEY:-change-me-seaweedfs-secret}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
+      BACKUP_TIME: ${BACKUP_TIME:-01:30}
+      BACKUP_KEEP_DAILY: ${BACKUP_KEEP_DAILY:-7}
+      BACKUP_KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:-4}
+    volumes:
+      - ${BACKUP_DIR:-./data/backups}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend, storage]
+
+networks:
+  frontend:
+  backend:
+    internal: true
+  storage:
+    internal: true
+  ai-egress:
+  stt-egress:
+  integration-egress:
+  repo-egress:
+  telegram-egress:
+  mail-egress:
+    ipam:
+      config:
+        - subnet: 172.29.10.0/24
+
+volumes:
+  postgres-data:
+  redis-data:
+  seaweed-master-data:
+  seaweed-volume-data:
+  seaweed-filer-data:
+  seaweed-s3-config:

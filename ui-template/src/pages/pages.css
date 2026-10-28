@@ -1,0 +1,49 @@
+/* Layout of the example pages. Page-level layout only: anything reusable belongs in ui/ui.css. */
+.page-stack { display: grid; gap: var(--space-4); min-width: 0; }
+.page-link { display: inline-flex; align-items: center; gap: var(--space-1); justify-self: start; color: var(--copy); font-size: var(--text-sm); }
+.page-link:hover { color: var(--ink); }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-3); }
+
+/* Before sign-in */
+.auth { display: grid; min-height: 100vh; place-items: center; padding: var(--space-5); background: var(--fill); }
+.auth-card { display: grid; gap: var(--space-4); width: min(400px, 100%); padding: var(--space-8); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); }
+.auth-card h1 { font-size: var(--text-xl); font-weight: var(--weight-bold); line-height: 1.25; }
+.auth-card > p { color: var(--copy); font-size: var(--text-sm); }
+.auth-card > button { justify-self: start; }
+.auth-brand { display: flex; align-items: center; gap: 10px; }
+.auth-brand img { width: 30px; height: 30px; border-radius: var(--radius); }
+.auth-fields { display: grid; gap: var(--space-4); }
+.auth-hint { color: var(--copy); font-size: var(--text-xs); line-height: 1.5; }
+
+/* Buttons inside an opened list row */
+.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+
+/* Detail */
+.detail-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.detail-head h2 { font-size: var(--text-xl); font-weight: var(--weight-bold); line-height: 1.25; }
+.detail-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: stretch; }
+.detail-text { font-size: var(--text-md); line-height: 1.6; white-space: pre-wrap; }
+.detail-muted { color: var(--copy); font-size: var(--text-sm); }
+
+/* Settings, account, wizard */
+.account { display: grid; gap: var(--space-3); max-width: 760px; }
+.account-identity { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) 14px; padding: var(--space-4) var(--space-5); }
+.account-identity > div { display: grid; flex: 1 1 200px; gap: 2px; min-width: 0; }
+.account-identity strong { font-size: var(--text-lg); font-weight: var(--weight-bold); }
+.account-identity small { color: var(--copy); font-size: var(--text-xs); }
+.account-avatar { display: grid; flex: 0 0 44px; width: 44px; height: 44px; place-items: center; border-radius: 50%; color: var(--on-strong); background: var(--ink); font-weight: var(--weight-bold); }
+.table-actions { display: inline-flex; gap: var(--space-2); }
+.panel-form { display: grid; gap: 14px; }
+.wizard { max-width: 760px; }
+.wizard .panel-form > div:not(.wizard-actions) { max-width: 420px; }
+.wizard-review { display: grid; grid-template-columns: 160px 1fr; gap: var(--space-2) var(--space-4); margin: 0; }
+.wizard-review dt { color: var(--copy); font-size: var(--text-sm); }
+.wizard-review dd { margin: 0; }
+.wizard-actions { display: flex; justify-content: space-between; gap: var(--space-2); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+
+@media (max-width: 760px) {
+  .detail-compare { grid-template-columns: 1fr; }
+  .detail-head { align-items: flex-start; flex-direction: column; }
+  .wizard-review { grid-template-columns: 1fr; gap: 0 0; }
+  .wizard-review dd { margin-bottom: var(--space-2); }
+}
