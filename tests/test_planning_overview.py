@@ -50,6 +50,13 @@ def _report(member_id: str, project_code: str) -> None:
         session.commit()
 
 
+def _clear_day_runs() -> None:
+    """Keep the no-plan precondition independent from earlier tests sharing SQLite."""
+    with get_session() as session:
+        session.execute(delete(PlanningRun).where(PlanningRun.plan_date == DAY))
+        session.commit()
+
+
 def _cleanup(member_ids: list[str], intake_ids: list[str]) -> None:
     with get_session() as session:
         session.execute(delete(EmailMessage).where(EmailMessage.member_id.in_(member_ids)))
@@ -65,6 +72,7 @@ def _cleanup(member_ids: list[str], intake_ids: list[str]) -> None:
 
 
 def test_each_project_has_a_row_with_its_gate_and_the_rows_sort_by_urgency() -> None:
+    _clear_day_runs()
     members = _team("orbit", ["Mai", "Nam"])
     _report(members[0], "orbit")
     created = client.post("/api/v1/intakes", json={"project_id": "ember", "channel": "MANUAL", "raw_text": f"Sập thanh toán toàn bộ cửa hàng {uuid4().hex[:6]}"})
