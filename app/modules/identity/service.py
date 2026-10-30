@@ -15,6 +15,9 @@ from app.modules.identity.totp import generate_secret, verify_code
 from app.services.raw_crypto import decrypt, encrypt
 
 
+MFA_SETUP_TTL = timedelta(minutes=10)
+
+
 @dataclass(frozen=True)
 class UserContext:
     user_id: str
@@ -139,13 +142,31 @@ class IdentityService:
             secret = decrypt(user.mfa_secret_ciphertext) if user and user.mfa_secret_ciphertext else None
             return bool(secret and code and verify_code(secret, code))
 
-    def generate_recovery_codes(self, subject: str) -> list[str]:
+    def _require_mfa_step_up(self, user: User, current_password: str, otp: str | None) -> None:
+        try:
+            salt, expected_hash = user.password_hash.split(":", 1)
+        except ValueError as error:
+            raise IdentityError("STEP_UP_FAILED", "The current credentials are not valid") from error
+        actual_hash = hashlib.pbkdf2_hmac("sha256", current_password.encode(), salt.encode(), 120000).hex()
+        if not hmac.compare_digest(actual_hash, expected_hash):
+            raise IdentityError("STEP_UP_FAILED", "The current credentials are not valid")
+        if user.mfa_enabled:
+            secret = decrypt(user.mfa_secret_ciphertext) if user.mfa_secret_ciphertext else None
+            if not secret or not otp or not verify_code(secret, otp):
+                raise IdentityError("STEP_UP_FAILED", "The current credentials are not valid")
+
+    def generate_recovery_codes(
+        self, subject: str, *, current_password: str, otp: str | None,
+    ) -> list[str]:
         codes = [f"{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}" for _ in range(8)]
         hashed_codes = [self._hash_recovery_code(code) for code in codes]
         with get_session() as session:
-            user = session.scalar(select(User).where(User.auth_subject == subject, User.is_active.is_(True)))
+            user = session.scalar(
+                select(User).where(User.auth_subject == subject, User.is_active.is_(True)).with_for_update()
+            )
             if user is None or not user.mfa_enabled:
                 raise KeyError(subject)
+            self._require_mfa_step_up(user, current_password, otp)
             existing = session.scalars(
                 select(MFARecoveryCode).where(MFARecoveryCode.user_id == user.id)
             ).all()
@@ -189,28 +210,55 @@ class IdentityService:
         digest = hashlib.pbkdf2_hmac("sha256", code.encode(), salt.encode(), 120000).hex()
         return f"{salt}:{digest}"
 
-    def start_mfa_setup(self, subject: str) -> str:
+    def start_mfa_setup(
+        self, subject: str, *, current_password: str, otp: str | None,
+    ) -> str:
         secret = generate_secret()
+        now = datetime.now(timezone.utc)
         with get_session() as session:
-            user = session.scalar(select(User).where(User.auth_subject == subject, User.is_active.is_(True)))
+            user = session.scalar(
+                select(User).where(User.auth_subject == subject, User.is_active.is_(True)).with_for_update()
+            )
             if user is None:
                 raise KeyError(subject)
-            user.mfa_secret_ciphertext = encrypt(secret)
-            user.mfa_enabled = False
+            self._require_mfa_step_up(user, current_password, otp)
+            user.mfa_pending_secret_ciphertext = encrypt(secret)
+            user.mfa_pending_expires_at = now + MFA_SETUP_TTL
+            user.updated_at = now
             session.commit()
         return secret
 
     def confirm_mfa_setup(self, subject: str, code: str) -> bool:
+        now = datetime.now(timezone.utc)
         with get_session() as session:
-            user = session.scalar(select(User).where(User.auth_subject == subject, User.is_active.is_(True)))
-            secret = decrypt(user.mfa_secret_ciphertext) if user and user.mfa_secret_ciphertext else None
-            if user is None or not secret or not verify_code(secret, code):
+            user = session.scalar(
+                select(User).where(User.auth_subject == subject, User.is_active.is_(True)).with_for_update()
+            )
+            expires_at = user.mfa_pending_expires_at if user else None
+            if expires_at is not None and expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            secret = decrypt(user.mfa_pending_secret_ciphertext) if user and user.mfa_pending_secret_ciphertext else None
+            if user is None or not secret or expires_at is None or expires_at <= now or not verify_code(secret, code):
                 return False
+            user.mfa_secret_ciphertext = user.mfa_pending_secret_ciphertext
+            user.mfa_pending_secret_ciphertext = None
+            user.mfa_pending_expires_at = None
             user.mfa_enabled = True
+            user.auth_version = int(user.auth_version or 0) + 1
+            user.updated_at = now
+            for token in session.scalars(
+                select(ApiToken).where(ApiToken.user_id == user.id, ApiToken.revoked_at.is_(None))
+            ).all():
+                token.revoked_at = now
+            session.add(AuditEvent(
+                id=str(uuid4()), actor_type="USER", actor_id=user.id, event_type="user.mfa_changed",
+                entity_type="user", entity_id=user.id, details=None, created_at=now,
+            ))
             session.commit()
             return True
 
     def ensure_database_users(self) -> None:
+        settings = get_settings()
         with get_session() as session:
             for subject, context in self._users.items():
                 salt, password_hash = self._passwords[subject]
@@ -224,12 +272,14 @@ class IdentityService:
                         role=context.role,
                         password_hash=f"{salt}:{password_hash}",
                         mfa_enabled=False,
+                        must_change_password=settings.is_deployed_environment and not settings.first_run_wizard,
                     )
                     session.add(user)
                 else:
                     user.role = context.role
                     if not user.password_hash:
                         user.password_hash = f"{salt}:{password_hash}"
+                        user.must_change_password = settings.is_deployed_environment and not settings.first_run_wizard
             session.commit()
 
     @staticmethod
@@ -323,6 +373,14 @@ class IdentityService:
     def _reset_token_hash(token: str) -> str:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _revoke_api_tokens(session, user_id: str, revoked_at: datetime) -> None:
+        """Revoke every personal token in the caller's credential-change transaction."""
+        for token in session.scalars(select(ApiToken).where(
+            ApiToken.user_id == user_id, ApiToken.revoked_at.is_(None)
+        )).all():
+            token.revoked_at = revoked_at
+
     def prepare_password_reset(self, identifier: str) -> dict[str, str] | None:
         """Create a one-time reset token without revealing whether the identifier exists.
 
@@ -395,6 +453,7 @@ class IdentityService:
             user.must_change_password = False
             user.auth_version = int(user.auth_version or 0) + 1
             user.updated_at = now
+            self._revoke_api_tokens(session, user.id, now)
             for pending in session.scalars(select(PasswordResetRequest).where(
                 PasswordResetRequest.user_id == user.id, PasswordResetRequest.used_at.is_(None)
             )).all():
@@ -555,6 +614,7 @@ class IdentityService:
                 raise IdentityError("CTO_ACCOUNT_PROTECTED", "The CTO password is not reset from here")
             password = self._temporary_password(user)
             user.updated_at = now
+            self._revoke_api_tokens(session, user.id, now)
             session.add(AuditEvent(
                 id=str(uuid4()), actor_type="USER", actor_id=actor_id, event_type="user.password_reset",
                 entity_type="user", entity_id=user.id, details=None, created_at=now,
@@ -574,12 +634,15 @@ class IdentityService:
             if user is None:
                 raise KeyError(subject)
             salt, digest = self._hash_password(new_password)
+            now = datetime.now(timezone.utc)
             user.password_hash = f"{salt}:{digest}"
             user.must_change_password = False
-            user.updated_at = datetime.now(timezone.utc)
+            user.auth_version = int(user.auth_version or 0) + 1
+            user.updated_at = now
+            self._revoke_api_tokens(session, user.id, now)
             session.add(AuditEvent(
                 id=str(uuid4()), actor_type="USER", actor_id=user.id, event_type="user.password_changed",
-                entity_type="user", entity_id=user.id, details=None, created_at=datetime.now(timezone.utc),
+                entity_type="user", entity_id=user.id, details=None, created_at=now,
             ))
             session.commit()
 

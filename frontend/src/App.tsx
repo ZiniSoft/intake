@@ -1,5 +1,6 @@
 import {
   createContext,
+  DragEvent,
   FormEvent,
   ReactNode,
   useCallback,
@@ -26,6 +27,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  ArrowDown,
   ArrowRight,
   ArrowUp,
   ArrowUpRight,
@@ -79,12 +81,15 @@ import {
   Rocket,
   Timer,
   History,
+  GripVertical,
   X,
 } from 'lucide-react'
 import { api, ApiError, AUTH_EXPIRED_EVENT, formatError } from './api'
 import { clearCursorPagination, readCursorPagination, writeCursorPagination } from './list-url'
 import { ALL_HINTS, ALL_INTROS, HINT_PAGES, type HintKey, type PageIntroKey } from './hints'
 import { POST_HINT_PAGES } from './hints_posts'
+import { useLocale } from './i18n'
+import { movePlanningProject, orderPlanningProjects, type PlanningProjectOrder } from './planning-order'
 import { addDays, CHANNEL_NAMES, CHANNEL_ORDER, CHANNEL_SHORT, CHANNEL_VERSION_LABELS, dayOfStamp, FORMAT_LABELS, POST_COLUMNS, POST_STATUS_LABELS, POST_WORDS, postColumnOf, stampOf, timeOfStamp, type UiMode } from './words'
 import { dismissPendingSync, leaveRecording, resetRecording, resumePendingRecordings, rewriteRecording, startRecording, stopRecording, uploadRecording, usePendingSync, useRecording, type RecordingState } from './recording'
 import type { RecordingSource } from './recording'
@@ -139,6 +144,7 @@ import type {
   PlanningCandidate,
   AcceptanceItem,
   AcceptanceQueue,
+  AcceptanceWorkLog,
   Changelog,
   ChangelogEntry,
   NoIssueReason,
@@ -189,6 +195,9 @@ import type {
   Account,
   AgentCommand,
   AgentCommandSheet,
+  ProjectMemberAdded,
+  ProjectMemberCandidate,
+  ProjectMemberRemoved,
   ProjectTeam,
   ApprovalSourceWeek,
   BackupDetail,
@@ -322,6 +331,17 @@ const channelLabels: Record<Channel, string> = {
   MEETING: 'Meeting',
 }
 
+const channelLabelsEn: Record<Channel, string> = {
+  MANUAL: 'Manual',
+  ZALO: 'Zalo',
+  AGENT: 'Agent',
+  TELEGRAM: 'Telegram',
+  FEEDBACK: 'Feedback',
+  WHATSAPP: 'WhatsApp',
+  EMAIL: 'Email',
+  MEETING: 'Meeting',
+}
+
 const routeLabels: Record<RouteTarget, string> = {
   RESPONSE: 'Phản hồi',
   WORK: 'Việc nội bộ',
@@ -329,6 +349,15 @@ const routeLabels: Record<RouteTarget, string> = {
   GITLAB: 'GitLab',
   GITHUB: 'GitHub',
   NEEDS_INFO: 'Cần thêm thông tin',
+}
+
+const routeLabelsEn: Record<RouteTarget, string> = {
+  RESPONSE: 'Response',
+  WORK: 'Internal work',
+  PLANE: 'Plane · legacy',
+  GITLAB: 'GitLab',
+  GITHUB: 'GitHub',
+  NEEDS_INFO: 'Needs information',
 }
 
 // A plan date (YYYY-MM-DD) as dd/mm, without shifting it through a time zone.
@@ -481,8 +510,8 @@ function AlertBell() {
 }
 
 // A question asked in the middle of the screen before something that cannot be undone.
-function ConfirmDialog({ title, children, confirmLabel, busyLabel = 'Đang xóa…', busy, error, plain, onConfirm, onCancel }: {
-  title: string; children: ReactNode; confirmLabel: string; busyLabel?: string; busy?: boolean; error?: unknown
+function ConfirmDialog({ title, children, confirmLabel, busyLabel = 'Đang xóa…', busy, confirmDisabled, error, plain, onConfirm, onCancel }: {
+  title: string; children: ReactNode; confirmLabel: string; busyLabel?: string; busy?: boolean; confirmDisabled?: boolean; error?: unknown
   // `plain` is for a step that changes things but destroys nothing.
   plain?: boolean; onConfirm: () => void; onCancel: () => void
 }) {
@@ -500,7 +529,7 @@ function ConfirmDialog({ title, children, confirmLabel, busyLabel = 'Đang xóa�
         {error != null && <ErrorNotice error={error} />}
         <div className="confirm-actions">
           <button type="button" className="button button-secondary" autoFocus disabled={busy} onClick={onCancel}>Hủy</button>
-          <button type="button" className={plain ? 'button button-primary' : 'button button-danger-solid'} disabled={busy} onClick={onConfirm}>{busy ? busyLabel : confirmLabel}</button>
+          <button type="button" className={plain ? 'button button-primary' : 'button button-danger-solid'} disabled={busy || confirmDisabled} onClick={onConfirm}>{busy ? busyLabel : confirmLabel}</button>
         </div>
       </div>
     </div>,
@@ -525,6 +554,7 @@ function LoadingBlock({ label = 'Đang tải dữ liệu…' }: { label?: string
 function LoginPage() {
   const { user, loading, login } = useAuth()
   const navigate = useNavigate()
+  const { text } = useLocale()
   const initialToken = (() => { try { return window.location.hash.startsWith('#reset=') ? decodeURIComponent(window.location.hash.slice(7)) : '' } catch { return '' } })()
   const [mode, setMode] = useState<'login' | 'request' | 'reset'>(initialToken ? 'reset' : 'login')
   const [subject, setSubject] = useState('cto')
@@ -582,9 +612,9 @@ function LoginPage() {
   const confirmReset = async (event: FormEvent) => {
     event.preventDefault()
     setError(undefined)
-    if (newPassword.length < 12) { setError(new Error('Mật khẩu mới phải có ít nhất 12 ký tự.')); return }
-    if (newPassword !== confirmPassword) { setError(new Error('Hai lần nhập mật khẩu chưa khớp.')); return }
-    if (!resetToken) { setError(new Error('Link đặt lại mật khẩu không hợp lệ.')); return }
+    if (newPassword.length < 12) { setError(new Error(text('Mật khẩu mới phải có ít nhất 12 ký tự.', 'The new password must contain at least 12 characters.'))); return }
+    if (newPassword !== confirmPassword) { setError(new Error(text('Hai lần nhập mật khẩu chưa khớp.', 'The passwords do not match.'))); return }
+    if (!resetToken) { setError(new Error(text('Link đặt lại mật khẩu không hợp lệ.', 'The password reset link is invalid.'))); return }
     setSubmitting(true)
     try {
       await api('/auth/password-reset/confirm', {
@@ -611,41 +641,41 @@ function LoginPage() {
         <form className="login-form" onSubmit={mode === 'login' ? submit : mode === 'request' ? requestReset : confirmReset}>
           <div className="brand login-brand"><img className="brand-mark" src="/icon.svg" alt="" /><span><strong>Private Intake</strong><small>Private Intake workspace</small></span></div>
 
-          <h1>{mode === 'login' ? 'Đăng nhập không gian làm việc' : mode === 'request' ? 'Quên mật khẩu' : 'Đặt mật khẩu mới'}</h1>
-          {mode === 'request' && <p>Nhập tài khoản hoặc email đã đăng ký. Nếu thông tin khớp, hệ thống sẽ gửi link đặt lại qua Mailgun.</p>}
-          {mode === 'reset' && <p>Link chỉ dùng một lần. Mật khẩu mới phải có ít nhất 12 ký tự.</p>}
-          {resetDone && mode === 'login' && <div className="notice notice-success" role="status">Đã đặt lại mật khẩu. Bạn có thể đăng nhập bằng mật khẩu mới.</div>}
+          <h1>{mode === 'login' ? text('Đăng nhập không gian làm việc', 'Sign in to your workspace') : mode === 'request' ? text('Quên mật khẩu', 'Forgot password') : text('Đặt mật khẩu mới', 'Set a new password')}</h1>
+          {mode === 'request' && <p>{text('Nhập tài khoản hoặc email đã đăng ký. Nếu thông tin khớp, hệ thống sẽ gửi link đặt lại qua Mailgun.', 'Enter your account name or registered email. If it matches, the system will send a reset link through Mailgun.')}</p>}
+          {mode === 'reset' && <p>{text('Link chỉ dùng một lần. Mật khẩu mới phải có ít nhất 12 ký tự.', 'The link can be used once. Your new password must contain at least 12 characters.')}</p>}
+          {resetDone && mode === 'login' && <div className="notice notice-success" role="status">{text('Đã đặt lại mật khẩu. Bạn có thể đăng nhập bằng mật khẩu mới.', 'Password reset complete. You can now sign in with the new password.')}</div>}
           {error != null && <ErrorNotice error={error} />}
           {mode === 'login' ? (
             <>
-              <label>Email hoặc tên tài khoản<input value={subject} onChange={(e) => setSubject(e.target.value)} autoComplete="username" required /></label>
-              <label>Mật khẩu<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
+              <label>{text('Email hoặc tên tài khoản', 'Email or account name')}<input value={subject} onChange={(e) => setSubject(e.target.value)} autoComplete="username" required /></label>
+              <label>{text('Mật khẩu', 'Password')}<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
               {showSecondFactor && (
                 <div className="second-factor">
-                  <label>Mã authenticator<input value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="6 chữ số" /></label>
-                  <div className="or"><span>hoặc</span></div>
+                  <label>{text('Mã authenticator', 'Authenticator code')}<input value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder={text('6 chữ số', '6 digits')} /></label>
+                  <div className="or"><span>{text('hoặc', 'or')}</span></div>
                   <label>Recovery code<input value={recoveryCode} onChange={(e) => setRecoveryCode(e.target.value)} placeholder="XXXX-XXXX" /></label>
                 </div>
               )}
-              <button className="button button-primary button-wide" disabled={submitting}>{submitting ? 'Đang xác thực…' : <><ShieldCheck size={16} /> Đăng nhập an toàn</>}</button>
-              <button type="button" className="text-button login-recovery-link" onClick={() => { setMode('request'); setIdentifier(subject === 'cto' ? '' : subject); setError(undefined); setResetDone(false) }}>Quên mật khẩu?</button>
+              <button className="button button-primary button-wide" disabled={submitting}>{submitting ? text('Đang xác thực…', 'Signing in…') : <><ShieldCheck size={16} /> {text('Đăng nhập an toàn', 'Secure sign in')}</>}</button>
+              <button type="button" className="text-button login-recovery-link" onClick={() => { setMode('request'); setIdentifier(subject === 'cto' ? '' : subject); setError(undefined); setResetDone(false) }}>{text('Quên mật khẩu?', 'Forgot password?')}</button>
             </>
           ) : mode === 'request' ? (
             <>
-              {requestMessage ? <div className="notice notice-success" role="status">{requestMessage}</div> : <label>Tài khoản hoặc email<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required /></label>}
-              {!requestMessage && <button className="button button-primary button-wide" disabled={submitting || identifier.trim().length < 3}>{submitting ? 'Đang gửi…' : 'Gửi link đặt lại mật khẩu'}</button>}
-              <button type="button" className="text-button login-recovery-link" onClick={backToLogin}>← Quay lại đăng nhập</button>
+              {requestMessage ? <div className="notice notice-success" role="status">{requestMessage}</div> : <label>{text('Tài khoản hoặc email', 'Account or email')}<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required /></label>}
+              {!requestMessage && <button className="button button-primary button-wide" disabled={submitting || identifier.trim().length < 3}>{submitting ? text('Đang gửi…', 'Sending…') : text('Gửi link đặt lại mật khẩu', 'Send password reset link')}</button>}
+              <button type="button" className="text-button login-recovery-link" onClick={backToLogin}>← {text('Quay lại đăng nhập', 'Back to sign in')}</button>
             </>
           ) : (
             <>
-              <label>Mật khẩu mới<input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={12} required /></label>
-              <label>Nhập lại mật khẩu<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={12} required /></label>
-              <button className="button button-primary button-wide" disabled={submitting || !resetToken}>{submitting ? 'Đang đặt lại…' : 'Đặt mật khẩu mới'}</button>
-              <button type="button" className="text-button login-recovery-link" onClick={backToLogin}>← Quay lại đăng nhập</button>
+              <label>{text('Mật khẩu mới', 'New password')}<input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={12} required /></label>
+              <label>{text('Nhập lại mật khẩu', 'Confirm password')}<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={12} required /></label>
+              <button className="button button-primary button-wide" disabled={submitting || !resetToken}>{submitting ? text('Đang đặt lại…', 'Resetting…') : text('Đặt mật khẩu mới', 'Set new password')}</button>
+              <button type="button" className="text-button login-recovery-link" onClick={backToLogin}>← {text('Quay lại đăng nhập', 'Back to sign in')}</button>
             </>
           )}
         </form>
-        <div className="security-line"><ShieldCheck size={15} aria-hidden="true" /> Kết nối nội bộ · MFA · Human approval</div>
+        <div className="security-line"><ShieldCheck size={15} aria-hidden="true" /> {text('Kết nối nội bộ · MFA · Human approval', 'Private connection · MFA · Human approval')}</div>
       </section>
     </main>
   )
@@ -1080,7 +1110,8 @@ function AcceptanceCard({ item, isCto, onDecide, busy }: { item: AcceptanceItem;
     <li className={`acceptance-card decision-${item.decision.toLowerCase()} level-${item.level_name.toLowerCase()}`}>
       <div className="acceptance-head">
         <PriorityBadge priority={item.priority as Priority} />
-        <strong>{item.web_url ? <a href={item.web_url} target="_blank" rel="noreferrer">#{item.issue_external_id} {item.title}</a> : `#${item.issue_external_id} ${item.title}`}</strong>
+        <strong>{item.intake_id ? <Link to={`/intakes/${item.intake_id}`}>#{item.issue_external_id} {item.title}</Link> : `#${item.issue_external_id} ${item.title}`}</strong>
+        {item.web_url && <a className="acceptance-tracker-link" href={item.web_url} target="_blank" rel="noreferrer">GitLab #{item.issue_external_id}</a>}
         <span className="status verification-level">{acceptanceLevel[item.level_name] || item.level_name}</span>
       </div>
       <small>
@@ -1113,6 +1144,38 @@ function AcceptanceCard({ item, isCto, onDecide, busy }: { item: AcceptanceItem;
   )
 }
 
+function AcceptanceWorkLogCard({ item, busy, onConfirm, onReturn }: { item: AcceptanceWorkLog; busy: boolean; onConfirm: (item: AcceptanceWorkLog) => void; onReturn: (item: AcceptanceWorkLog) => void }) {
+  const details = item.details || {}
+  const decisionLabel = item.review_decision === 'PENDING' ? 'Chờ nghiệm thu' : item.review_decision === 'CONFIRMED' ? 'Đã nghiệm thu' : 'Đã trả lại'
+  const issue = item.issue_external_id
+  const detailLine = [
+    details.branch ? `nhánh ${details.branch}` : null,
+    details.commit ? `commit ${details.commit}` : null,
+    details.tests ? `test: ${details.tests}` : null,
+    details.worked_on ? `làm ngày ${formatDay(details.worked_on)}` : null,
+    details.actual_minutes != null ? `${hoursText(details.actual_minutes / 60)} thực tế` : null,
+    details.deployed === true ? 'đã có bản triển khai' : details.deployed === false ? 'chưa triển khai' : null,
+  ].filter(Boolean).join(' · ')
+  return (
+    <li className={`acceptance-card acceptance-work-log decision-${item.review_decision.toLowerCase()}`}>
+      <div className="acceptance-head">
+        <strong><Link to={`/intakes/${item.intake_id}`}>{item.intake_public_id} · {item.title}</Link></strong>
+        <span className={`status decision-${item.review_decision.toLowerCase()}`}>{decisionLabel}</span>
+      </div>
+      <p>{item.summary}</p>
+      <small>{item.project_name || 'Dự án'} · {item.executor} · {formatDate(item.created_at)}{issue ? <> · {item.web_url ? <a href={item.web_url} target="_blank" rel="noreferrer">Issue #{issue}</a> : `Issue #${issue}`}</> : ''}</small>
+      {detailLine && <small>{detailLine}</small>}
+      {item.review_note && <p className="acceptance-reported">{item.review_decision === 'RETURNED' ? 'Trả lại' : 'Ghi chú'}: {item.review_note}{item.reviewed_by_name ? ` · ${item.reviewed_by_name}` : ''}</p>}
+      {item.review_decision === 'PENDING' && (
+        <div className="waiting-actions">
+          <button type="button" className="button button-primary button-small" disabled={busy} onClick={() => onConfirm(item)}>Đạt nghiệm thu</button>
+          <button type="button" className="button button-secondary button-small" disabled={busy} onClick={() => onReturn(item)}>Chưa đúng</button>
+        </div>
+      )}
+    </li>
+  )
+}
+
 // Acceptance as its own queue: the CTO's five of the day, the rest on request, the last week's decisions (FR-PLAN-31).
 function AcceptancePage() {
   const { user } = useAuth()
@@ -1127,6 +1190,8 @@ function AcceptancePage() {
   const [reason, setReason] = useState('')
   const [confirming, setConfirming] = useState<AcceptanceItem>()
   const [missingReason, setMissingReason] = useState('')
+  const [returningWorkLog, setReturningWorkLog] = useState<AcceptanceWorkLog>()
+  const [workLogReason, setWorkLogReason] = useState('')
   const [showMore, setShowMore] = useState(false)
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['acceptance'] }); void queryClient.invalidateQueries({ queryKey: ['planning-overview'] }) }
   const decide = useMutation({
@@ -1135,18 +1200,28 @@ function AcceptancePage() {
   })
   const more = useMutation({ mutationFn: () => api<{ added: number }>('/acceptance/sample?extra=5', { method: 'POST' }), onSuccess: refresh, onError: setError })
   const collect = useMutation({ mutationFn: () => api<{ from_reports: number; from_closed: number }>('/acceptance/collect', { method: 'POST' }), onSuccess: refresh, onError: setError })
+  const reviewWorkLog = useMutation({
+    mutationFn: ({ item, decision, why }: { item: AcceptanceWorkLog; decision: 'CONFIRMED' | 'RETURNED'; why?: string }) => api<IntakeWorkLog>(`/intakes/${item.intake_id}/work-log/${item.id}/review`, { method: 'POST', body: JSON.stringify({ decision, note: why || null }) }),
+    onMutate: () => setError(undefined),
+    onSuccess: () => { setReturningWorkLog(undefined); setWorkLogReason(''); refresh(); void queryClient.invalidateQueries({ queryKey: ['planning-day-plans'] }) },
+    onError: setError,
+  })
   const data = queue.data
+  const pendingWorkLogs = data?.work_logs_pending || []
+  const decidedWorkLogs = data?.work_logs_decided || []
+  const workLogPendingTotal = data?.work_log_pending_total ?? pendingWorkLogs.length
   const onDecide = (item: AcceptanceItem, decision: 'accept' | 'reject') => {
     if (decision === 'reject') { setReason(''); setRejecting(item); return }
     // Nothing behind "done": the acceptor says why they still say yes (FR-PLAN-36).
     if (item.evidence_check && item.evidence_check.status !== 'OK') { setMissingReason(''); setConfirming(item); return }
     decide.mutate({ id: item.id, decision })
   }
-  const projectName = data && projectFilter ? [...data.today, ...data.more, ...data.decided].find((item) => item.project_id === projectFilter)?.project_name : null
+  const projectName = data && projectFilter ? [...data.today, ...data.more, ...data.decided, ...pendingWorkLogs, ...decidedWorkLogs].find((item) => item.project_id === projectFilter)?.project_name : null
   return (
     <>
       <PageHeader title="Nghiệm thu" helper={isCto ? [
         'Mỗi việc báo "xong" đã gắn Issue, và mỗi Issue đóng trên tracker, là một việc chờ nghiệm thu.',
+        'Việc phát sinh ngoài kế hoạch do người hoặc agent ghi trong Lịch sử xử lý cũng hiện đủ ở đây để anh xác nhận hoặc trả lại.',
         'Mỗi ngày hệ thống chọn năm việc cho anh: P0/P1 trước, việc không có dấu vết code, dự án và người lâu chưa được xem. Muốn xem thêm thì bấm "Thêm 5 việc".',
         '"Đúng là xong": Intake ghi chú lên Issue và đóng Issue. "Chưa xong": việc về kế hoạch đang mở dưới dạng "Làm lại", kèm lý do.',
       ] : [
@@ -1177,8 +1252,22 @@ function AcceptancePage() {
           <ul><li>Việc quay lại kế hoạch đang mở của dự án dưới dạng "Làm lại", kèm lý do này.</li><li>Issue trên tracker không bị mở lại từ đây.</li></ul>
         </ConfirmDialog>
       )}
+      {returningWorkLog && (
+        <ConfirmDialog title={`Chưa đúng: ${returningWorkLog.title}`} confirmLabel="Trả lại" busyLabel="Đang ghi…" plain busy={reviewWorkLog.isPending} error={reviewWorkLog.error ?? undefined} onConfirm={() => { if (workLogReason.trim().length >= 3) reviewWorkLog.mutate({ item: returningWorkLog, decision: 'RETURNED', why: workLogReason.trim() }) }} onCancel={() => { if (!reviewWorkLog.isPending) { setReturningWorkLog(undefined); setWorkLogReason('') } }}>
+          <label>Chưa đúng ở chỗ nào<textarea rows={3} value={workLogReason} maxLength={1000} onChange={(event) => setWorkLogReason(event.target.value)} placeholder="Ví dụ: danh sách vẫn thiếu khi lọc theo dự án" /></label>
+          <ul><li>Người hoặc agent làm lại sẽ đọc lý do này trước.</li><li>Issue và trạng thái yêu cầu không đổi.</li></ul>
+        </ConfirmDialog>
+      )}
       {queue.isLoading || !data ? <LoadingBlock /> : (
         <>
+          {isCto && (
+            <section className="panel today" aria-label="Việc phát sinh chờ nghiệm thu">
+              <header><div><h2>Việc phát sinh chờ nghiệm thu</h2><p>{workLogPendingTotal} việc ngoài kế hoạch do người hoặc agent đã ghi</p></div></header>
+              {pendingWorkLogs.length === 0 ? <EmptyState icon={<BadgeCheck size={20} />} title="Không có việc phát sinh chờ nghiệm thu" text="Lịch sử xử lý mới do người hoặc agent ghi sẽ xuất hiện ở đây và trong Daily Planning." /> : (
+                <ul className="acceptance-list">{pendingWorkLogs.map((item) => <AcceptanceWorkLogCard key={item.id} item={item} busy={reviewWorkLog.isPending} onConfirm={(row) => reviewWorkLog.mutate({ item: row, decision: 'CONFIRMED' })} onReturn={(row) => { setWorkLogReason(''); setReturningWorkLog(row) }} />)}</ul>
+              )}
+            </section>
+          )}
           <section className="panel today" aria-label={isCto ? 'Hôm nay' : 'Chờ xác nhận'}>
             <header><div><h2>{isCto ? `Hôm nay ${changelogDay(data.plan_date)}` : 'Chờ xác nhận'}</h2><p>{isCto ? `${data.today.filter((item) => item.decision === 'PENDING').length} việc trong mẫu hôm nay · còn ${data.more.length} việc khác chờ` : `${data.today.length} việc`}</p></div>{isCto && data.more.length > 0 && <button type="button" className="button button-secondary button-small" disabled={more.isPending} onClick={() => more.mutate()}>{more.isPending ? 'Đang thêm…' : 'Thêm 5 việc'}</button>}</header>
             {data.today.length === 0 ? <EmptyState icon={<BadgeCheck size={20} />} title={data.pending_total === 0 ? 'Không có việc nào chờ nghiệm thu' : 'Mẫu hôm nay đã xem xong'} text={data.pending_total === 0 ? 'Việc báo "xong" đã gắn Issue sẽ xuất hiện ở đây.' : `Còn ${data.more.length} việc khác; bấm "Thêm 5 việc" nếu muốn xem tiếp.`} /> : (
@@ -1195,6 +1284,12 @@ function AcceptancePage() {
             <section className="panel today" aria-label="Đã quyết">
               <header><div><h2>Đã quyết</h2><p>{isCto ? 'bảy ngày qua' : 'gần đây'}</p></div></header>
               <ul className="acceptance-list is-decided">{data.decided.map((item) => <AcceptanceCard key={item.id} item={item} isCto={isCto} busy={decide.isPending} onDecide={onDecide} />)}</ul>
+            </section>
+          )}
+          {isCto && decidedWorkLogs.length > 0 && (
+            <section className="panel today" aria-label="Việc phát sinh đã quyết">
+              <header><div><h2>Việc phát sinh đã quyết</h2><p>bảy ngày qua</p></div></header>
+              <ul className="acceptance-list is-decided">{decidedWorkLogs.map((item) => <AcceptanceWorkLogCard key={item.id} item={item} busy={reviewWorkLog.isPending} onConfirm={(row) => reviewWorkLog.mutate({ item: row, decision: 'CONFIRMED' })} onReturn={(row) => { setWorkLogReason(''); setReturningWorkLog(row) }} />)}</ul>
             </section>
           )}
         </>
@@ -1467,6 +1562,7 @@ function ProtectedLayout() {
   const { user, loading, logout, refresh } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const { text } = useLocale()
   const [menuOpen, setMenuOpen] = useState(false)
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null)
   const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null)
@@ -1479,7 +1575,7 @@ function ProtectedLayout() {
   // A fresh install sends the CTO to first-run setup once; a failed check never blocks the app.
   const setupState = useQuery({ queryKey: ['setup'], queryFn: () => api<SetupState>('/setup'), enabled: user?.role === 'CTO', retry: false })
 
-  if (loading) return <LoadingBlock label="Đang xác minh phiên đăng nhập…" />
+  if (loading) return <LoadingBlock label={text('Đang xác minh phiên đăng nhập…', 'Checking your session…')} />
   if (!user) return <Navigate to="/login" replace />
 
   const signOut = async () => {
@@ -1502,7 +1598,10 @@ function ProtectedLayout() {
   if (marketing && pathname === '/') return <Navigate to="/tuan-nay" replace />
   const recording = pathname === '/intakes/new' && new URLSearchParams(search).get('panel') === 'record'
   // Shown in the top bar by pages that set no title of their own.
-  const pageName = pathname === '/intakes/new' ? (recording ? 'Ghi âm họp' : 'Tạo Intake') : pathname.startsWith('/intakes/') ? 'Chi tiết Intake' : pathname.startsWith('/rieng/y/') ? 'Kho ý tưởng' : 'Private Intake'
+  const pageName = pathname === '/intakes/new'
+    ? (recording ? text('Ghi âm họp', 'Record meeting') : text('Tạo Intake', 'Create Intake'))
+    : pathname.startsWith('/intakes/') ? text('Chi tiết Intake', 'Intake details')
+      : pathname.startsWith('/rieng/y/') ? text('Kho ý tưởng', 'Idea library') : 'Private Intake'
   // The menu follows a working day in the order the CTO meets it (reports, decisions, the plan, acceptance), then
   // the places to look things up. Actions live in the "+" button up top; the private space folds into one entry.
   const betaOn = user.beta_features_enabled !== false
@@ -1515,6 +1614,7 @@ function ProtectedLayout() {
       ...(user.role !== 'DEVELOPER' ? [{ to: '/nguon', icon: <Eye size={17} />, label: POST_WORDS.sourcesPage, active: pathname.startsWith('/nguon') }] : []),
     ] },
     { label: 'Khác', links: [
+      ...(user.role !== 'DEVELOPER' ? [{ to: '/projects', icon: <UserRound size={17} />, label: 'Dự án', active: pathname.startsWith('/projects') }] : []),
       { to: '/viec-rieng', icon: <ListChecks size={17} />, label: 'Việc riêng', active: pathname.startsWith('/viec-rieng') },
       { to: '/gop-y', icon: <MessageSquarePlus size={17} />, label: 'Góp ý', active: pathname.startsWith('/gop-y') },
       { to: '/huong-dan', icon: <CircleHelp size={17} />, label: 'Hướng dẫn', active: pathname.startsWith('/huong-dan') },
@@ -1530,27 +1630,28 @@ function ProtectedLayout() {
       { to: '/settings/account', icon: <UserRound size={17} />, label: 'Tài khoản và agent', active: pathname.startsWith('/settings') },
     ] },
   ] : [
-    { label: null, links: [{ to: '/', icon: <House size={17} />, label: 'Hôm nay', active: pathname === '/' }] },
+    { label: null, links: [{ to: '/', icon: <House size={17} />, label: text('Hôm nay', 'Today'), active: pathname === '/' }] },
     {
-      label: 'Việc trong ngày',
+      label: text('Việc trong ngày', 'Daily work'),
       links: [
-        { to: '/reports', icon: <FileText size={17} />, label: 'Báo cáo ngày', active: pathname.startsWith('/reports'), count: 'reports' },
-        { to: '/approvals', icon: <ClipboardCheck size={17} />, label: 'Chờ phê duyệt', active: pathname.startsWith('/approvals'), count: 'approvals' },
+        { to: '/reports', icon: <FileText size={17} />, label: text('Báo cáo ngày', 'Daily reports'), active: pathname.startsWith('/reports'), count: 'reports' },
+        { to: '/approvals', icon: <ClipboardCheck size={17} />, label: text('Chờ phê duyệt', 'Pending approval'), active: pathname.startsWith('/approvals'), count: 'approvals' },
         { to: '/planning', icon: <CalendarDays size={17} />, label: 'Daily Planning', active: pathname.startsWith('/planning') },
-        { to: '/nghiem-thu', icon: <BadgeCheck size={17} />, label: 'Nghiệm thu', active: pathname.startsWith('/nghiem-thu') },
-        { to: '/viec', icon: <Columns3 size={17} />, label: 'Việc', active: pathname.startsWith('/viec') && !pathname.startsWith('/viec-') },
+        { to: '/nghiem-thu', icon: <BadgeCheck size={17} />, label: text('Nghiệm thu', 'Acceptance'), active: pathname.startsWith('/nghiem-thu') },
+        { to: '/viec', icon: <Columns3 size={17} />, label: text('Việc', 'Work'), active: pathname.startsWith('/viec') && !pathname.startsWith('/viec-') },
         // An owner or the CTO who is also a member has their own day, like any Developer.
-        ...(user.member_id ? [{ to: '/viec-cua-toi', icon: <ListChecks size={17} />, label: 'Việc của tôi', active: pathname.startsWith('/viec-cua-toi') }] : []),
+        ...(user.member_id ? [{ to: '/viec-cua-toi', icon: <ListChecks size={17} />, label: text('Việc của tôi', 'My work'), active: pathname.startsWith('/viec-cua-toi') }] : []),
       ],
     },
     {
-      label: 'Tra cứu',
+      label: text('Tra cứu', 'Browse'),
       links: [
-        { to: '/gop-y', icon: <MessageSquarePlus size={17} />, label: 'Góp ý', active: pathname.startsWith('/gop-y') },
-        { to: '/tuan-qua', icon: <CalendarRange size={17} />, label: 'Tuần qua', active: pathname.startsWith('/tuan-qua') },
-        { to: '/intakes', icon: <List size={17} />, label: 'Tất cả Intake', active: pathname.startsWith('/intakes') && pathname !== '/intakes/new' },
-        { to: '/meetings', icon: <MessagesSquare size={17} />, label: 'Cuộc họp', active: pathname.startsWith('/meetings') },
-        { to: '/huong-dan', icon: <CircleHelp size={17} />, label: 'Hướng dẫn', active: pathname.startsWith('/huong-dan') },
+        { to: '/projects', icon: <UserRound size={17} />, label: text('Dự án', 'Projects'), active: pathname.startsWith('/projects') },
+        { to: '/gop-y', icon: <MessageSquarePlus size={17} />, label: text('Góp ý', 'Feedback'), active: pathname.startsWith('/gop-y') },
+        { to: '/tuan-qua', icon: <CalendarRange size={17} />, label: text('Tuần qua', 'Last week'), active: pathname.startsWith('/tuan-qua') },
+        { to: '/intakes', icon: <List size={17} />, label: text('Tất cả Intake', 'All Intake'), active: pathname.startsWith('/intakes') && pathname !== '/intakes/new' },
+        { to: '/meetings', icon: <MessagesSquare size={17} />, label: text('Cuộc họp', 'Meetings'), active: pathname.startsWith('/meetings') },
+        { to: '/huong-dan', icon: <CircleHelp size={17} />, label: text('Hướng dẫn', 'Guide'), active: pathname.startsWith('/huong-dan') },
       ],
     },
   ]
@@ -1574,7 +1675,7 @@ function ProtectedLayout() {
         <div className="sidebar-head">
           <div className="brand"><img className="brand-mark" src="/icon.svg" alt="" /><span className="nav-text"><strong>Private Intake</strong></span></div>
         </div>
-        <nav aria-label="Điều hướng chính">
+        <nav aria-label={text('Điều hướng chính', 'Main navigation')}>
           {groups.map((group) => (
             <div className="nav-group" key={group.label ?? 'main'}>
               {group.label && <div className="nav-group-label nav-text">{group.label}</div>}
@@ -1603,24 +1704,24 @@ function ProtectedLayout() {
       </aside>
       <div className="app-content">
         <header className="topbar">
-          <button className="menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label={menuOpen ? 'Đóng menu' : 'Mở menu'}>{menuOpen ? <X size={20} /> : <Menu size={20} />}</button>
-          <button className="icon-button collapse-button" type="button" onClick={toggleCollapsed} aria-label={collapsed ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên'} aria-pressed={collapsed}><PanelLeft size={17} /></button>
+          <button className="menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label={menuOpen ? text('Đóng menu', 'Close menu') : text('Mở menu', 'Open menu')}>{menuOpen ? <X size={20} /> : <Menu size={20} />}</button>
+          <button className="icon-button collapse-button" type="button" onClick={toggleCollapsed} aria-label={collapsed ? text('Mở rộng thanh bên', 'Expand sidebar') : text('Thu gọn thanh bên', 'Collapse sidebar')} aria-pressed={collapsed}><PanelLeft size={17} /></button>
           <div className="topbar-title" ref={setTitleSlot} />
           <strong className="topbar-fallback">{pageName}</strong>
           <div className="topbar-action" ref={setActionSlot} />
           <PendingRecordings />
           <RecordingIndicator />
-          {user.role !== 'DEVELOPER' && !marketing && <Link to="/intakes/new" className="button button-primary button-small topbar-quick" title="Dán tin nhắn, email hay ghi chú của khách"><Plus size={15} aria-hidden="true" /> Tạo Intake</Link>}
+          {user.role !== 'DEVELOPER' && !marketing && <Link to="/intakes/new" className="button button-primary button-small topbar-quick" title={text('Dán tin nhắn, email hay ghi chú của khách', 'Paste a customer message, email, or note')}><Plus size={15} aria-hidden="true" /> {text('Tạo Intake', 'Create Intake')}</Link>}
           <Link to="/viec-rieng?them=1" className="button button-secondary button-small topbar-quick" title="Việc của mình ngoài dự án; chỉ mình thấy"><ListChecks size={15} aria-hidden="true" /> Việc riêng</Link>
           <QuickCreate />
           <QuickSearch />
           <ChangelogButton />
           <AlertBell />
-          {user.role === 'CTO' && <Link to="/settings" className={`icon-button topbar-settings${pathname.startsWith('/settings') ? ' active' : ''}`} aria-label="Cài đặt" title="Cài đặt"><Settings size={17} /></Link>}
+          {user.role === 'CTO' && <Link to="/settings" className={`icon-button topbar-settings${pathname.startsWith('/settings') ? ' active' : ''}`} aria-label={text('Cài đặt', 'Settings')} title={text('Cài đặt', 'Settings')}><Settings size={17} /></Link>}
           {commandsOpen && <AgentCommandsSheet onClose={() => setCommandsOpen(false)} />}
-          <UserMenu onCommands={() => setCommandsOpen(true)} person={person} initials={initials} role={user.role === 'CTO' ? 'CTO · mọi dự án' : user.role === 'DEVELOPER' ? 'Developer' : `Project Owner${user.project_ids && user.project_ids.length > 0 ? ` · ${user.project_ids.length} dự án` : ''}`} onSignOut={signOut} />
+          <UserMenu onCommands={() => setCommandsOpen(true)} person={person} initials={initials} role={user.role === 'CTO' ? text('CTO · mọi dự án', 'CTO · all projects') : user.role === 'DEVELOPER' ? 'Developer' : `Project Owner${user.project_ids && user.project_ids.length > 0 ? text(` · ${user.project_ids.length} dự án`, ` · ${user.project_ids.length} projects`) : ''}`} onSignOut={signOut} />
         </header>
-        {menuOpen && <button className="sidebar-backdrop" onClick={() => setMenuOpen(false)} aria-label="Đóng menu" />}
+        {menuOpen && <button className="sidebar-backdrop" onClick={() => setMenuOpen(false)} aria-label={text('Đóng menu', 'Close menu')} />}
         <div className="app-body">
           <main className="page"><TopBarSlots.Provider value={slots}><Outlet context={{ setRightPanel } satisfies ShellContext} /></TopBarSlots.Provider></main>
           {rightPanel && (
@@ -2341,6 +2442,7 @@ function DuplicateDialog({ intake, onDone, onCancel }: { intake: Intake; onDone:
   const [text, setText] = useState('')
   const [settled, setSettled] = useState('')
   const [chosen, setChosen] = useState<Intake>()
+  const [issue, setIssue] = useState('')
   useEffect(() => { const timer = window.setTimeout(() => setSettled(text.trim()), 250); return () => window.clearTimeout(timer) }, [text])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onCancel() }
@@ -2356,23 +2458,39 @@ function DuplicateDialog({ intake, onDone, onCancel }: { intake: Intake; onDone:
     mutationFn: () => api<Intake>(`/intakes/${intake.id}/duplicate`, { method: 'POST', body: JSON.stringify({ of: chosen!.id, expected_version: intake.version }) }),
     onSuccess: onDone,
   })
+  const markIssue = useMutation({
+    mutationFn: () => api<Intake>(`/intakes/${intake.id}/duplicate-issue`, { method: 'POST', body: JSON.stringify({ issue: issue.trim(), expected_version: intake.version }) }),
+    onSuccess: onDone,
+  })
+  const busy = mark.isPending || markIssue.isPending
+  const issueError = markIssue.error instanceof ApiError && markIssue.error.code === 'DUPLICATE_TARGET_NOT_FOUND'
+    ? new Error('Không tìm thấy Issue này trong dữ liệu GitLab mới nhất của dự án. Kiểm tra lại số Issue hoặc làm mới dữ liệu GitLab rồi thử lại.')
+    : markIssue.error instanceof ApiError && markIssue.error.code === 'DUPLICATE_TARGET_INVALID'
+      ? new Error('Issue này đã thuộc chính Intake hiện tại nên không thể đánh dấu là trùng.')
+      : markIssue.error
   return createPortal(
-    <div className="confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !mark.isPending) onCancel() }}>
+    <div className="confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCancel() }}>
       <div className="confirm-dialog duplicate-dialog" role="dialog" aria-modal="true" aria-labelledby="duplicate-title">
-        <h2 id="duplicate-title">Yêu cầu này trùng với yêu cầu nào?</h2>
-        <p className="confirm-text">{intake.public_id} sẽ được đóng lại và dẫn sang yêu cầu bạn chọn. Nó không bị xóa, nên vẫn biết việc này đã được báo mấy lần.</p>
+        <h2 id="duplicate-title">Yêu cầu này trùng với đâu?</h2>
+        <p className="confirm-text">{intake.public_id} sẽ được đóng lại và dẫn sang Intake hoặc Issue bạn chọn. Nó không bị xóa, nên lịch sử xử lý vẫn được giữ để truy vết.</p>
+        <strong className="duplicate-section-title">Một Intake khác</strong>
         <label className="search-field"><Search size={15} aria-hidden="true" /><input autoFocus value={text} onChange={(event) => { setText(event.target.value); setChosen(undefined) }} placeholder="Tìm theo mã hoặc tiêu đề trong cùng dự án…" aria-label="Tìm yêu cầu được giữ" /></label>
         <div className="duplicate-options" role="listbox" aria-label="Yêu cầu được giữ">
           {found.isLoading ? <LoadingBlock /> : options.length === 0 ? <p className="muted">Không thấy yêu cầu nào khớp trong dự án này.</p> : options.map((row) => (
-            <button type="button" role="option" aria-selected={chosen?.id === row.id} key={row.id} className={chosen?.id === row.id ? 'active' : undefined} onClick={() => setChosen(row)}>
+            <button type="button" role="option" aria-selected={chosen?.id === row.id} key={row.id} className={chosen?.id === row.id ? 'active' : undefined} onClick={() => { setChosen(row); setIssue('') }}>
               <strong>{row.public_id}</strong><span>{row.normalized_title || 'Chưa có tiêu đề'}</span><small>{statusLabels[row.status]}</small>
             </button>
           ))}
         </div>
+        <div className="duplicate-issue-choice">
+          <label htmlFor="duplicate-issue"><strong>Hoặc một Issue GitLab đã có</strong><small>Nhập số Issue trong đúng dự án, ví dụ #32.</small></label>
+          <div><input id="duplicate-issue" value={issue} onChange={(event) => { setIssue(event.target.value); setChosen(undefined) }} placeholder="#Issue" aria-label="Số Issue GitLab đã có" onKeyDown={(event) => { if (event.key === 'Enter' && issue.trim() && !busy) markIssue.mutate() }} /><button type="button" className="button button-secondary" disabled={!issue.trim() || busy} onClick={() => markIssue.mutate()}>{markIssue.isPending ? 'Đang kiểm tra…' : 'Trùng với Issue'}</button></div>
+        </div>
         {mark.error != null && <ErrorNotice error={mark.error} />}
+        {issueError != null && <ErrorNotice error={issueError} />}
         <div className="confirm-actions">
-          <button type="button" className="button button-secondary" disabled={mark.isPending} onClick={onCancel}>Hủy</button>
-          <button type="button" className="button button-primary" disabled={!chosen || mark.isPending} onClick={() => mark.mutate()}>{mark.isPending ? 'Đang đánh dấu…' : chosen ? `Trùng với ${chosen.public_id}` : 'Chọn một yêu cầu'}</button>
+          <button type="button" className="button button-secondary" disabled={busy} onClick={onCancel}>Hủy</button>
+          <button type="button" className="button button-primary" disabled={!chosen || busy} onClick={() => mark.mutate()}>{mark.isPending ? 'Đang đánh dấu…' : chosen ? `Trùng với ${chosen.public_id}` : 'Chọn một Intake'}</button>
         </div>
       </div>
     </div>,
@@ -2586,6 +2704,7 @@ type ComposerPopover = 'menu' | 'date' | 'sender' | null
 function NewIntakePage() {
   const navigate = useNavigate()
   const { setRightPanel } = useShell()
+  const { locale, text } = useLocale()
   const [searchParams, setSearchParams] = useSearchParams()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
   const { user: composerUser } = useAuth()
@@ -2630,7 +2749,7 @@ function NewIntakePage() {
     }
     setChannel('MEETING')
     setRightPanel({
-      title: 'Ghi âm cuộc họp',
+      title: text('Ghi âm cuộc họp', 'Record meeting'),
       content: <RecordingPanel />,
       onClose: () => setSearchParams({}, { replace: true }),
     })
@@ -2655,7 +2774,7 @@ function NewIntakePage() {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      setStage('Đang lưu nội dung nguồn…')
+      setStage(text('Đang lưu nội dung nguồn…', 'Saving the original request…'))
       const created = await api<Intake>('/intakes', {
         method: 'POST',
         headers: { 'Idempotency-Key': crypto.randomUUID() },
@@ -2669,12 +2788,12 @@ function NewIntakePage() {
         }),
       })
       for (let index = 0; index < files.length; index += 1) {
-        setStage(`Đang tải file ${index + 1}/${files.length}…`)
+        setStage(text(`Đang tải file ${index + 1}/${files.length}…`, `Uploading file ${index + 1}/${files.length}…`))
         const body = new FormData()
         body.append('file', files[index])
         await api(`/intakes/${created.id}/attachments`, { method: 'POST', body })
       }
-      setStage(files.length > 0 ? 'AI đang đọc ảnh và chuẩn hóa yêu cầu…' : 'AI đang chuẩn hóa yêu cầu…')
+      setStage(files.length > 0 ? text('AI đang đọc ảnh và chuẩn hóa yêu cầu…', 'AI is reading the attachments and organizing the request…') : text('AI đang chuẩn hóa yêu cầu…', 'AI is organizing the request…'))
       try {
         await api(`/intakes/${created.id}/process`, { method: 'POST' })
       } catch (processError) {
@@ -2683,7 +2802,7 @@ function NewIntakePage() {
       return { id: created.id }
     },
     // The recording has gone into this request; the next request starts with none.
-    onSuccess: (result) => navigate(`/intakes/${result.id}`, { state: result.warning ? { notice: `Intake đã lưu nhưng AI chưa xử lý được: ${result.warning}` } : undefined }),
+    onSuccess: (result) => navigate(`/intakes/${result.id}`, { state: result.warning ? { notice: text(`Intake đã lưu nhưng AI chưa xử lý được: ${result.warning}`, `The Intake was saved, but AI processing did not finish: ${result.warning}`) } : undefined }),
     onError: setError,
   })
 
@@ -2691,7 +2810,7 @@ function NewIntakePage() {
     if (next.length === 0) return
     const invalid = next.find((file) => file.size > 5 * 1024 * 1024 || !ACCEPTED_FILE_TYPES.includes(file.type))
     if (invalid) {
-      setError(new Error(`File ${invalid.name} không hợp lệ. Chỉ nhận PDF/JPG/PNG/WebP, tối đa 5 MB.`))
+      setError(new Error(text(`File ${invalid.name} không hợp lệ. Chỉ nhận PDF/JPG/PNG/WebP, tối đa 5 MB.`, `File ${invalid.name} is invalid. Use PDF, JPG, PNG, or WebP up to 5 MB.`)))
       return
     }
     setError(undefined)
@@ -2703,7 +2822,7 @@ function NewIntakePage() {
     if (mutation.isPending) return
     setError(undefined)
     if (!rawText.trim()) {
-      setError(new Error('Hãy nhập nội dung phản hồi trước khi lưu.'))
+      setError(new Error(text('Hãy nhập nội dung phản hồi trước khi lưu.', 'Enter the request before saving.')))
       return
     }
     mutation.mutate()
@@ -2727,8 +2846,8 @@ function NewIntakePage() {
   return (
     <div className="composer-page">
       <header className="composer-hero">
-        <h1>Tạo Intake mới</h1>
-        <p>Dán nguyên văn phản hồi hoặc ghi chú họp. Nội dung được lưu trước, sau đó AI mới chuẩn hóa.</p>
+        <h1>{text('Tạo Intake mới', 'Create a new Intake')}</h1>
+        <p>{text('Dán nguyên văn phản hồi hoặc ghi chú họp. Nội dung được lưu trước, sau đó AI mới chuẩn hóa.', 'Paste the original customer message or meeting note. Intake saves the source first, then AI organizes it.')}</p>
       </header>
       {projects.error && <ErrorNotice error={projects.error} onRetry={() => { void projects.refetch() }} />}
       {error != null && <ErrorNotice error={error} />}
@@ -2745,7 +2864,7 @@ function NewIntakePage() {
       >
         <textarea
           ref={textRef}
-          aria-label="Nội dung gốc"
+          aria-label={text('Nội dung gốc', 'Original request')}
           rows={3}
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
@@ -2754,50 +2873,50 @@ function NewIntakePage() {
             if (pasted.length > 0) { event.preventDefault(); addFiles(pasted) }
           }}
           onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) submit() }}
-          placeholder="Dán nguyên văn phản hồi hoặc ghi chú meeting tại đây…"
+          placeholder={text('Dán nguyên văn phản hồi hoặc ghi chú meeting tại đây…', 'Paste the original customer message or meeting note here…')}
         />
         {hasChips && (
           <div className="composer-chips">
-            {receivedAt && <span className="chip"><CalendarClock size={14} aria-hidden="true" /><button type="button" className="chip-label" data-popover-zone onClick={() => setPopover('date')}>{formatDate(receivedAt)}</button><button type="button" aria-label="Xóa thời điểm tiếp nhận" onClick={() => setReceivedAt('')}><X size={13} /></button></span>}
-            {senderReference.trim() && <span className="chip"><UserRound size={14} aria-hidden="true" /><button type="button" className="chip-label" data-popover-zone onClick={() => setPopover('sender')}>{senderReference.trim()}</button><button type="button" aria-label="Xóa người gửi" onClick={() => setSenderReference('')}><X size={13} /></button></span>}
-            {files.map((file, index) => <span className="chip" key={`${file.name}-${index}`}><FileText size={14} aria-hidden="true" /><span className="chip-label">{file.name}<small>{(file.size / 1024).toFixed(0)} KB</small></span><button type="button" aria-label={`Xóa ${file.name}`} onClick={() => setFiles(files.filter((_, fileIndex) => fileIndex !== index))}><X size={13} /></button></span>)}
+            {receivedAt && <span className="chip"><CalendarClock size={14} aria-hidden="true" /><button type="button" className="chip-label" data-popover-zone onClick={() => setPopover('date')}>{formatDate(receivedAt)}</button><button type="button" aria-label={text('Xóa thời điểm tiếp nhận', 'Remove received time')} onClick={() => setReceivedAt('')}><X size={13} /></button></span>}
+            {senderReference.trim() && <span className="chip"><UserRound size={14} aria-hidden="true" /><button type="button" className="chip-label" data-popover-zone onClick={() => setPopover('sender')}>{senderReference.trim()}</button><button type="button" aria-label={text('Xóa người gửi', 'Remove sender')} onClick={() => setSenderReference('')}><X size={13} /></button></span>}
+            {files.map((file, index) => <span className="chip" key={`${file.name}-${index}`}><FileText size={14} aria-hidden="true" /><span className="chip-label">{file.name}<small>{(file.size / 1024).toFixed(0)} KB</small></span><button type="button" aria-label={text(`Xóa ${file.name}`, `Remove ${file.name}`)} onClick={() => setFiles(files.filter((_, fileIndex) => fileIndex !== index))}><X size={13} /></button></span>)}
           </div>
         )}
         <div className="composer-bar">
           <div className="composer-anchor" data-popover-zone>
-            <button type="button" className={popover ? 'icon-button active' : 'icon-button'} aria-label="Thêm file, thời điểm hoặc người gửi" aria-haspopup="menu" aria-expanded={popover === 'menu'} onClick={() => setPopover(popover ? null : 'menu')}><Plus size={18} /></button>
+            <button type="button" className={popover ? 'icon-button active' : 'icon-button'} aria-label={text('Thêm file, thời điểm hoặc người gửi', 'Add a file, received time, or sender')} aria-haspopup="menu" aria-expanded={popover === 'menu'} onClick={() => setPopover(popover ? null : 'menu')}><Plus size={18} /></button>
             {popover === 'menu' && (
               <div className="composer-popover composer-menu" role="menu">
-                <button type="button" role="menuitem" onClick={() => { setPopover(null); fileRef.current?.click() }}><Paperclip size={16} aria-hidden="true" /><span>Đính kèm file<small>PDF hoặc hình ảnh, tối đa 5 MB</small></span></button>
-                <button type="button" role="menuitem" onClick={() => setPopover('date')}><CalendarClock size={16} aria-hidden="true" /><span>Thời điểm tiếp nhận<small>Bỏ trống nếu là lúc lưu</small></span></button>
-                <button type="button" role="menuitem" onClick={() => setPopover('sender')}><UserRound size={16} aria-hidden="true" /><span>Người gửi / tham chiếu<small>Ví dụ: Khách hàng A, nhóm Zalo</small></span></button>
-                <button type="button" role="menuitem" onClick={() => { setPopover(null); if (!recordOpen) toggleRecording() }}><MessagesSquare size={16} aria-hidden="true" /><span>Ghi âm cuộc họp<small>Nhiều người nói; có tách người nói và meeting note</small></span></button>
+                <button type="button" role="menuitem" onClick={() => { setPopover(null); fileRef.current?.click() }}><Paperclip size={16} aria-hidden="true" /><span>{text('Đính kèm file', 'Attach a file')}<small>{text('PDF hoặc hình ảnh, tối đa 5 MB', 'PDF or image, up to 5 MB')}</small></span></button>
+                <button type="button" role="menuitem" onClick={() => setPopover('date')}><CalendarClock size={16} aria-hidden="true" /><span>{text('Thời điểm tiếp nhận', 'Received time')}<small>{text('Bỏ trống nếu là lúc lưu', 'Leave blank to use the save time')}</small></span></button>
+                <button type="button" role="menuitem" onClick={() => setPopover('sender')}><UserRound size={16} aria-hidden="true" /><span>{text('Người gửi / tham chiếu', 'Sender or reference')}<small>{text('Ví dụ: Khách hàng A, nhóm Zalo', 'Example: Customer A, support chat')}</small></span></button>
+                <button type="button" role="menuitem" onClick={() => { setPopover(null); if (!recordOpen) toggleRecording() }}><MessagesSquare size={16} aria-hidden="true" /><span>{text('Ghi âm cuộc họp', 'Record a meeting')}<small>{text('Nhiều người nói; có tách người nói và meeting note', 'Multiple speakers, transcript, and meeting note')}</small></span></button>
               </div>
             )}
             {popover === 'date' && (
               <div className="composer-popover composer-field">
-                <label>Thời điểm tiếp nhận<input type="datetime-local" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} autoFocus /></label>
-                <div><button type="button" className="button button-secondary button-small" onClick={() => setReceivedAt(nowLocal())}>Bây giờ</button><button type="button" className="button button-primary button-small" onClick={() => setPopover(null)}>Xong</button></div>
+                <label>{text('Thời điểm tiếp nhận', 'Received time')}<input type="datetime-local" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} autoFocus /></label>
+                <div><button type="button" className="button button-secondary button-small" onClick={() => setReceivedAt(nowLocal())}>{text('Bây giờ', 'Now')}</button><button type="button" className="button button-primary button-small" onClick={() => setPopover(null)}>{text('Xong', 'Done')}</button></div>
               </div>
             )}
             {popover === 'sender' && (
               <div className="composer-popover composer-field">
-                <label>Người gửi / tham chiếu<input value={senderReference} onChange={(e) => setSenderReference(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); setPopover(null) } }} placeholder="Ví dụ: Khách hàng A, nhóm Zalo" autoFocus /></label>
-                <div><button type="button" className="button button-primary button-small" onClick={() => setPopover(null)}>Xong</button></div>
+                <label>{text('Người gửi / tham chiếu', 'Sender or reference')}<input value={senderReference} onChange={(e) => setSenderReference(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); setPopover(null) } }} placeholder={text('Ví dụ: Khách hàng A, nhóm Zalo', 'Example: Customer A, support chat')} autoFocus /></label>
+                <div><button type="button" className="button button-primary button-small" onClick={() => setPopover(null)}>{text('Xong', 'Done')}</button></div>
               </div>
             )}
           </div>
-          <select className="chip-select" aria-label="Dự án" value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={projects.isLoading || Boolean(projects.error)}>{projects.isLoading && <option>Đang tải dự án…</option>}{projects.data?.map((project) => <option value={project.code} key={project.id}>{project.name}</option>)}</select>
-          <select className="chip-select" aria-label="Kênh" value={channel} onChange={(e) => setChannel(e.target.value as Channel)}>{Object.entries(channelLabels).filter(([value]) => value !== 'FEEDBACK').map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
-          {composerUser?.role === 'CTO' && <label className="chip-select hard-flag" title="Việc khó: nghiệm thu luôn về CTO, dù Project Owner đã xác nhận"><input type="checkbox" checked={hard} onChange={(e) => setHard(e.target.checked)} /> Việc khó</label>}
+          <select className="chip-select" aria-label={text('Dự án', 'Project')} value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={projects.isLoading || Boolean(projects.error)}>{projects.isLoading && <option>{text('Đang tải dự án…', 'Loading projects…')}</option>}{projects.data?.map((project) => <option value={project.code} key={project.id}>{project.name}</option>)}</select>
+          <select className="chip-select" aria-label={text('Kênh', 'Channel')} value={channel} onChange={(e) => setChannel(e.target.value as Channel)}>{Object.entries(locale === 'en' ? channelLabelsEn : channelLabels).filter(([value]) => value !== 'FEEDBACK').map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
+          {composerUser?.role === 'CTO' && <label className="chip-select hard-flag" title={text('Việc khó: nghiệm thu luôn về CTO, dù Project Owner đã xác nhận', 'High-risk work: acceptance always returns to the CTO, even after Project Owner review')}><input type="checkbox" checked={hard} onChange={(e) => setHard(e.target.checked)} /> {text('Việc khó', 'High-risk work')}</label>}
           <span className="composer-spacer" />
-          <button type="button" className={dictating ? 'icon-button active is-recording' : 'icon-button'} aria-label={dictating ? 'Nói xong' : 'Nói để nhập'} title={recordingBusy && !dictating ? 'Đang ghi cuộc họp; kết thúc ghi âm rồi mới nói để nhập được' : dictating ? 'Nói xong' : 'Nói để nhập: bản chữ hiện ngay phía trên, nói xong chọn bản thô hoặc AI tóm tắt'} aria-pressed={dictating} disabled={recording.phase === 'starting' || recording.phase === 'stopping' || (recordingBusy && !dictating)} onClick={toggleDictation}><Mic size={18} /></button>
-          <button className="send-button" aria-label="Lưu & phân tích" disabled={busy}>{mutation.isPending ? <span className="spinner" /> : <><span>Lưu & phân tích</span><ArrowUp size={16} aria-hidden="true" /></>}</button>
+          <button type="button" className={dictating ? 'icon-button active is-recording' : 'icon-button'} aria-label={dictating ? text('Nói xong', 'Finish dictation') : text('Nói để nhập', 'Dictate request')} title={recordingBusy && !dictating ? text('Đang ghi cuộc họp; kết thúc ghi âm rồi mới nói để nhập được', 'Finish the meeting recording before starting dictation') : dictating ? text('Nói xong', 'Finish dictation') : text('Nói để nhập: bản chữ hiện ngay phía trên, nói xong chọn bản thô hoặc AI tóm tắt', 'Dictate the request, then choose the raw transcript or AI summary')} aria-pressed={dictating} disabled={recording.phase === 'starting' || recording.phase === 'stopping' || (recordingBusy && !dictating)} onClick={toggleDictation}><Mic size={18} /></button>
+          <button className="send-button" aria-label={text('Lưu & phân tích', 'Save and analyze')} disabled={busy}>{mutation.isPending ? <span className="spinner" /> : <><span>{text('Lưu & phân tích', 'Save and analyze')}</span><ArrowUp size={16} aria-hidden="true" /></>}</button>
         </div>
         <input ref={fileRef} type="file" hidden multiple accept={ACCEPTED_FILE_TYPES.join(',')} onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
       </form>
       {mutation.isPending && <p className="composer-stage" role="status">{stage}</p>}
-      <p className="composer-note"><ShieldCheck size={15} aria-hidden="true" /> Chỉ CTO xem được nội dung nguồn. Không có dữ liệu nào được gửi sang hệ thống delivery trước khi bạn duyệt.</p>
+      <p className="composer-note"><ShieldCheck size={15} aria-hidden="true" /> {text('Chỉ CTO xem được nội dung nguồn. Không có dữ liệu nào được gửi sang hệ thống delivery trước khi bạn duyệt.', 'Only the CTO can view the original content. Nothing is sent to a delivery system before you approve it.')}</p>
     </div>
   )
 }
@@ -3053,6 +3172,7 @@ function AttachmentList({ intakeId, rows, onChanged }: { intakeId: string; rows:
 }
 
 function IntakeDetailPage() {
+  const { locale, text } = useLocale()
   const { id = '' } = useParams()
   const location = useLocation()
   const queryClient = useQueryClient()
@@ -3216,7 +3336,8 @@ function IntakeDetailPage() {
   const openQuestions = unansweredOf(intake.details)
   // Where the request would go if approved now, when that place is a system outside Intake.
   const draftRoute = route === 'GITLAB' && routeProject?.delivery_system === 'GITHUB' ? 'GITHUB' : route
-  const draftTarget = SYNCABLE_ROUTES.includes(draftRoute) ? routeLabels[draftRoute] : null
+  const localizedRouteLabels = locale === 'en' ? routeLabelsEn : routeLabels
+  const draftTarget = SYNCABLE_ROUTES.includes(draftRoute) ? localizedRouteLabels[draftRoute] : null
   // Open questions do not stop an approval; they make it a deliberate one.
   const approve = () => (openQuestions.length > 0 ? setAskApprove(true) : doApprove())
   const needNote = (message: string) => { setNoteMissing(true); setActionError(new Error(message)); noteRef.current?.focus() }
@@ -3260,10 +3381,10 @@ function IntakeDetailPage() {
 
   return (
     <>
-      <div className="detail-top"><Link className="back-link" to="/intakes"><ArrowLeft size={15} /> Tất cả Intake</Link><div className="detail-actions">
+      <div className="detail-top"><Link className="back-link" to="/intakes"><ArrowLeft size={15} /> {text('Tất cả Intake', 'All intakes')}</Link><div className="detail-actions">
         {canRemove(intake) && !intake.duplicate_of_id && !intake.duplicate_issue && <button type="button" className="button button-secondary" title="Đóng yêu cầu này vì đã có một yêu cầu khác nói cùng việc" onClick={() => setMarkingDuplicate(true)}>Đánh dấu trùng</button>}
         {canRemove(intake) && <button type="button" className="icon-button detail-remove" aria-label="Xóa yêu cầu" title="Xóa yêu cầu" onClick={() => setRemoving(true)}><Trash2 size={16} /></button>}
-        <button className="button button-secondary" onClick={() => processMutation.mutate()} disabled={processMutation.isPending || contentLocked}>{processMutation.isPending ? 'Đang xử lý…' : <><RotateCcw size={15} /> Phân tích lại</>}</button></div></div>
+        <button className="button button-secondary" onClick={() => processMutation.mutate()} disabled={processMutation.isPending || contentLocked}>{processMutation.isPending ? text('Đang xử lý…', 'Processing…') : <><RotateCcw size={15} /> {text('Phân tích lại', 'Analyze again')}</>}</button></div></div>
       {notice && <div className="notice notice-warn">{notice}</div>}
       {removing && <RemoveIntakeDialog intake={intake} onCancel={() => setRemoving(false)} onDone={() => { void queryClient.invalidateQueries({ queryKey: ['intakes'] }); void queryClient.invalidateQueries({ queryKey: ['approvals'] }); void queryClient.invalidateQueries({ queryKey: ['alert-intakes'] }); navigate('/intakes') }} />}
       {markingDuplicate && <DuplicateDialog intake={intake} onCancel={() => setMarkingDuplicate(false)} onDone={() => { setMarkingDuplicate(false); void refresh() }} />}
@@ -3281,15 +3402,15 @@ function IntakeDetailPage() {
       )}
       {splitInto && <div className="notice notice-success" role="status">Đã tách thành {splitInto.length} yêu cầu: {splitInto.map((child, index) => <span key={child.id}>{index > 0 ? ', ' : ''}<Link to={`/intakes/${child.id}`}>{child.public_id}</Link></span>)}. AI đang phân tích từng cái; chúng sẽ hiện ở Chờ phê duyệt.</div>}
       <header className="detail-header">
-        <div><div className="detail-meta"><span className="public-id">{intake.public_id}</span><LifecycleBadge stage={intake.lifecycle_stage} />{intake.sync_targets.map((target) => <SyncTargetChip key={`${target.system}-${target.updated_at}`} target={target} />)}<ReadinessChip readiness={intake.agent_readiness} /></div><h1>{intake.normalized_title || 'Chưa có tiêu đề'}</h1><p>{channelLabels[intake.channel]} · cập nhật {formatDate(intake.updated_at)} · phiên bản {intake.version}</p></div>
+        <div><div className="detail-meta"><span className="public-id">{intake.public_id}</span><LifecycleBadge stage={intake.lifecycle_stage} />{intake.sync_targets.map((target) => <SyncTargetChip key={`${target.system}-${target.updated_at}`} target={target} />)}<ReadinessChip readiness={intake.agent_readiness} /></div><h1>{intake.normalized_title || text('Chưa có tiêu đề', 'Untitled')}</h1><p>{(locale === 'en' ? channelLabelsEn : channelLabels)[intake.channel]} · {text('cập nhật', 'updated')} {formatDate(intake.updated_at)} · {text('phiên bản', 'version')} {intake.version}</p></div>
         <PriorityBadge priority={intake.approved_priority || intake.suggested_priority} />
       </header>
       <IntakeJourney intakeId={intake.id} refreshKey={`${intake.status}-${intake.version}-${intake.sync_targets.length}`} humanWork={intake.agent_readiness?.band === 'HUMAN'} onChanged={refresh} />
       <ReadinessBox intake={intake} project={routeProject} />
       <div className="review-grid">
         <section className="panel source-panel">
-          <div className="panel-heading"><div><h2>Nội dung nguồn</h2></div><span className="restricted-tag">CTO only</span></div>
-          {!rawQuery.data && !rawQuery.isFetching && !rawQuery.error && <div className="raw-guard"><ShieldCheck size={22} aria-hidden="true" /><strong>Nội dung được bảo vệ</strong><p>Chỉ tải khi bạn cần đối chiếu. Hành động xem raw data thuộc phạm vi audit.</p><button className="button button-secondary" onClick={() => rawQuery.refetch()}><Eye size={15} /> Hiển thị nội dung nguồn</button></div>}
+          <div className="panel-heading"><div><h2>{text('Nội dung nguồn', 'Source request')}</h2></div><span className="restricted-tag">CTO only</span></div>
+          {!rawQuery.data && !rawQuery.isFetching && !rawQuery.error && <div className="raw-guard"><ShieldCheck size={22} aria-hidden="true" /><strong>{text('Nội dung được bảo vệ', 'Protected content')}</strong><p>{text('Chỉ tải khi bạn cần đối chiếu. Hành động xem raw data thuộc phạm vi audit.', 'Load this only when you need to verify the source. Viewing raw data is audited.')}</p><button className="button button-secondary" onClick={() => rawQuery.refetch()}><Eye size={15} /> {text('Hiển thị nội dung nguồn', 'Show source request')}</button></div>}
           {rawQuery.isFetching && <LoadingBlock />}
           {rawQuery.error && <ErrorNotice error={rawQuery.error} onRetry={() => { void rawQuery.refetch() }} />}
           {rawQuery.data && <div className="raw-content">{rawQuery.data.raw_text || 'Nội dung đã hết thời hạn lưu hoặc không tồn tại.'}</div>}
@@ -3302,15 +3423,15 @@ function IntakeDetailPage() {
           {attachments.data && attachments.data.length > 0 && <AttachmentList intakeId={intake.id} rows={attachments.data} onChanged={() => { void attachments.refetch(); void rawQuery.refetch() }} />}
         </section>
         <section className="panel normalized-panel">
-          <div className="panel-heading"><div><h2>Kết quả chuẩn hóa</h2></div><span className="ai-tag" title="Loại · Ưu tiên đề xuất · Route đề xuất">AI đề xuất: {[intake.item_type, intake.suggested_priority, intake.proposed_route && routeLabels[intake.proposed_route]].filter(Boolean).join(' · ') || 'chưa có'}</span></div>
+          <div className="panel-heading"><div><h2>{text('Kết quả chuẩn hóa', 'Normalized result')}</h2></div><span className="ai-tag" title={text('Loại · Ưu tiên đề xuất · Route đề xuất', 'Type · Suggested priority · Suggested route')}>{text('AI đề xuất:', 'AI suggests:')} {[intake.item_type, intake.suggested_priority, intake.proposed_route && localizedRouteLabels[intake.proposed_route]].filter(Boolean).join(' · ') || text('chưa có', 'not available')}</span></div>
           <div className="normalized-form">
-            <label className={changedField('title')}><span className="req-label">Tiêu đề đã chuẩn hóa<Req /></span><input value={normalizedTitle} onChange={(event) => setNormalizedTitle(event.target.value)} maxLength={255} /></label>
-            <label className={changedField('summary')}><span className="req-label">Tóm tắt đã chuẩn hóa<Req /></span><textarea rows={5} value={normalizedSummary} onChange={(event) => setNormalizedSummary(event.target.value)} /></label>
+            <label className={changedField('title')}><span className="req-label">{text('Tiêu đề đã chuẩn hóa', 'Normalized title')}<Req /></span><input value={normalizedTitle} onChange={(event) => setNormalizedTitle(event.target.value)} maxLength={255} /></label>
+            <label className={changedField('summary')}><span className="req-label">{text('Tóm tắt đã chuẩn hóa', 'Normalized summary')}<Req /></span><textarea rows={5} value={normalizedSummary} onChange={(event) => setNormalizedSummary(event.target.value)} /></label>
             <IntakeDetailsView details={intake.details} only={['steps', 'expected', 'related']} onDuplicateIssue={canRemove(intake) && !intake.duplicate_of_id && !intake.duplicate_issue && !markDuplicateIssue.isPending ? (issue) => confirmDuplicateIssue(intake, issue) : undefined} />
             <ClarifyQuestions intake={intake} locked={decisionLocked} analysing={analysing} onSaved={refresh} onError={setActionError} />
             <AnalysisStrip intake={intake} pipeline={pipeline.data} analysing={analysing} done={analysisDone} retrying={processMutation.isPending} onRetry={() => processMutation.mutate()} changedQuestions={Boolean(changedField('questions'))} />
-            <label>Ở đâu trong sản phẩm<input value={where} maxLength={600} onChange={(event) => setWhere(event.target.value)} placeholder="Module, màn hình hoặc chức năng liên quan" /></label>
-            <label>Tiêu chí nghiệm thu<textarea rows={4} value={acceptance} onChange={(event) => setAcceptance(event.target.value)} placeholder="Mỗi dòng một kết quả kiểm được. Thành danh sách đánh dấu trong Issue khi đồng bộ." /></label>
+            <label>{text('Ở đâu trong sản phẩm', 'Where in the product')}<input value={where} maxLength={600} onChange={(event) => setWhere(event.target.value)} placeholder={text('Module, màn hình hoặc chức năng liên quan', 'Related module, screen, or feature')} /></label>
+            <label>{text('Tiêu chí nghiệm thu', 'Acceptance criteria')}<textarea rows={4} value={acceptance} onChange={(event) => setAcceptance(event.target.value)} placeholder={text('Mỗi dòng một kết quả kiểm được. Thành danh sách đánh dấu trong Issue khi đồng bộ.', 'One testable result per line. These become a checklist in the synced Issue.')} /></label>
             {subtasksOpen || subtasks.trim() !== '' ? (
               <label>Việc con<textarea rows={Math.max(linesOf(subtasks).length + 1, 3)} value={subtasks} onChange={(event) => setSubtasks(event.target.value)} placeholder="Chỉ dùng khi yêu cầu có vài ý nhỏ cùng loại, cùng chỗ. Mỗi dòng một việc." autoFocus={subtasksOpen && subtasks === ''} /></label>
             ) : (
@@ -3324,7 +3445,7 @@ function IntakeDetailPage() {
             ) : (
               <button type="button" className="text-button details-add" onClick={() => { splitMutation.reset(); setSplitting(true) }}>Tách {splitItems.length} việc con thành yêu cầu riêng</button>
             ))}
-            <button className="button button-secondary" onClick={() => reviewMutation.mutate(intake)} disabled={reviewMutation.isPending || syncLocked || analysing || !normalizedTitle.trim() || !normalizedSummary.trim()} title={analysing ? 'Chờ AI phân tích xong rồi lưu, để kết quả AI không bị ghi đè' : undefined}>{reviewMutation.isPending ? 'Đang lưu…' : 'Lưu chỉnh sửa'}</button>
+            <button className="button button-secondary" onClick={() => reviewMutation.mutate(intake)} disabled={reviewMutation.isPending || syncLocked || analysing || !normalizedTitle.trim() || !normalizedSummary.trim()} title={analysing ? text('Chờ AI phân tích xong rồi lưu, để kết quả AI không bị ghi đè', 'Wait for AI analysis to finish before saving.') : undefined}>{reviewMutation.isPending ? text('Đang lưu…', 'Saving…') : text('Lưu chỉnh sửa', 'Save edits')}</button>
           </div>
           <details className="run-history"><summary><span className="field-label">Lịch sử chạy AI · {(pipeline.data?.stages || []).length} lần · {pipeline.data?.overall_state || 'NOT_STARTED'}</span></summary>{pipeline.isLoading ? <LoadingBlock /> : pipeline.error ? <ErrorNotice error={pipeline.error} onRetry={() => { void pipeline.refetch() }} /> : (pipeline.data?.stages || []).length === 0 ? <p className="muted">Chưa có lần xử lý nào.</p> : pipeline.data?.stages.map((run) => <div className="run-row" key={run.run_id}><span className={`run-dot ${run.status === 'SUCCEEDED' ? 'success' : ''}`} /><div><strong>{run.stage}</strong><small>{run.status} · lần {run.attempt}{run.finished_at ? ` · ${formatDate(run.finished_at)}` : ''}{run.error_code ? ` · ${run.error_code}` : ''}</small></div></div>)}</details>
         </section>
@@ -3349,24 +3470,24 @@ function IntakeDetailPage() {
           <p>Các câu này sẽ nằm trong Issue dưới mục "Cần làm rõ". Muốn trả lời trước thì bấm Hủy rồi điền ở khối "Cần làm rõ trước khi làm".</p>
         </ConfirmDialog>
       )}
-      <section className={decisionLocked ? 'decision-bar is-decided' : 'decision-bar'} aria-label="Quyết định">
-        {actionError != null && <ErrorNotice error={actionError} onRetry={actionError instanceof ApiError && actionError.status === 409 ? () => { setActionError(undefined); void refresh() } : undefined} retryLabel="Tải phiên bản mới" />}
+      <section className={decisionLocked ? 'decision-bar is-decided' : 'decision-bar'} aria-label={text('Quyết định', 'Decision')}>
+        {actionError != null && <ErrorNotice error={actionError} onRetry={actionError instanceof ApiError && actionError.status === 409 ? () => { setActionError(undefined); void refresh() } : undefined} retryLabel={text('Tải phiên bản mới', 'Load latest version')} />}
         <div className="decision-bar-row">
-          <strong className="decision-bar-title"><ClipboardCheck size={16} aria-hidden="true" /> Quyết định</strong>
-          <select aria-label="Độ ưu tiên" title="Độ ưu tiên" value={decisionLocked && intake.approved_priority ? intake.approved_priority : priority} onChange={(e) => setPriority(e.target.value as Priority)} disabled={decisionLocked}>{['P0', 'P1', 'P2', 'P3'].map((value) => <option key={value}>{value}</option>)}</select>
+          <strong className="decision-bar-title"><ClipboardCheck size={16} aria-hidden="true" /> {text('Quyết định', 'Decision')}</strong>
+          <select aria-label={text('Độ ưu tiên', 'Priority')} title={text('Độ ưu tiên', 'Priority')} value={decisionLocked && intake.approved_priority ? intake.approved_priority : priority} onChange={(e) => setPriority(e.target.value as Priority)} disabled={decisionLocked}>{['P0', 'P1', 'P2', 'P3'].map((value) => <option key={value}>{value}</option>)}</select>
           {detailUser?.role === 'CTO' && <label className="hard-flag" title="Việc khó: nghiệm thu luôn về CTO, dù Project Owner đã xác nhận"><input type="checkbox" checked={intake.needs_cto_acceptance} disabled={hardFlag.isPending} onChange={(e) => hardFlag.mutate(e.target.checked)} /> Việc khó</label>}
-          <select aria-label="Chuyển đến" title="Chuyển đến" value={decisionLocked && intake.approved_route ? intake.approved_route : route === 'GITLAB' && routeProject?.delivery_system === 'GITHUB' ? 'GITHUB' : route} onChange={(e) => setRoute(e.target.value as RouteTarget)} disabled={decisionLocked}>{Object.entries(routeLabels).filter(([value]) => value !== (routeProject?.delivery_system === 'GITHUB' ? 'GITLAB' : 'GITHUB') && (value !== 'PLANE' || intake.approved_route === 'PLANE')).map(([value, label]) => { const unlinked = routeProject != null && ((value === 'GITLAB' && !routeProject.gitlab_project_id) || (value === 'GITHUB' && !routeProject.github_repository)); return <option value={value} key={value} disabled={unlinked}>{label}{heldItems.has(value) ? ` · cập nhật ${heldItems.get(value)}` : unlinked ? ' · dự án chưa liên kết' : ''}</option> })}</select>
-          <textarea ref={noteRef} className={noteMissing ? 'decision-bar-note is-missing' : 'decision-bar-note'} rows={1} aria-label="Ghi chú quyết định" aria-invalid={noteMissing || undefined} value={actionReason} onChange={(e) => { setActionReason(e.target.value); setNoteMissing(false) }}
+          <select aria-label={text('Chuyển đến', 'Route to')} title={text('Chuyển đến', 'Route to')} value={decisionLocked && intake.approved_route ? intake.approved_route : route === 'GITLAB' && routeProject?.delivery_system === 'GITHUB' ? 'GITHUB' : route} onChange={(e) => setRoute(e.target.value as RouteTarget)} disabled={decisionLocked}>{Object.entries(localizedRouteLabels).filter(([value]) => value !== (routeProject?.delivery_system === 'GITHUB' ? 'GITLAB' : 'GITHUB') && (value !== 'PLANE' || intake.approved_route === 'PLANE')).map(([value, label]) => { const unlinked = routeProject != null && ((value === 'GITLAB' && !routeProject.gitlab_project_id) || (value === 'GITHUB' && !routeProject.github_repository)); return <option value={value} key={value} disabled={unlinked}>{label}{heldItems.has(value) ? ` · ${text('cập nhật', 'update')} ${heldItems.get(value)}` : unlinked ? ` · ${text('dự án chưa liên kết', 'project not linked')}` : ''}</option> })}</select>
+          <textarea ref={noteRef} className={noteMissing ? 'decision-bar-note is-missing' : 'decision-bar-note'} rows={1} aria-label={text('Ghi chú quyết định', 'Decision note')} aria-invalid={noteMissing || undefined} value={actionReason} onChange={(e) => { setActionReason(e.target.value); setNoteMissing(false) }}
             onInput={(event) => { const box = event.currentTarget; box.style.height = 'auto'; box.style.height = `${Math.min(box.scrollHeight + 2, 64)}px` }}
-            placeholder={intake.status === 'SYNC_PENDING' ? 'Đang đồng bộ: chờ xong mới đổi được quyết định' : decisionLocked ? 'Lý do đổi quyết định (bắt buộc khi rút lại hoặc chuyển hướng)' : 'Ghi chú: lý do, thông tin còn thiếu… (bắt buộc khi từ chối)'} />
+            placeholder={intake.status === 'SYNC_PENDING' ? text('Đang đồng bộ: chờ xong mới đổi được quyết định', 'Sync in progress: wait before changing the decision') : decisionLocked ? text('Lý do đổi quyết định (bắt buộc khi rút lại hoặc chuyển hướng)', 'Reason for changing the decision (required)') : text('Ghi chú: lý do, thông tin còn thiếu… (bắt buộc khi từ chối)', 'Note: rationale or missing information (required when rejecting)')} />
           <div className="decision-bar-actions">
-{!decisionLocked && draftTarget && <button className="button button-primary" title={`Phê duyệt rồi tạo mục trên ${draftTarget}. Sẽ hỏi lại một lần.`} onClick={() => setAskApproveSync(true)} disabled={actionMutation.isPending || approveAndSync.isPending || intake.status !== 'PENDING_APPROVAL'}><ArrowUpRight size={15} aria-hidden="true" /> Duyệt và đồng bộ sang {draftTarget}</button>}
-            {!decisionLocked && <button className={draftTarget ? 'button button-secondary' : 'button button-primary'} title={draftTarget ? `Phê duyệt nhưng chưa tạo gì trên ${draftTarget}; đồng bộ sau.` : 'Nơi nhận này không có hệ thống ngoài để đồng bộ.'} onClick={approve} disabled={actionMutation.isPending || approveAndSync.isPending || intake.status !== 'PENDING_APPROVAL'}>{draftTarget ? 'Chỉ duyệt' : 'Phê duyệt'}</button>}
-            {syncTarget && decisionLocked && <button className="button button-primary" onClick={queueExternalSync} disabled={syncMutation.isPending || !externalSync?.sync_available}>{syncMutation.isPending ? 'Đang đưa vào hàng đợi…' : <><ArrowUpRight size={15} />{externalSync?.job?.status === 'FAILED' ? `Thử lại đồng bộ ${syncTargetLabel}` : `Đồng bộ sang ${syncTargetLabel}`}</>}</button>}
+{!decisionLocked && draftTarget && <button className="button button-primary" title={text(`Phê duyệt rồi tạo mục trên ${draftTarget}. Sẽ hỏi lại một lần.`, `Approve, then create an item on ${draftTarget}. You will confirm once.`)} onClick={() => setAskApproveSync(true)} disabled={actionMutation.isPending || approveAndSync.isPending || intake.status !== 'PENDING_APPROVAL'}><ArrowUpRight size={15} aria-hidden="true" /> {text(`Duyệt và đồng bộ sang ${draftTarget}`, `Approve and sync to ${draftTarget}`)}</button>}
+            {!decisionLocked && <button className={draftTarget ? 'button button-secondary' : 'button button-primary'} title={draftTarget ? text(`Phê duyệt nhưng chưa tạo gì trên ${draftTarget}; đồng bộ sau.`, `Approve without creating anything on ${draftTarget}; sync later.`) : text('Nơi nhận này không có hệ thống ngoài để đồng bộ.', 'This route has no external system to sync.')} onClick={approve} disabled={actionMutation.isPending || approveAndSync.isPending || intake.status !== 'PENDING_APPROVAL'}>{draftTarget ? text('Chỉ duyệt', 'Approve only') : text('Phê duyệt', 'Approve')}</button>}
+            {syncTarget && decisionLocked && <button className="button button-primary" onClick={queueExternalSync} disabled={syncMutation.isPending || !externalSync?.sync_available}>{syncMutation.isPending ? text('Đang đưa vào hàng đợi…', 'Queueing…') : <><ArrowUpRight size={15} />{externalSync?.job?.status === 'FAILED' ? text(`Thử lại đồng bộ ${syncTargetLabel}`, `Retry ${syncTargetLabel} sync`) : text(`Đồng bộ sang ${syncTargetLabel}`, `Sync to ${syncTargetLabel}`)}</>}</button>}
             {['APPROVED', 'SYNCED'].includes(intake.status) && <button className="button button-secondary" onClick={reopen} disabled={actionMutation.isPending} title="Đưa yêu cầu về Chờ phê duyệt để quyết định lại. Cần ghi lý do.">{intake.status === 'SYNCED' ? 'Chuyển hướng' : 'Rút lại phê duyệt'}</button>}
-            {!decisionLocked && <button className="button button-secondary" onClick={() => transition('needs-information')} disabled={actionMutation.isPending}>Cần làm rõ</button>}
-            {!decisionLocked && <button className="button button-secondary" onClick={() => transition('defer')} disabled={actionMutation.isPending}>Hoãn</button>}
-            {!decisionLocked && <button className="button button-danger" onClick={() => actionReason.trim() ? transition('reject') : needNote('Cần nhập lý do ở ô ghi chú trước khi từ chối.')} disabled={actionMutation.isPending}>Từ chối</button>}
+            {!decisionLocked && <button className="button button-secondary" onClick={() => transition('needs-information')} disabled={actionMutation.isPending}>{text('Cần làm rõ', 'Needs information')}</button>}
+            {!decisionLocked && <button className="button button-secondary" onClick={() => transition('defer')} disabled={actionMutation.isPending}>{text('Hoãn', 'Defer')}</button>}
+            {!decisionLocked && <button className="button button-danger" onClick={() => actionReason.trim() ? transition('reject') : needNote(text('Cần nhập lý do ở ô ghi chú trước khi từ chối.', 'Enter a reason in the note before rejecting.'))} disabled={actionMutation.isPending}>{text('Từ chối', 'Reject')}</button>}
           </div>
         </div>
         {blocked && (
@@ -3389,6 +3510,14 @@ const flowSteps = [
   { key: 'issue', label: 'Issue', hint: 'Đồng bộ tạo Issue trên GitLab/GitHub. Chỉ việc có Issue mới lập kế hoạch được.' },
   { key: 'assign', label: 'Xếp việc', hint: 'Giao Issue cho một người, một buổi, một số giờ trong ngày.' },
   { key: 'close', label: 'Chốt kế hoạch', hint: 'Chốt bảng phân công của ngày. Không phê duyệt yêu cầu nào.' },
+] as const
+
+const flowStepsEn = [
+  { key: 'receive', label: 'Intake', hint: 'The request enters Intake and AI organizes it.' },
+  { key: 'approve', label: 'Approve', hint: 'Decide whether to do it, its priority, and where it goes. No one is assigned yet.' },
+  { key: 'issue', label: 'Issue', hint: 'Sync creates a GitLab or GitHub Issue. Only work with an Issue can be planned.' },
+  { key: 'assign', label: 'Plan', hint: 'Assign the Issue to a person, a time slot, and a number of hours.' },
+  { key: 'close', label: 'Close plan', hint: 'Close the daily assignment board. This does not approve requests.' },
 ] as const
 
 // One line that shows where a page sits in the whole flow; it can be hidden once it is familiar.
@@ -3432,16 +3561,17 @@ function usePinnedToPageColumn(ref: { current: HTMLElement | null }, active: boo
 }
 
 function FlowGuide({ here, note }: { here: readonly string[]; note: string }) {
+  const { locale, text } = useLocale()
   const [hidden, setHidden] = useState(() => localStorage.getItem(FLOW_GUIDE_KEY) !== '0')
   const toggle = (next: boolean) => { localStorage.setItem(FLOW_GUIDE_KEY, next ? '1' : '0'); setHidden(next) }
-  if (hidden) return <button className="flow-guide-reopen" type="button" onClick={() => toggle(false)}><CircleHelp size={14} /> Luồng xử lý một yêu cầu</button>
+  if (hidden) return <button className="flow-guide-reopen" type="button" onClick={() => toggle(false)}><CircleHelp size={14} /> {text('Luồng xử lý một yêu cầu', 'Request lifecycle')}</button>
   return (
-    <section className="flow-guide" aria-label="Luồng xử lý một yêu cầu">
+    <section className="flow-guide" aria-label={text('Luồng xử lý một yêu cầu', 'Request lifecycle')}>
       <ol>
-        {flowSteps.map((step) => <li key={step.key} className={here.includes(step.key) ? 'here' : undefined} title={step.hint}><span>{step.label}</span></li>)}
+        {(locale === 'en' ? flowStepsEn : flowSteps).map((step) => <li key={step.key} className={here.includes(step.key) ? 'here' : undefined} title={step.hint}><span>{step.label}</span></li>)}
       </ol>
       <p>{note}</p>
-      <button className="button button-secondary button-small" type="button" onClick={() => toggle(true)}>Đã hiểu</button>
+      <button className="button button-secondary button-small" type="button" onClick={() => toggle(true)}>{text('Đã hiểu', 'Got it')}</button>
     </section>
   )
 }
@@ -3560,6 +3690,7 @@ function WorkLogSection({ intake, onChanged }: { intake: Intake; onChanged: () =
 }
 
 function IntakeJourney({ intakeId, refreshKey, humanWork, onChanged }: { intakeId: string; refreshKey: string; humanWork: boolean; onChanged: () => void }) {
+  const { locale, text } = useLocale()
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const [returning, setReturning] = useState<string>()
@@ -3630,7 +3761,7 @@ function IntakeJourney({ intakeId, refreshKey, humanWork, onChanged }: { intakeI
   const planningLink = linkedPlan
     ? `/planning?date=${encodeURIComponent(linkedPlan.plan_date)}&project=${encodeURIComponent(data.project_id)}&intake=${encodeURIComponent(data.intake_public_id)}`
     : '/planning'
-  const slotName = (slot: string) => (slot === 'MORNING' ? 'sáng' : 'chiều')
+  const slotName = (slot: string) => (slot === 'MORNING' ? text('sáng', 'morning') : text('chiều', 'afternoon'))
   const canOpenPlan = user?.role === 'CTO'
   const latestListedWork = workLog.data?.[0]
   const pendingWorkId = data.work?.latest_id || (latestListedWork?.review_decision === 'PENDING' ? latestListedWork.id : undefined)
@@ -3641,33 +3772,33 @@ function IntakeJourney({ intakeId, refreshKey, humanWork, onChanged }: { intakeI
   const canReconcileWork = user?.role === 'CTO' && !data.work && Boolean(data.unlogged_evidence)
   type Step = { label: string; state: 'done' | 'now' | 'todo' | 'skip'; text: ReactNode; actions?: ReactNode }
   const steps: Step[] = [
-    { label: 'Tiếp nhận', state: 'done', text: `${channelLabels[data.channel as Channel] || data.channel} · ${formatDate(data.received_at)}` },
+    { label: text('Tiếp nhận', 'Captured'), state: 'done', text: `${(locale === 'en' ? channelLabelsEn : channelLabels)[data.channel as Channel] || data.channel} · ${formatDate(data.received_at)}` },
     {
-      label: 'Phê duyệt', state: approved ? 'done' : stopped ? 'skip' : 'now',
-      text: approved ? `${decision?.by || 'Đã duyệt'} · ${formatDate(decision!.at)}${decision?.priority ? ` · ${decision.priority}` : ''}`
-        : stopped ? (statusLabels[data.status as IntakeStatus] || data.status) : 'Đang chờ quyết định',
+      label: text('Phê duyệt', 'Approved'), state: approved ? 'done' : stopped ? 'skip' : 'now',
+      text: approved ? `${decision?.by || text('Đã duyệt', 'Approved')} · ${formatDate(decision!.at)}${decision?.priority ? ` · ${decision.priority}` : ''}`
+        : stopped ? (statusLabels[data.status as IntakeStatus] || data.status) : text('Đang chờ quyết định', 'Waiting for a decision'),
     },
     {
       label: 'Issue', state: data.issue ? 'done' : noIssueRoute || stopped ? 'skip' : approved ? 'now' : 'todo',
       text: data.issue ? (data.issue.url ? <a href={data.issue.url} target="_blank" rel="noreferrer">{trackerName} #{data.issue.external_id}</a> : `${trackerName} #${data.issue.external_id}`)
         : noIssueRoute && data.work_item ? <>Thành việc nội bộ <Link to={`/viec?project=${data.work_item.project_id}&work=${data.work_item.id}`}>{data.work_item.code}</Link> · {workColumnLabels[data.work_item.status]}{data.work_item.status === 'DONE' || data.work_item.status === 'CANCELLED' ? '' : ': bàn và giao trên bảng việc; thành Issue từ đó khi cần'}</>
         : noIssueRoute ? `Đi tuyến ${routeLabels[(decision?.route || 'RESPONSE') as RouteTarget] || decision?.route}: không tạo Issue nên không lập kế hoạch`
-        : stopped ? 'Không áp dụng' : approved ? (data.sync_status === 'FAILED' ? 'Đồng bộ lỗi, chưa có Issue' : data.sync_status ? 'Đang tạo Issue' : 'Đã duyệt, chưa bấm đồng bộ')
-        : 'Có sau khi duyệt và đồng bộ',
+        : stopped ? text('Không áp dụng', 'Not applicable') : approved ? (data.sync_status === 'FAILED' ? text('Đồng bộ lỗi, chưa có Issue', 'Sync failed; no Issue yet') : data.sync_status ? text('Đang tạo Issue', 'Creating Issue') : text('Đã duyệt, chưa bấm đồng bộ', 'Approved; not synced yet'))
+        : text('Có sau khi duyệt và đồng bộ', 'Available after approval and sync'),
     },
     {
-      label: 'Xếp việc', state: latest ? 'done' : data.work?.off_plan ? 'skip' : data.waiting_in_plan ? 'now' : data.issue ? 'now' : noIssueRoute || stopped ? 'skip' : 'todo',
+      label: text('Xếp việc', 'Planned'), state: latest ? 'done' : data.work?.off_plan ? 'skip' : data.waiting_in_plan ? 'now' : data.issue ? 'now' : noIssueRoute || stopped ? 'skip' : 'todo',
       text: latest ? `${latest.member_name} · ${slotName(latest.slot)} ${formatDay(latest.plan_date)} · ${latest.planned_hours}h${latest.accepted_at ? ' · đã nghiệm thu' : latest.work_status && latest.work_status !== 'PLANNED' ? ` · ${latest.work_status === 'IN_PROGRESS' ? 'đang làm' : latest.work_status === 'DONE' ? 'báo xong, chờ nghiệm thu' : 'bị chặn'}` : ''}${data.plans.length > 1 ? ` (và ${data.plans.length - 1} lần khác)` : ''}`
         : data.work?.off_plan ? `Đã làm ngoài kế hoạch · ${data.work.latest_by || 'không rõ'}${data.work.actual_minutes != null ? ` · ${hoursText(data.work.actual_minutes / 60)} thực tế` : ''}`
         : data.waiting_in_plan ? (data.waiting_in_plan.plan_closed ? `Chưa được xếp: kế hoạch ${formatDay(data.waiting_in_plan.plan_date)} đã chốt mà việc này còn chờ phân công; sẽ hiện lại ở kế hoạch kế tiếp` : `Đang chờ phân công trong kế hoạch ${formatDay(data.waiting_in_plan.plan_date)}`)
-        : data.issue ? 'Chưa nằm trong kế hoạch ngày nào' : noIssueRoute || stopped ? 'Không áp dụng' : 'Cần có Issue trước',
+        : data.issue ? text('Chưa nằm trong kế hoạch ngày nào', 'Not in a daily plan yet') : noIssueRoute || stopped ? text('Không áp dụng', 'Not applicable') : text('Cần có Issue trước', 'An Issue is required first'),
     },
     {
-      label: 'Chốt kế hoạch', state: latest?.settled ? 'done' : latest ? 'now' : data.work?.off_plan || noIssueRoute || stopped ? 'skip' : 'todo',
+      label: text('Chốt kế hoạch', 'Plan closed'), state: latest?.settled ? 'done' : latest ? 'now' : data.work?.off_plan || noIssueRoute || stopped ? 'skip' : 'todo',
       text: latest ? (latest.settled ? `Kế hoạch ${formatDay(latest.plan_date)} đã chốt` : `Kế hoạch ${formatDay(latest.plan_date)} chưa chốt`) : data.work?.off_plan ? 'Không áp dụng cho việc phát sinh ngoài kế hoạch' : noIssueRoute || stopped ? 'Không áp dụng' : 'Sau khi được xếp việc',
     },
     {
-      label: 'Nghiệm thu', state: data.accepted_at ? 'done' : pendingVerification || data.work || data.unlogged_evidence || (humanWork && latest) ? 'now' : noIssueRoute || stopped ? 'skip' : 'todo',
+      label: text('Nghiệm thu', 'Accepted'), state: data.accepted_at ? 'done' : pendingVerification || data.work || data.unlogged_evidence || (humanWork && latest) ? 'now' : noIssueRoute || stopped ? 'skip' : 'todo',
       text: data.accepted_at
         ? `Đã nghiệm thu, đang đóng Issue · ${data.work?.latest_by || 'CTO'} · ${formatDate(data.accepted_at)}`
         : pendingVerification
@@ -3736,7 +3867,7 @@ function IntakeJourney({ intakeId, refreshKey, humanWork, onChanged }: { intakeI
           <ul><li>Việc quay lại kế hoạch để dev tiếp tục làm.</li><li>Issue trên tracker không bị đóng.</li></ul>
         </ConfirmDialog>
       )}
-      <section className="panel intake-journey" aria-label="Yêu cầu này đang ở bước nào">
+      <section className="panel intake-journey" aria-label={text('Yêu cầu này đang ở bước nào', 'Current lifecycle stage')}>
         {review.error != null && !returning && <ErrorNotice error={review.error} />}
         {verificationError != null && !confirmingVerification && !rejectingVerification && <ErrorNotice error={verificationError} />}
         <ol>
@@ -3749,7 +3880,7 @@ function IntakeJourney({ intakeId, refreshKey, humanWork, onChanged }: { intakeI
             </li>
           ))}
         </ol>
-        {canOpenPlan && linkedPlan && <Link className="journey-link" to={planningLink}>Mở Daily Planning <ArrowRight size={13} /></Link>}
+        {canOpenPlan && linkedPlan && <Link className="journey-link" to={planningLink}>{text('Mở Daily Planning', 'Open Daily Planning')} <ArrowRight size={13} /></Link>}
         {data.previous_targets.length > 0 && (
           <p className="notice notice-warn journey-previous">
             <strong>Mục tạo theo quyết định cũ vẫn còn ở hệ thống ngoài.</strong> Duyệt lại cùng tuyến sẽ dùng lại nó (mở lại nếu đã đóng). Chọn tuyến khác thì tự đóng hoặc xóa: {data.previous_targets.map((target, index) => (
@@ -5108,7 +5239,7 @@ function OffPlanWorkList({ items }: { items: DayPlanProject['off_plan'] }) {
       <p className="field-help">Kết quả thực tế trong ngày; không cộng vào giờ đã lập kế hoạch và không sửa kế hoạch đã chốt.</p>
       <ul>
         {items.map((item) => (
-          <li key={item.id} className="off-plan-row">
+          <li key={item.id} className={`off-plan-row${item.accepted_at || item.review_decision !== 'PENDING' ? ' is-decided' : ''}`}>
             <div>
               <strong>{item.issue_url ? <a href={item.issue_url} target="_blank" rel="noreferrer">#{item.issue}</a> : `#${item.issue}`} {item.title}</strong>
               <small>{item.executor}{item.actual_minutes != null ? ` · ${hoursText(item.actual_minutes / 60)} thực tế` : ''}{item.deployed === true ? ' · đã triển khai' : item.deployed === false ? ' · chưa triển khai' : ''}</small>
@@ -5131,7 +5262,18 @@ function ProjectOffPlanWork({ date, projectId }: { date: string; projectId: stri
   return <OffPlanWorkList items={items} />
 }
 
-function DayPlanProjectBlock({ block, onOpen, collapsed, onToggle, onChanged }: { block: DayPlanProject; onOpen: (projectId: string) => void; collapsed: boolean; onToggle: () => void; onChanged: () => void }) {
+type ProjectOrderingControls = {
+  index: number
+  total: number
+  busy: boolean
+  dragging: boolean
+  onMove: (targetIndex: number) => void
+  onDragStart: (event: DragEvent<HTMLButtonElement>) => void
+  onDragEnd: () => void
+  onDrop: () => void
+}
+
+function DayPlanProjectBlock({ block, onOpen, collapsed, onToggle, onChanged, ordering }: { block: DayPlanProject; onOpen: (projectId: string) => void; collapsed: boolean; onToggle: () => void; onChanged: () => void; ordering?: ProjectOrderingControls }) {
   const run = block.run
   const [cancelling, setCancelling] = useState<{ id: string; title: string } | null>(null)
   // Same three actions as the project's own plan page: place it, put it off until tomorrow, or note it was done already.
@@ -5149,7 +5291,9 @@ function DayPlanProjectBlock({ block, onOpen, collapsed, onToggle, onChanged }: 
     block.off_plan.length > 0 ? `${block.off_plan.length} ngoài kế hoạch` : null,
   ].filter(Boolean).join(' · ')
   return (
-    <section className={`panel day-plan-project${collapsed ? ' is-collapsed' : ''}`} aria-label={block.name}>
+    <section className={`panel day-plan-project${collapsed ? ' is-collapsed' : ''}${ordering?.dragging ? ' is-dragging' : ''}`} aria-label={block.name}
+      onDragOver={ordering ? (event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } : undefined}
+      onDrop={ordering ? (event) => { event.preventDefault(); ordering.onDrop() } : undefined}>
       <header className="day-plan-head" onClick={onToggle}>
         <button type="button" className="day-plan-fold" aria-expanded={!collapsed} aria-label={collapsed ? `Mở rộng ${block.name}` : `Thu gọn ${block.name}`} onClick={(event) => { event.stopPropagation(); onToggle() }}>{collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>
         <div>
@@ -5158,6 +5302,11 @@ function DayPlanProjectBlock({ block, onOpen, collapsed, onToggle, onChanged }: 
         </div>
         <div className="day-plan-tools" onClick={(event) => event.stopPropagation()}>
           {collapsed && folded && <small className="day-plan-folded">{folded}</small>}
+          {ordering && <span className="day-plan-order-controls" aria-label="Sắp xếp dự án">
+            <button type="button" className="text-button day-plan-drag" draggable={!ordering.busy} disabled={ordering.busy} aria-label={`Kéo để sắp xếp ${block.name}`} title="Kéo để đổi thứ tự" onDragStart={ordering.onDragStart} onDragEnd={ordering.onDragEnd}><GripVertical size={15} /></button>
+            <button type="button" className="text-button" disabled={ordering.busy || ordering.index === 0} aria-label={`Đưa ${block.name} lên trên`} onClick={() => ordering.onMove(ordering.index - 1)}><ArrowUp size={14} /></button>
+            <button type="button" className="text-button" disabled={ordering.busy || ordering.index === ordering.total - 1} aria-label={`Đưa ${block.name} xuống dưới`} onClick={() => ordering.onMove(ordering.index + 1)}><ArrowDown size={14} /></button>
+          </span>}
           <span className={`run-status plan-tone-${tone}`}>{status}</span>
           <button type="button" className="button button-secondary button-small" onClick={() => onOpen(block.id)}>{run ? 'Mở kế hoạch' : 'Lập kế hoạch'} <ArrowUpRight size={13} /></button>
         </div>
@@ -5239,8 +5388,15 @@ function DoneElsewhereDialog({ runId, candidateId, title, onDone, onCancel }: { 
 }
 
 function DayPlansOverview({ date, onOpen }: { date: string; onOpen: (projectId: string) => void }) {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
   const [view, setView] = useState<'projects' | 'people'>('projects')
   const plans = useQuery({ queryKey: ['planning-day-plans', date], queryFn: () => api<DayPlans>(`/planning/day-plans/${date}`), refetchInterval: 60_000 })
+  const [draggingProject, setDraggingProject] = useState<string | null>(null)
+  const saveOrder = useMutation({
+    mutationFn: (preference: PlanningProjectOrder) => api<PlanningProjectOrder>('/planning/project-order', { method: 'PUT', body: JSON.stringify(preference) }),
+    onSuccess: (preference) => queryClient.setQueryData<DayPlans>(['planning-day-plans', date], (current) => current ? { ...current, project_order: preference } : current),
+  })
   // Which projects this browser keeps folded; a project not listed is open.
   const [folded, setFolded] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(FOLDED_KEY) || '[]') as string[] } catch { return [] } })
   const remember = (next: string[]) => { setFolded(next); try { localStorage.setItem(FOLDED_KEY, JSON.stringify(next)) } catch { /* private window */ } }
@@ -5248,21 +5404,40 @@ function DayPlansOverview({ date, onOpen }: { date: string; onOpen: (projectId: 
   if (plans.error != null) return <ErrorNotice error={plans.error} onRetry={() => { void plans.refetch() }} />
   if (plans.isLoading || !plans.data) return <LoadingBlock />
   const totals = plans.data.totals
-  const ids = plans.data.projects.map((block) => block.id)
+  const preference = plans.data.project_order || { mode: 'PRIORITY' as const, project_ids: [] }
+  const orderedProjects = orderPlanningProjects(plans.data.projects, preference, user?.role === 'CTO')
+  const ids = orderedProjects.map((block) => block.id)
   const allFolded = ids.length > 0 && ids.every((id) => folded.includes(id))
+  const changeMode = (mode: PlanningProjectOrder['mode']) => {
+    const projectIds = mode === 'CUSTOM' ? orderPlanningProjects(plans.data.projects, { mode: 'PRIORITY', project_ids: [] }, user?.role === 'CTO').map((block) => block.id) : []
+    saveOrder.mutate({ mode, project_ids: projectIds })
+  }
+  const reorder = (projectId: string, targetIndex: number) => {
+    const next = movePlanningProject(ids, projectId, targetIndex)
+    if (next !== ids) saveOrder.mutate({ mode: 'CUSTOM', project_ids: next })
+  }
   return (
     <>
       <p className="day-plan-totals">
         <span><strong>{totals.unclosed}</strong>/{totals.projects} dự án chưa chốt</span><span><strong>{totals.free_people}</strong> người còn trống · {hoursText(totals.free_hours)}</span><span><strong>{totals.waiting}</strong> việc chờ phân công</span>{totals.off_plan > 0 && <span><strong>{totals.off_plan}</strong> ngoài kế hoạch{totals.off_plan_actual_minutes > 0 ? ` · ${hoursText(totals.off_plan_actual_minutes / 60)} thực tế` : ''}</span>}<span className="muted">Tổng quan chỉ đọc: xếp và chốt trong từng dự án.</span>
         <span className="day-plan-views"><button type="button" className={view === 'projects' ? 'active' : undefined} onClick={() => setView('projects')}>Theo dự án</button><button type="button" className={view === 'people' ? 'active' : undefined} onClick={() => setView('people')}>Theo người</button></span>
+        {view === 'projects' && <span className="day-plan-sort"><label>Thứ tự <select value={preference.mode} disabled={saveOrder.isPending} onChange={(event) => changeMode(event.target.value as PlanningProjectOrder['mode'])}><option value="PRIORITY">Ưu tiên xử lý</option><option value="CUSTOM">Tùy chỉnh</option></select></label>{preference.mode === 'CUSTOM' && <button type="button" className="text-button" disabled={saveOrder.isPending} onClick={() => changeMode('PRIORITY')}><RotateCcw size={13} /> Khôi phục ưu tiên</button>}</span>}
         {view === 'projects' && ids.length > 1 && <button type="button" className="text-button day-plan-fold-all" onClick={() => remember(allFolded ? [] : ids)}>{allFolded ? 'Mở rộng tất cả' : 'Thu gọn tất cả'}</button>}
       </p>
-      {view === 'people' ? <div className="panel"><PeopleBoard day={date} /></div> : plans.data.projects.length === 0 ? <div className="panel"><EmptyState icon={<CalendarDays size={20} />} title="Chưa có dự án phần mềm" text="Thêm dự án ở Cài đặt > Dự án." /></div> : plans.data.projects.map((block) => <DayPlanProjectBlock key={block.id} block={block} onOpen={onOpen} collapsed={folded.includes(block.id)} onToggle={() => toggle(block.id)} onChanged={() => { void plans.refetch() }} />)}
+      {saveOrder.error != null && <ErrorNotice error={saveOrder.error} />}
+      {view === 'people' ? <div className="panel"><PeopleBoard day={date} /></div> : orderedProjects.length === 0 ? <div className="panel"><EmptyState icon={<CalendarDays size={20} />} title="Chưa có dự án phần mềm" text="Thêm dự án ở Cài đặt > Dự án." /></div> : orderedProjects.map((block, index) => <DayPlanProjectBlock key={block.id} block={block} onOpen={onOpen} collapsed={folded.includes(block.id)} onToggle={() => toggle(block.id)} onChanged={() => { void plans.refetch() }} ordering={preference.mode === 'CUSTOM' ? {
+        index, total: orderedProjects.length, busy: saveOrder.isPending, dragging: draggingProject === block.id,
+        onMove: (targetIndex) => reorder(block.id, targetIndex),
+        onDragStart: (event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', block.id); setDraggingProject(block.id) },
+        onDragEnd: () => setDraggingProject(null),
+        onDrop: () => { if (draggingProject) reorder(draggingProject, index); setDraggingProject(null) },
+      } : undefined} />)}
     </>
   )
 }
 
 function PlanningPage() {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
@@ -5470,13 +5645,13 @@ function PlanningPage() {
   return (
     <>
       <AgentHint command="today" />
-      <PageHeader title="Kế hoạch triển khai trong ngày" helper={[
-        'Mỗi người một hàng: giờ còn trống ở bên trái, việc buổi sáng và buổi chiều ở bên phải.',
-        'Kéo một việc sang ô của người khác để đổi người làm, hoặc sang ô còn lại để đổi buổi. Nút trên thẻ chỉ đổi buổi.',
-        '"Tất cả dự án" là tổng quan chỉ đọc theo từng dự án; xếp và chốt trong kế hoạch của từng dự án.',
-        'Issue trên GitLab/GitHub là nguồn chính; báo cáo ngày và Intake bổ sung ngữ cảnh.',
-        'CTO hoặc Project Owner của dự án chốt kế hoạch.',
-      ]} action={mutable && !overview ? <button className="button button-primary" type="button" onClick={() => setPanel({ kind: 'add' })}><Plus size={16} /> Thêm việc vào kế hoạch</button> : undefined} />
+      <PageHeader title={text('Kế hoạch triển khai trong ngày', 'Daily Planning')} helper={[
+        text('Mỗi người một hàng: giờ còn trống ở bên trái, việc buổi sáng và buổi chiều ở bên phải.', 'Each person has one row: available hours on the left, morning and afternoon work on the right.'),
+        text('Kéo một việc sang ô của người khác để đổi người làm, hoặc sang ô còn lại để đổi buổi. Nút trên thẻ chỉ đổi buổi.', 'Drag work to another person or time slot to reassign it.'),
+        text('"Tất cả dự án" là tổng quan chỉ đọc theo từng dự án; xếp và chốt trong kế hoạch của từng dự án.', '"All projects" is a read-only overview. Assign and close work inside one project plan.'),
+        text('Issue trên GitLab/GitHub là nguồn chính; báo cáo ngày và Intake bổ sung ngữ cảnh.', 'GitLab or GitHub Issues are the source of truth; reports and Intake add context.'),
+        text('CTO hoặc Project Owner của dự án chốt kế hoạch.', 'The CTO or Project Owner closes the plan.'),
+      ]} action={mutable && !overview ? <button className="button button-primary" type="button" onClick={() => setPanel({ kind: 'add' })}><Plus size={16} /> {text('Thêm việc vào kế hoạch', 'Add work to plan')}</button> : undefined} />
       {overrideMove && (
         <ConfirmDialog plain title={`Vẫn giao việc cho ${overrideMember}?`} confirmLabel="Vẫn chuyển việc" busyLabel="Đang chuyển…" busy={moveAssignment.isPending} error={moveError} onConfirm={() => moveAssignment.mutate({ ...overrideMove, overrideReason: moveOverrideReason })} onCancel={() => { if (!moveAssignment.isPending) { setOverrideMove(undefined); setMoveError(undefined) } }}>
           <p>{overrideMove.code === 'MULTIPLE_PRIMARY_DOING' ? `${overrideMember} đã có một việc phát triển chính khác trong ngày.` : overrideMove.code === 'SLOT_OVER_CAPACITY' ? `Buổi nhận việc của ${overrideMember} sẽ vượt 4 giờ.` : `${overrideMember} không còn đủ giờ làm trong ngày.`}</p>
@@ -5484,12 +5659,12 @@ function PlanningPage() {
         </ConfirmDialog>
       )}
       {/* A closed plan is past "Xếp việc": only the last step stays lit. */}
-      <FlowGuide here={run && !mutable ? ['close'] : ['assign', 'close']} note={run && !mutable ? 'Kế hoạch ngày này đã chốt; người phụ trách được ghi lên từng Issue. Cần sửa thì bấm "Mở lại để sửa" ở thanh dưới: bản mới thay bản cũ, chốt lại chỉ ghi Issue có thay đổi.' : 'Ở đây bạn giao việc đã có Issue cho từng người rồi chốt kế hoạch ngày. Chốt kế hoạch không phê duyệt yêu cầu nào; riêng việc thêm mới chưa có Issue thì được phê duyệt ngay tại khung thêm việc.'} />
+      <FlowGuide here={run && !mutable ? ['close'] : ['assign', 'close']} note={run && !mutable ? text('Kế hoạch ngày này đã chốt; người phụ trách được ghi lên từng Issue. Cần sửa thì bấm "Mở lại để sửa" ở thanh dưới: bản mới thay bản cũ, chốt lại chỉ ghi Issue có thay đổi.', 'This daily plan is closed and assignees were written to their Issues. Reopen it to create a new revision when changes are needed.') : text('Ở đây bạn giao việc đã có Issue cho từng người rồi chốt kế hoạch ngày. Chốt kế hoạch không phê duyệt yêu cầu nào; riêng việc thêm mới chưa có Issue thì được phê duyệt ngay tại khung thêm việc.', 'Assign work that already has an Issue, then close the daily plan. Closing a plan does not approve requests.')} />
       <div className="plan-bar">
         <button type="button" className="button button-secondary plan-day-step" title="Ngày trước" onClick={() => goDay(shiftDay(planDate, -1))}>← {shiftDay(planDate, -1) === todayInPlanningTimezone() ? 'Hôm nay' : planDate === todayInPlanningTimezone() ? 'Hôm qua' : shortDay(shiftDay(planDate, -1))}</button>
-        <input type="date" aria-label="Ngày kế hoạch" value={planDate} onChange={(e) => goDay(e.target.value)} />
+        <input type="date" aria-label={text('Ngày kế hoạch', 'Plan date')} value={planDate} onChange={(e) => goDay(e.target.value)} />
         <button type="button" className="button button-secondary plan-day-step" title="Ngày sau" onClick={() => goDay(shiftDay(planDate, 1))}>{shiftDay(planDate, 1) === todayInPlanningTimezone() ? 'Hôm nay' : planDate === todayInPlanningTimezone() ? 'Ngày mai' : shortDay(shiftDay(planDate, 1))} →</button>
-        <select aria-label="Phạm vi" title="Tất cả dự án là tổng quan chỉ đọc của cả đội; chọn một dự án để xếp và chốt kế hoạch của dự án đó." value={projectScope} onChange={(e) => { setProjectScope(e.target.value); setRunId(''); setPanel(null); updatePlanningUrl(planDate, e.target.value, null) }}><option value="ALL">Tất cả dự án</option>{plannable.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select>
+        <select aria-label={text('Phạm vi', 'Scope')} title={text('Tất cả dự án là tổng quan chỉ đọc của cả đội; chọn một dự án để xếp và chốt kế hoạch của dự án đó.', 'All projects is a read-only team overview. Select one project to assign and close its plan.')} value={projectScope} onChange={(e) => { setProjectScope(e.target.value); setRunId(''); setPanel(null); updatePlanningUrl(planDate, e.target.value, null) }}><option value="ALL">{text('Tất cả dự án', 'All projects')}</option>{plannable.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select>
         {overview ? <span className="plan-bar-note">Tổng quan theo dự án</span> : run ? <span className={`run-status run-${run.status.toLowerCase()}`} title={`Danh sách Issue cập nhật lúc ${formatDate(run.source_snapshot_at)}`}>{runStatusLabels[run.status] || run.status}</span> : openMutation.isPending ? <span className="plan-bar-note">Đang mở kế hoạch…</span> : null}
         <span className="plan-bar-note plan-bar-right">{!overview && capacityRows.length > 0 ? `${capacityRows.length} người · còn ${hoursText(capacityLeft)} / ${hoursText(capacityTotal)}` : ''}</span>
         {run && !overview && run.warnings.length > 0 && <a className="plan-bar-warnings" href="#plan-warnings">{warningKinds} loại cảnh báo</a>}
@@ -5515,13 +5690,13 @@ function PlanningPage() {
           {canClose ? (
             <section className="panel planning-approval-bar" ref={approvalBar} aria-label="Chốt kế hoạch">
               <div className="approval-lead">
-                <h2>{mutable ? 'Chốt kế hoạch' : run.status === 'SUPERSEDED' ? 'Bản đã thay' : 'Kế hoạch đã chốt'}</h2>
+                <h2>{mutable ? text('Chốt kế hoạch', 'Close plan') : run.status === 'SUPERSEDED' ? text('Bản đã thay', 'Superseded revision') : text('Kế hoạch đã chốt', 'Plan closed')}</h2>
                 <InfoTip label="Về chốt kế hoạch" text="Chấp nhận các đề xuất trước, rồi chốt. Với dự án dùng GitLab, người phụ trách, milestone và hạn chót được ghi lên từng Issue. Kế hoạch đã chốt mở lại được thành bản mới; chốt lại chỉ ghi Issue có thay đổi. Chốt kế hoạch không phê duyệt Intake nào." />
                 <span className="approval-stats">{run.assignments.length} việc{run.revision > 1 ? ` · bản ${run.revision}` : ''}{mutable && unseenWarnings > 0 && <> · <a href="#plan-warnings">{unseenWarnings} cảnh báo chưa xem</a></>}</span>
               </div>
               <div>
                 {!mutable && run.status !== 'SUPERSEDED' && <button className="button button-secondary" onClick={reopenPlan} disabled={reopenMutation.isPending}>{reopenMutation.isPending ? 'Đang mở lại…' : <><Pencil size={15} /> Mở lại để sửa</>}</button>}
-                <button className="button button-secondary" onClick={() => acceptMutation.mutate()} disabled={!mutable || !hasUnaccepted || acceptMutation.isPending}>{acceptMutation.isPending ? 'Đang chấp nhận…' : <><Check size={15} /> Chấp nhận đề xuất</>}</button><button className="button button-primary" onClick={closePlan} disabled={!mutable || hasUnaccepted || run.assignments.length === 0 || approveMutation.isPending}>{approveMutation.isPending ? 'Đang chốt…' : <><ClipboardCheck size={15} /> Chốt kế hoạch</>}</button>
+                <button className="button button-secondary" onClick={() => acceptMutation.mutate()} disabled={!mutable || !hasUnaccepted || acceptMutation.isPending}>{acceptMutation.isPending ? text('Đang chấp nhận…', 'Accepting…') : <><Check size={15} /> {text('Chấp nhận đề xuất', 'Accept suggestions')}</>}</button><button className="button button-primary" onClick={closePlan} disabled={!mutable || hasUnaccepted || run.assignments.length === 0 || approveMutation.isPending}>{approveMutation.isPending ? text('Đang chốt…', 'Closing…') : <><ClipboardCheck size={15} /> {text('Chốt kế hoạch', 'Close plan')}</>}</button>
               </div>
             </section>
           ) : (
@@ -8618,6 +8793,12 @@ function CtoOnly() {
   return user?.role === 'CTO' ? <Outlet context={shell} /> : <Navigate to="/" replace />
 }
 
+function ProjectManagerOnly() {
+  const { user } = useAuth()
+  const shell = useOutletContext<ShellContext>()
+  return user?.role === 'CTO' || user?.role === 'PROJECT_OWNER' ? <Outlet context={shell} /> : <Navigate to="/" replace />
+}
+
 function SettingsIndex() {
   const { user } = useAuth()
   return <Navigate to={user?.role === 'CTO' ? '/settings/projects' : '/settings/account'} replace />
@@ -8707,6 +8888,124 @@ function ProjectTeamPanel({ project }: { project: Project }) {
         <button className="button button-primary" type="button" disabled={!dirty || save.isPending} onClick={submit}>{save.isPending ? 'Đang lưu…' : 'Lưu nhân sự dự án'}</button>
       </footer>
     </section>
+  )
+}
+
+function ManagedProjectsPage() {
+  const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
+  return (
+    <>
+      <PageHeader title="Dự án" helper="Mở một dự án để xem đội ngũ và thêm nhân sự. Bạn chỉ thấy các dự án mình được phép quản lý." />
+      {projects.error != null && <ErrorNotice error={projects.error} onRetry={() => { void projects.refetch() }} />}
+      {projects.isLoading ? <LoadingBlock /> : (projects.data || []).length === 0 ? (
+        <section className="panel"><EmptyState icon={<UserRound size={20} />} title="Chưa có dự án" text="Tài khoản này chưa được giao quản lý dự án nào." /></section>
+      ) : (
+        <section className="panel settings-panel member-list">
+          {(projects.data || []).map((project) => (
+            <div className="member-row" key={project.id}>
+              <div><strong>{project.name}</strong><small>{project.code} · {project.owner_name ? `Project Owner: ${project.owner_name}` : 'Chưa có Project Owner'}</small></div>
+              <span className="project-actions"><Link className="button button-secondary button-small" to={`/projects/${project.code}`}>Chi tiết <ArrowRight size={14} /></Link></span>
+            </div>
+          ))}
+        </section>
+      )}
+    </>
+  )
+}
+
+function ProjectMembersPanel({ project, projects }: { project: Project; projects: Project[] }) {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+  const teamKey = ['project-team', project.code]
+  const candidatesKey = ['project-member-candidates', project.code]
+  const team = useQuery({ queryKey: teamKey, queryFn: () => api<ProjectTeam>(`/projects/${project.code}/team`) })
+  const candidates = useQuery({ queryKey: candidatesKey, queryFn: () => api<ProjectMemberCandidate[]>(`/projects/${project.code}/team/candidates`) })
+  const staff = useQuery({ queryKey: ['settings-members'], queryFn: () => api<WorkforceMember[]>('/planning/members?include_inactive=true'), enabled: user?.role === 'CTO' })
+  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<string>()
+  const [search, setSearch] = useState('')
+  const [memberId, setMemberId] = useState('')
+  const [notice, setNotice] = useState('')
+  const choices = (candidates.data || []).filter((member) => `${member.display_name} ${member.email || ''}`.toLowerCase().includes(search.trim().toLowerCase()))
+  useEffect(() => {
+    if (adding && !memberId && choices.length > 0) setMemberId(choices[0].member_id)
+  }, [adding, memberId, choices])
+  const add = useMutation({
+    mutationFn: () => api<ProjectMemberAdded>(`/projects/${project.code}/team/members`, { method: 'POST', body: JSON.stringify({ member_id: memberId }) }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(teamKey, result.team)
+      void queryClient.invalidateQueries({ queryKey: candidatesKey })
+      for (const key of ['planning-members', 'settings-members']) void queryClient.invalidateQueries({ queryKey: [key] })
+      setNotice(result.added ? 'Đã thêm nhân sự vào dự án.' : 'Nhân sự này đã thuộc dự án, không tạo bản ghi trùng.')
+      setAdding(false); setSearch(''); setMemberId('')
+    },
+  })
+  const remove = useMutation({
+    mutationFn: (memberId: string) => api<ProjectMemberRemoved>(`/projects/${project.code}/team/members/${memberId}`, { method: 'DELETE' }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(teamKey, result.team)
+      void queryClient.invalidateQueries({ queryKey: candidatesKey })
+      for (const key of ['planning-members', 'settings-members']) void queryClient.invalidateQueries({ queryKey: [key] })
+      setNotice(result.removed ? 'Đã gỡ nhân sự khỏi dự án. Hồ sơ và tài khoản vẫn được giữ.' : 'Nhân sự này không còn thuộc dự án.')
+      setEditing(undefined)
+    },
+  })
+  const finishEditing = () => {
+    setEditing(undefined)
+    void queryClient.invalidateQueries({ queryKey: teamKey })
+    void queryClient.invalidateQueries({ queryKey: candidatesKey })
+  }
+  if (team.isLoading) return <section className="panel settings-panel"><LoadingBlock /></section>
+  if (team.error || !team.data) return <section className="panel settings-panel"><ErrorNotice error={team.error || new Error('Chưa tải được nhân sự dự án.')} onRetry={() => { void team.refetch() }} /></section>
+  return (
+    <>
+      {adding && (
+        <ConfirmDialog plain title="Thêm nhân sự" confirmLabel="Thêm vào dự án" busyLabel="Đang thêm…" busy={add.isPending} confirmDisabled={!memberId} error={add.error} onConfirm={() => { if (memberId) add.mutate() }} onCancel={() => { if (!add.isPending) { setAdding(false); setSearch(''); setMemberId(''); add.reset() } }}>
+          {candidates.isLoading ? <LoadingBlock /> : candidates.error ? <ErrorNotice error={candidates.error} onRetry={() => { void candidates.refetch() }} /> : (candidates.data || []).length === 0 ? <p>Tất cả nhân sự đang hoạt động đã thuộc dự án này.</p> : (
+            <div className="member-picker">
+              <label>Tìm nhân sự<input value={search} onChange={(event) => { setSearch(event.target.value); setMemberId('') }} placeholder="Nhập tên hoặc email" autoFocus /></label>
+              <label>Nhân sự<select value={memberId} onChange={(event) => setMemberId(event.target.value)}><option value="">Chọn nhân sự</option>{choices.map((member) => <option key={member.member_id} value={member.member_id}>{member.display_name}{member.email ? ` · ${member.email}` : ''}</option>)}</select></label>
+              {choices.length === 0 && <p className="field-help">Không tìm thấy nhân sự phù hợp.</p>}
+            </div>
+          )}
+        </ConfirmDialog>
+      )}
+      <section className="panel settings-panel member-list">
+        <div className="panel-heading"><div><h2>Nhân sự dự án</h2><p>Project Owner và CTO có thể thêm nhân sự đang hoạt động. Việc đổi Owner hoặc loại nhân sự vẫn chỉ do CTO thực hiện.</p></div><button type="button" className="button button-primary" onClick={() => { setNotice(''); setAdding(true) }}><Plus size={16} /> Thêm nhân sự</button></div>
+        {notice && <p className="notice notice-success" role="status">{notice}</p>}
+        {(remove.error || staff.error) && <ErrorNotice error={remove.error || staff.error} />}
+        {team.data.members.length === 0 ? <EmptyState icon={<UserRound size={20} />} title="Chưa có nhân sự" text="Thêm người đầu tiên vào dự án." /> : team.data.members.map((member) => {
+          const fullMember = staff.data?.find((row) => row.id === member.member_id)
+          if (editing === member.member_id && fullMember) return <MemberEditor key={member.member_id} member={fullMember} projects={projects} onDone={finishEditing} />
+          return (
+            <div className="member-row" key={member.member_id}>
+              <div><strong>{member.display_name}{member.is_owner && <span className="capacity-owner">Project Owner</span>}</strong><small>{member.email || 'Chưa có email'} · {member.account_subject ? `tài khoản ${member.account_subject}` : 'Chưa có tài khoản'}</small></div>
+              <span className="status">{member.is_owner ? 'Quản lý dự án' : 'Thành viên'}</span>
+              {user?.role === 'CTO' && <span className="project-actions">
+                <button className="button button-secondary button-small" type="button" disabled={!fullMember || staff.isLoading} onClick={() => { setNotice(''); setEditing(member.member_id) }}><Pencil size={14} /> Sửa</button>
+                <button className="icon-button" type="button" aria-label={`Gỡ ${member.display_name} khỏi dự án`} title={member.is_owner ? 'Đổi Project Owner trước khi gỡ người này' : 'Gỡ khỏi dự án, không xóa hồ sơ hoặc tài khoản'} disabled={member.is_owner || remove.isPending} onClick={() => { if (window.confirm(`Gỡ ${member.display_name} khỏi dự án ${project.name}?\n\nHồ sơ nhân sự, tài khoản, lịch sử và các dự án khác vẫn được giữ.`)) remove.mutate(member.member_id) }}><Trash2 size={15} /></button>
+              </span>}
+            </div>
+          )
+        })}
+      </section>
+    </>
+  )
+}
+
+function ProjectDetailsPage() {
+  const { code = '' } = useParams()
+  const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
+  const project = projects.data?.find((row) => row.code === code)
+  if (projects.isLoading) return <LoadingBlock />
+  if (projects.error) return <ErrorNotice error={projects.error} onRetry={() => { void projects.refetch() }} />
+  if (!project) return <><Link className="back-link" to="/projects"><ArrowLeft size={15} /> Dự án</Link><section className="panel"><EmptyState icon={<Search size={20} />} title="Không tìm thấy dự án" text="Dự án không tồn tại hoặc nằm ngoài phạm vi của bạn." /></section></>
+  return (
+    <>
+      <Link className="back-link" to="/projects"><ArrowLeft size={15} /> Dự án</Link>
+      <PageHeader title={project.name} helper={`Mã dự án ${project.code} · ${project.owner_name ? `Project Owner: ${project.owner_name}` : 'chưa có Project Owner'}`} />
+      <ProjectMembersPanel project={project} projects={(projects.data || []).filter((row) => row.status === 'ACTIVE')} />
+    </>
   )
 }
 
@@ -9346,6 +9645,10 @@ function AccountPage() {
   const [passwordChanged, setPasswordChanged] = useState(false)
   const [secret, setSecret] = useState('')
   const [otp, setOtp] = useState('')
+  const [stepUpPassword, setStepUpPassword] = useState('')
+  const [stepUpOtp, setStepUpOtp] = useState('')
+  const [codePassword, setCodePassword] = useState('')
+  const [codeOtp, setCodeOtp] = useState('')
   const [codes, setCodes] = useState<string[]>([])
   const [copied, setCopied] = useState('')
   const [mfaJustEnabled, setMfaJustEnabled] = useState(false)
@@ -9357,12 +9660,18 @@ function AccountPage() {
     setBusy(true)
     try { await action() } catch (requestError) { setError({ at, error: requestError }) } finally { setBusy(false) }
   }
-  const setup = () => run('mfa', async () => {
-    const result = await api<{ secret: string }>('/auth/mfa/setup', { method: 'POST' })
-    setSecret(result.secret)
-    setMfaJustEnabled(false)
-    setOpen('mfa')
-  })
+  const setup = (event: FormEvent) => {
+    event.preventDefault()
+    void run('mfa', async () => {
+      const result = await api<{ secret: string }>('/auth/mfa/setup', {
+        method: 'POST', body: JSON.stringify({ current_password: stepUpPassword, otp: stepUpOtp || null }),
+      })
+      setSecret(result.secret)
+      setStepUpPassword('')
+      setStepUpOtp('')
+      setMfaJustEnabled(false)
+    })
+  }
   const confirm = (event: FormEvent) => {
     event.preventDefault()
     void run('mfa', async () => {
@@ -9374,10 +9683,17 @@ function AccountPage() {
       await refresh()
     })
   }
-  const generateCodes = () => run('codes', async () => {
-    const result = await api<{ recovery_codes: string[] }>('/auth/mfa/recovery-codes', { method: 'POST' })
-    setCodes(result.recovery_codes)
-  })
+  const generateCodes = (event: FormEvent) => {
+    event.preventDefault()
+    void run('codes', async () => {
+      const result = await api<{ recovery_codes: string[] }>('/auth/mfa/recovery-codes', {
+        method: 'POST', body: JSON.stringify({ current_password: codePassword, otp: codeOtp || null }),
+      })
+      setCodes(result.recovery_codes)
+      setCodePassword('')
+      setCodeOtp('')
+    })
+  }
   const copy = (what: string, text: string) => { void navigator.clipboard.writeText(text).then(() => setCopied(what)) }
 
   const name = user?.display_name || user?.email || ''
@@ -9411,10 +9727,18 @@ function AccountPage() {
       <section className="panel account-section">
         <header>
           <div><h3>Xác thực hai lớp</h3><p>Khi đăng nhập, ngoài mật khẩu bạn nhập thêm mã 6 số từ ứng dụng xác thực trên điện thoại (Google Authenticator, Microsoft Authenticator, 1Password…).</p></div>
-          {!secret && <button className={mfaOn ? 'button button-secondary' : 'button button-primary'} type="button" disabled={busy} onClick={() => { void setup() }}>{mfaOn ? 'Thiết lập lại' : 'Bật xác thực hai lớp'}</button>}
+          {!secret && open !== 'mfa' && <button className={mfaOn ? 'button button-secondary' : 'button button-primary'} type="button" disabled={busy} onClick={() => { setOpen('mfa'); setError(undefined) }}>{mfaOn ? 'Thiết lập lại' : 'Bật xác thực hai lớp'}</button>}
         </header>
         {mfaJustEnabled && <p className="notice notice-success" role="status">Đã bật xác thực hai lớp. Hãy tạo mã khôi phục ở mục bên dưới để không bị khóa ngoài khi mất điện thoại.</p>}
         {error?.at === 'mfa' && <ErrorNotice error={error.error} />}
+        {open === 'mfa' && !secret && (
+          <form className="account-body account-confirm" onSubmit={setup}>
+            <input aria-label="Mật khẩu hiện tại" type="password" value={stepUpPassword} onChange={(e) => setStepUpPassword(e.target.value)} placeholder="Mật khẩu hiện tại" autoComplete="current-password" required />
+            {mfaOn && <input aria-label="Mã MFA hiện tại" value={stepUpOtp} onChange={(e) => setStepUpOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Mã MFA hiện tại" inputMode="numeric" autoComplete="one-time-code" required />}
+            <button className="button button-primary" type="submit" disabled={busy || !stepUpPassword || (mfaOn && stepUpOtp.length !== 6)}>Tiếp tục</button>
+            <button className="text-button" type="button" onClick={() => { setOpen(null); setStepUpPassword(''); setStepUpOtp(''); setError(undefined) }}>Hủy</button>
+          </form>
+        )}
         {secret && (
           <ol className="account-body account-steps">
             <li>
@@ -9437,9 +9761,15 @@ function AccountPage() {
       <section className="panel account-section">
         <header>
           <div><h3>Mã khôi phục</h3><p>{mfaOn ? 'Dùng thay mã 6 số khi bạn mất điện thoại. Mỗi mã dùng một lần; tạo bộ mới thì bộ cũ hết hiệu lực.' : 'Dùng thay mã 6 số khi bạn mất điện thoại. Cần bật xác thực hai lớp trước.'}</p></div>
-          <button className="button button-secondary" type="button" onClick={() => { void generateCodes() }} disabled={!mfaOn || busy}>Tạo bộ mã mới</button>
         </header>
         {error?.at === 'codes' && <ErrorNotice error={error.error} />}
+        {mfaOn && codes.length === 0 && (
+          <form className="account-body account-confirm" onSubmit={generateCodes}>
+            <input aria-label="Mật khẩu hiện tại để tạo mã khôi phục" type="password" value={codePassword} onChange={(e) => setCodePassword(e.target.value)} placeholder="Mật khẩu hiện tại" autoComplete="current-password" required />
+            <input aria-label="Mã MFA hiện tại để tạo mã khôi phục" value={codeOtp} onChange={(e) => setCodeOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Mã MFA hiện tại" inputMode="numeric" autoComplete="one-time-code" required />
+            <button className="button button-secondary" type="submit" disabled={busy || !codePassword || codeOtp.length !== 6}>Tạo bộ mã mới</button>
+          </form>
+        )}
         {codes.length > 0 && (
           <div className="account-body">
             <p className="notice notice-warn">Các mã này chỉ hiện một lần. Hãy lưu vào nơi an toàn trước khi rời trang.</p>
@@ -11281,6 +11611,10 @@ export default function App() {
             <Route path="nguon" element={<WatchSourcesPage />} />
           </Route>
           <Route path="huong-dan" element={<GuidePage />} />
+          <Route element={<ProjectManagerOnly />}>
+            <Route path="projects" element={<ManagedProjectsPage />} />
+            <Route path="projects/:code" element={<ProjectDetailsPage />} />
+          </Route>
           <Route element={<CtoOnly />}>
             <Route path="setup" element={<SetupPage />} />
           </Route>
@@ -11310,7 +11644,6 @@ export default function App() {
             <Route path="glossary" element={<GlossarySettings />} />
             <Route path="account" element={<AccountPage />} />
           </Route>
-          <Route path="projects/*" element={<Navigate to="/settings/projects" replace />} />
           <Route path="account" element={<Navigate to="/settings/account" replace />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>

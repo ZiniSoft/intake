@@ -93,6 +93,12 @@ def test_work_is_logged_reviewed_and_read_back_by_issue_number() -> None:
         project = next(block for block in day.json()["data"]["projects"] if block["id"] == project_id)
         actual = next(item for item in project["off_plan"] if item["intake_id"] == request["id"])
         assert actual["actual_minutes"] == 95 and actual["deployed"] is True and actual["accepted_at"] is None
+        acceptance_queue = cto.get("/api/v1/acceptance")
+        assert acceptance_queue.status_code == 200, acceptance_queue.text
+        acceptance_data = acceptance_queue.json()["data"]
+        queued_log = next(item for item in acceptance_data["work_logs_pending"] if item["id"] == rows[0]["id"])
+        assert acceptance_data["work_log_pending_total"] >= 1
+        assert queued_log["intake_public_id"] == request["public_id"] and queued_log["summary"] == rows[0]["summary"]
 
         # Sent back with a note: the next attempt reads it first; only the CTO decides; once.
         assert cto.post(f"/api/v1/intakes/{request['id']}/work-log/{rows[0]['id']}/review", json={"decision": "RETURNED"}).status_code == 422, "a return needs a note"
@@ -100,6 +106,10 @@ def test_work_is_logged_reviewed_and_read_back_by_issue_number() -> None:
         returned = cto.post(f"/api/v1/intakes/{request['id']}/work-log/{rows[0]['id']}/review", json={"decision": "RETURNED", "note": "Vẫn 0 khi lọc theo dự án"})
         assert returned.status_code == 200 and returned.json()["data"]["review_decision"] == "RETURNED" and returned.json()["data"]["reviewed_by_name"]
         assert cto.post(f"/api/v1/intakes/{request['id']}/work-log/{rows[0]['id']}/review", json={"decision": "CONFIRMED"}).status_code == 409
+        acceptance_data = cto.get("/api/v1/acceptance").json()["data"]
+        assert all(item["id"] != rows[0]["id"] for item in acceptance_data["work_logs_pending"])
+        decided_log = next(item for item in acceptance_data["work_logs_decided"] if item["id"] == rows[0]["id"])
+        assert decided_log["review_decision"] == "RETURNED" and decided_log["review_note"] == "Vẫn 0 khi lọc theo dự án"
         seen = _call(agent, "get_intake", {"ref": request["public_id"]})["structuredContent"]["work_log"]
         assert seen[0]["review_decision"] == "RETURNED" and seen[0]["review_note"] == "Vẫn 0 khi lọc theo dự án"
 

@@ -2,7 +2,15 @@
 
 Công cụ riêng tư để CTO tiếp nhận yêu cầu của khách từ chat, email, họp và form; AI chuẩn hóa; CTO duyệt; Intake tạo Issue trên GitLab/GitHub (hoặc việc nội bộ) rồi xếp vào kế hoạch ngày của đội.
 
-> Trạng thái: mức pilot, một đội nhỏ đang dùng. Giao diện và tài liệu hiện bằng tiếng Việt; giao diện tiếng Anh nằm trong kế hoạch. README tiếng Anh: [README.md](README.md).
+> Trạng thái: mức pilot, một đội nhỏ đang dùng. Luồng walkthrough public chính có bản tiếng Anh qua `?lang=en`; các màn hình khác và tài liệu kỹ thuật vẫn chủ yếu bằng tiếng Việt. README tiếng Anh: [README.md](README.md).
+
+## Một yêu cầu trở thành công việc như thế nào
+
+![Intake đưa yêu cầu thô thành công việc được nghiệm thu qua sáu bước có thể truy vết](assets/intake-lifecycle.vi.svg)
+
+Intake giữ yêu cầu gốc, quyết định của con người, nơi giao việc và kế hoạch ngày trong cùng một hành trình. AI đề xuất bản yêu cầu có cấu trúc; con người vẫn quyết định bước tiếp theo.
+
+Bộ demo public có [storyboard](demo/storyboard.md), [lời đọc](demo/narration.en.md), [phụ đề](demo/captions.en.vtt) và [runbook quay an toàn](demo/recording-runbook.md). Toàn bộ dùng dữ liệu hư cấu và một repo demo chỉ cấp quyền tối thiểu.
 
 ## Chạy thử
 Cần Docker có Compose. Từ thư mục đã clone:

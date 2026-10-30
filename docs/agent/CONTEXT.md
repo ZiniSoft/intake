@@ -21,7 +21,7 @@ updated: 2026-10-15
 
 ## 4. Chạy, test, triển khai
 - Chạy local: `docker compose up --build`.
-- Test toàn bộ: `python -m pytest -q`; kiểm tra frontend: `cd frontend && npm run check`.
+- Test toàn bộ: `python -m pytest -q`; kiểm tra frontend: `cd frontend && npm test && npm run build`.
 - Build và deploy theo runbook; migration phải được review và backup trước khi áp dụng.
 
 ## 5. Quy ước mã và nhánh

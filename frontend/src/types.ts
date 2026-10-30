@@ -85,6 +85,22 @@ export interface ProjectTeam {
   issued: { subject: string; display_name: string; temporary_password: string } | null
 }
 
+export interface ProjectMemberCandidate {
+  member_id: string
+  display_name: string
+  email: string | null
+}
+
+export interface ProjectMemberAdded {
+  added: boolean
+  team: ProjectTeam
+}
+
+export interface ProjectMemberRemoved {
+  removed: boolean
+  team: ProjectTeam
+}
+
 export interface IntakeDetails {
   where: string | null
   steps: string[]
@@ -838,6 +854,29 @@ export interface AcceptanceQueue {
   today: AcceptanceItem[]
   more: AcceptanceItem[]
   decided: AcceptanceItem[]
+  work_log_pending_total: number
+  work_logs_pending: AcceptanceWorkLog[]
+  work_logs_decided: AcceptanceWorkLog[]
+}
+
+export interface AcceptanceWorkLog {
+  id: string
+  intake_id: string
+  intake_public_id: string
+  project_id: string
+  project_name: string | null
+  title: string
+  summary: string
+  issue_external_id: string | null
+  web_url: string | null
+  executor: string
+  details: IntakeWorkLogDetails
+  review_decision: 'PENDING' | 'CONFIRMED' | 'RETURNED'
+  review_note: string | null
+  reviewed_by_name: string | null
+  reviewed_at: string | null
+  accepted_at: string | null
+  created_at: string
 }
 
 export interface IssueVerification {
@@ -1309,6 +1348,7 @@ export interface DayPlanProject {
 export interface DayPlans {
   plan_date: string
   projects: DayPlanProject[]
+  project_order: { mode: 'PRIORITY' | 'CUSTOM'; project_ids: string[] }
   totals: { projects: number; unclosed: number; free_hours: number; free_people: number; waiting: number; off_plan: number; off_plan_actual_minutes: number }
 }
 

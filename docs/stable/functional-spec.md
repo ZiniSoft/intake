@@ -37,7 +37,7 @@ Từ 2026-10-05 (ADR-0022) được CTO cấp quyền theo dự án: trong dự 
 | Reports | Báo cáo ngày: thư gốc bên cạnh task đã trích, xác nhận hoặc loại. Tóm tắt ngày/tuần theo project chưa có |
 | Meetings | Danh sách cuộc họp; bản chữ theo người nói, nghe lại, tải xuống, meeting note và chuyển mục thành Intake |
 | Meeting recorder | Sidebar phải ở trang tạo Intake: chọn dự án, nguồn âm, thuật ngữ, bản chữ realtime |
-| Daily Planning | Planning Run theo ngày, capacity, hai lane sáng/chiều, conflict/warning và GitLab sync status |
+| Daily Planning | Tổng quan mọi dự án, thứ tự ưu tiên hoặc tùy chỉnh theo tài khoản; Planning Run theo ngày, capacity, hai lane sáng/chiều, conflict/warning và GitLab sync status |
 | Capacity | Default/override theo người/ngày; họp, review, support và OT |
 | Settings | Một trang có tab gom cấu hình ít dùng: Dự án, Nhân sự (gán dự án và người dùng GitLab), Thuật ngữ, Hệ thống, Tài khoản và bảo mật (MFA, recovery code) |
 
@@ -123,6 +123,14 @@ Một Intake có tối đa một Issue hiện hành trên tuyến delivery đã 
 1. Khi run được tạo hoặc mở lại lúc còn sửa được, task chưa xong (`PLANNED`, `IN_PROGRESS`, `PENDING_REVIEW`, `BLOCKED`) của báo cáo dùng được hiện ở mục "Yêu cầu cần phân loại" với nhãn "Báo cáo ngày", tên nhân sự, bước tiếp theo và số giờ nếu có.
 2. Task không có GitLab Issue vẫn hiện, ở trạng thái chờ phân loại; CTO nhập số Issue trên thẻ rồi promote.
 3. Task có Issue đã được planner tự đề xuất cho cùng nhân sự thì không hiện trùng.
+
+### UC-11A.1 - Sắp thứ tự dự án trong tổng quan Daily Planning
+
+1. CTO hoặc Project Owner mở phạm vi "Tất cả dự án"; đây là tổng quan chỉ đọc và chỉ gồm dự án phần mềm đang hoạt động trong phạm vi quyền hiện tại.
+2. Chế độ mặc định "Ưu tiên xử lý" đưa dự án chưa có Project Owner lên trước với CTO, sau đó lần lượt ưu tiên dự án có việc chờ phân công, cảnh báo chưa xem và kế hoạch chưa chốt; các dự án cùng mức xếp theo tên.
+3. Người dùng chọn "Tùy chỉnh" để kéo thả hoặc dùng nút lên/xuống. Server lưu danh sách ID theo tài khoản, không theo trình duyệt và không dùng chung giữa CTO với Project Owner.
+4. Dự án mới hoặc vừa được cấp quyền chưa có trong danh sách đã lưu được nối sau các dự án đã xếp, theo quy tắc ưu tiên mặc định. Dự án mất quyền bị lọc khỏi response.
+5. "Khôi phục ưu tiên" chuyển về `PRIORITY` và xóa danh sách tùy chỉnh; không thay đổi kế hoạch hay dữ liệu dự án.
 
 ### UC-11B - Thêm việc vào kế hoạch trong ngày (ADR-0024)
 

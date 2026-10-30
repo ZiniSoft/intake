@@ -38,7 +38,7 @@ def test_a_track_short_of_signals_with_none_arriving_is_a_warning_with_its_cause
         monkeypatch.setattr(get_settings(), "watch_webhook_secret", "")
         closed = _track(cto.post(f"{HEALTH}/check").json()["data"])
         assert (closed["warning"], closed["reason"], closed["remaining"]) == (True, "ROUTES_CLOSED", 2)
-        monkeypatch.setattr(get_settings(), "watch_webhook_secret", "khoa-ky-tin-hieu-chi-dung-trong-test-12")
+        monkeypatch.setattr(get_settings(), "watch_webhook_secret", "khoa-ky-tin-hieu-chi-dung-trong-test-12")  # gitleaks:allow - synthetic test credential
         assert _track(cto.post(f"{HEALTH}/check").json()["data"])["reason"] == "NO_SOURCES"
         source = cto.post(f"{WATCH}/sources", json={"url": "https://blog.example.com/feed", "track": "business"}).json()["data"]
         assert _track(cto.post(f"{HEALTH}/check").json()["data"])["reason"] == "NO_KEYWORDS"

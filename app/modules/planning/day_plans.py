@@ -19,6 +19,7 @@ from app.models import (
     PlanningWarning,
     Project,
     User,
+    UserPlanningProjectOrder,
     WorkforceMember,
     WorkforceProjectMembership,
 )
@@ -27,6 +28,47 @@ from app.modules.planning.overview import LOCAL_TZ, _hours_on
 from app.modules.planning.service import MUTABLE_RUN_STATES, _canonical_hash, planning_service
 
 WAITING = ("PENDING_TRIAGE", "READY")
+
+
+class ProjectOrderError(ValueError):
+    pass
+
+
+def _project_order(session, user_id: str | None, visible_project_ids: list[str]) -> dict[str, object]:
+    if not user_id:
+        return {"mode": "PRIORITY", "project_ids": []}
+    preference = session.get(UserPlanningProjectOrder, user_id)
+    if preference is None:
+        return {"mode": "PRIORITY", "project_ids": []}
+    visible = set(visible_project_ids)
+    ordered = [str(project_id) for project_id in (preference.project_ids or []) if str(project_id) in visible]
+    return {"mode": preference.sort_mode, "project_ids": ordered}
+
+
+def save_project_order(user_id: str, allowed_project_ids: frozenset[str] | None, mode: str, project_ids: list[str]) -> dict[str, object]:
+    """Persist only projects the caller can currently see; new projects can be appended by the UI later."""
+    with get_session() as session:
+        query = select(Project.id).where(Project.status == "ACTIVE", Project.kind == "SOFTWARE")
+        if allowed_project_ids is not None:
+            query = query.where(Project.id.in_(sorted(allowed_project_ids)))
+        visible = {str(project_id) for project_id in session.scalars(query).all()}
+        normalized = [str(project_id) for project_id in project_ids]
+        if len(normalized) != len(set(normalized)):
+            raise ProjectOrderError("PROJECT_ORDER_DUPLICATE")
+        if any(project_id not in visible for project_id in normalized):
+            raise ProjectOrderError("PROJECT_ORDER_PROJECT_NOT_VISIBLE")
+        if mode == "PRIORITY":
+            normalized = []
+        preference = session.get(UserPlanningProjectOrder, user_id)
+        if preference is None:
+            preference = UserPlanningProjectOrder(user_id=user_id, sort_mode=mode, project_ids=normalized)
+            session.add(preference)
+        else:
+            preference.sort_mode = mode
+            preference.project_ids = normalized
+            preference.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        return {"mode": preference.sort_mode, "project_ids": list(preference.project_ids or [])}
 
 
 def _off_plan_work(session, project: Project, plan_date: date) -> list[dict[str, object]]:
@@ -90,7 +132,7 @@ def _run_of(session, project: Project, plan_date: date) -> PlanningRun | None:
     ).order_by(PlanningRun.revision.desc()))
 
 
-def day_plans(plan_date: date, allowed_project_ids: frozenset[str] | None) -> dict[str, object]:
+def day_plans(plan_date: date, allowed_project_ids: frozenset[str] | None, user_id: str | None = None) -> dict[str, object]:
     with get_session() as session:
         query = select(Project).where(Project.status == "ACTIVE", Project.kind == "SOFTWARE")
         if allowed_project_ids is not None:
@@ -182,6 +224,7 @@ def day_plans(plan_date: date, allowed_project_ids: frozenset[str] | None) -> di
             })
         return {
             "plan_date": plan_date, "projects": blocks,
+            "project_order": _project_order(session, user_id, [str(project.id) for project in projects]),
             "totals": {
                 "projects": len(blocks), "unclosed": sum(1 for b in blocks if b["run"] is None or b["run"]["open"]),
                 "free_hours": round(free_hours_total, 2), "free_people": sum(len(b["free"]) for b in blocks), "waiting": waiting_total,

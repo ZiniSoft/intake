@@ -2,7 +2,15 @@
 
 A private intake tool for engineering leads. Customer requests arrive from chat, email, meetings and forms; AI normalizes them; the lead reviews and approves; Intake creates a GitLab or GitHub Issue (or an internal work item) and schedules it into the team's daily plan.
 
-> Status: pilot-grade, used by a small team. The UI is Vietnamese; English UI is planned. Documentation under `docs/` is in Vietnamese.
+> Status: pilot-grade, used by a small team. The core public walkthrough is available in English with `?lang=en`; other screens and the technical documentation under `docs/` are still primarily Vietnamese.
+
+## How a request becomes work
+
+![Intake turns a raw request into accepted work through six traceable steps](assets/intake-lifecycle.en.svg)
+
+Intake keeps the original request, the human decision, the delivery target and the daily plan connected. AI proposes a structured version of the request; a person still decides what happens next.
+
+The reproducible public demo kit includes the [storyboard](demo/storyboard.md), [narration](demo/narration.en.md), [captions](demo/captions.en.vtt) and [recording safety runbook](demo/recording-runbook.md). It uses fictional data and a narrowly scoped demo repository.
 
 ## What it does
 - **Intake**: capture raw requests, AI proposes a clean title, description and open questions; nothing leaves the system until the lead approves, then syncs.

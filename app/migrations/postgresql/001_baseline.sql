@@ -1,5 +1,5 @@
 -- Baseline of the schema as of the first public release.
--- Generated 2026-10-28 from 61 migrations; later migrations apply on top.
+-- Generated 2026-10-31 from 63 migrations; later migrations apply on top.
 
 -- from 001_gate_a_baseline.sql
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -1763,3 +1763,18 @@ CREATE TABLE IF NOT EXISTS ai_routes (
     updated_by UUID REFERENCES users(id),
     CONSTRAINT ck_ai_routes_task CHECK (task IN ('default', 'normalize', 'report', 'meeting', 'vision', 'content'))
 );
+
+-- from 061_planning_project_order.sql
+-- Per-account ordering for the all-projects Daily Planning view.
+CREATE TABLE IF NOT EXISTS user_planning_project_orders (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    sort_mode VARCHAR(16) NOT NULL DEFAULT 'PRIORITY',
+    project_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_user_planning_project_orders_mode CHECK (sort_mode IN ('PRIORITY', 'CUSTOM'))
+);
+
+-- from 062_mfa_pending_step_up.sql
+-- Stage MFA enrollment separately so an abandoned replacement keeps the active factor intact.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_pending_secret_ciphertext TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_pending_expires_at TIMESTAMPTZ;

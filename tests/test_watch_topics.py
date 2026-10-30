@@ -30,7 +30,7 @@ from app.workers import ai_tasks, planning_tasks
 cto = TestClient(app, headers={"X-User-Subject": "cto"})
 flow = TestClient(app)
 KEY = "khoa-doc-cau-hinh-quet-chi-dung-trong-test"
-SECRET = "khoa-ky-tin-hieu-chi-dung-trong-test-12"
+SECRET = "khoa-ky-tin-hieu-chi-dung-trong-test-12"  # gitleaks:allow - synthetic test credential
 LOCAL = ZoneInfo("Asia/Ho_Chi_Minh")
 PILLARS = [
     {"name": "AI cho đội nhỏ", "description": "Cách đội 2 đến 10 người dùng AI mà không cần kỹ sư", "audience": "Chủ doanh nghiệp nhỏ", "channels": ["FACEBOOK_PAGE", "LINKEDIN"],

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 
 import httpx
 
@@ -14,12 +15,49 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 API = "https://api.telegram.org"
+REDACTED_TELEGRAM_TOKEN = "[REDACTED_TELEGRAM_TOKEN]"
+_TELEGRAM_URL_TOKEN = re.compile(r"(?i)(https?://api\.telegram\.org/(?:file/)?bot)([^/\s\"']+)")
+_TELEGRAM_TOKEN = re.compile(r"(?<![\w-])\d{6,12}:[A-Za-z0-9_-]{20,}(?![\w-])")
+
+
+def redact_telegram_secrets(value: object) -> str:
+    """Remove bot credentials from text before it reaches an operational log or surfaced error."""
+    text = str(value)
+    text = _TELEGRAM_URL_TOKEN.sub(rf"\1{REDACTED_TELEGRAM_TOKEN}", text)
+    return _TELEGRAM_TOKEN.sub(REDACTED_TELEGRAM_TOKEN, text)
+
+
+class TelegramRedactingFormatter(logging.Formatter):
+    """Redact after standard formatting so arguments and exception tracebacks are covered too."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        rendered = redact_telegram_secrets(super().format(record))
+        if record.exc_text:
+            record.exc_text = redact_telegram_secrets(record.exc_text)
+        return rendered
+
+
+def configure_telegram_logging(level: int = logging.INFO) -> None:
+    """Configure the token-holding process with safe logs and quiet HTTP client internals."""
+    log_format = "%(asctime)s %(name)s %(levelname)s %(message)s"
+    logging.basicConfig(level=level, format=log_format)
+    formatter = TelegramRedactingFormatter(log_format)
+    for handler in logging.getLogger().handlers:
+        handler.setFormatter(formatter)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 class TelegramError(RuntimeError):
-    def __init__(self, code: str, message: str = "") -> None:
-        super().__init__(message or code)
+    def __init__(self, code: str, *, error_type: str | None = None) -> None:
+        super().__init__(code)
         self.code = code
+        self.error_type = error_type
+
+    @property
+    def safe_summary(self) -> str:
+        summary = f"{self.code}: {self.error_type}" if self.error_type else self.code
+        return redact_telegram_secrets(summary)
 
 
 def escape(text: object) -> str:
@@ -50,17 +88,17 @@ class TelegramClient:
         try:
             response = httpx.post(f"{API}/bot{self.token}/{method}", json=params, timeout=self.timeout)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
-            raise TelegramError("TELEGRAM_UNAVAILABLE", str(exc)) from exc
+            raise TelegramError("TELEGRAM_UNAVAILABLE", error_type=type(exc).__name__) from None
         try:
             body = response.json()
         except ValueError as exc:
-            raise TelegramError("TELEGRAM_INVALID_RESPONSE") from exc
+            raise TelegramError("TELEGRAM_INVALID_RESPONSE", error_type=type(exc).__name__) from None
         if response.status_code == 401:
             raise TelegramError("TELEGRAM_AUTH_FAILED")
         if response.status_code == 429:
-            raise TelegramError("TELEGRAM_RATE_LIMITED", str(body.get("parameters", {}).get("retry_after", "")))
+            raise TelegramError("TELEGRAM_RATE_LIMITED", error_type="TelegramAPIError")
         if not isinstance(body, dict) or not body.get("ok"):
-            raise TelegramError("TELEGRAM_REJECTED", str((body or {}).get("description", ""))[:200] if isinstance(body, dict) else "")
+            raise TelegramError("TELEGRAM_REJECTED", error_type="TelegramAPIError")
         return body.get("result")
 
     def get_me(self) -> dict:
@@ -86,9 +124,9 @@ class TelegramClient:
         try:
             response = httpx.get(f"{API}/file/bot{self.token}/{file_path}", timeout=self.timeout)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
-            raise TelegramError("TELEGRAM_UNAVAILABLE", str(exc)) from exc
+            raise TelegramError("TELEGRAM_UNAVAILABLE", error_type=type(exc).__name__) from None
         if response.status_code != 200:
-            raise TelegramError("TELEGRAM_REJECTED", f"file download {response.status_code}")
+            raise TelegramError("TELEGRAM_REJECTED", error_type="TelegramAPIError")
         return response.content
 
     def get_updates(self, offset: int | None, timeout: int = 25) -> list[dict]:

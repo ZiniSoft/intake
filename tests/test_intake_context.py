@@ -419,6 +419,14 @@ def test_a_repeat_of_an_existing_issue_is_marked_duplicate_of_that_issue(monkeyp
         assert back.json()["data"]["status"] == "PENDING_APPROVAL" and back.json()["data"]["duplicate_issue"] is None
         assert cto.delete(f"/api/v1/intakes/{intake['id']}/duplicate?expected_version={back.json()['data']['version']}").status_code == 409
 
+        # INT-26W44-003: the approver may know the existing Issue even when AI did not suggest it.
+        # The detail dialog accepts the number directly and the same backend validation closes the request.
+        with get_session() as session:
+            stored = session.get(IntakeItem, intake["id"])
+            stored.normalized_details = {**(stored.normalized_details or {}), "related": []}
+            session.commit()
+        assert cto.get(f"/api/v1/intakes/{intake['id']}").json()["data"]["details"]["related"] == []
+
         # Marking again after taking it back works (the candidate row is reused, not duplicated).
         again = cto.post(f"/api/v1/intakes/{intake['id']}/duplicate-issue", json={"issue": "9301", "expected_version": back.json()["data"]["version"]})
         assert again.status_code == 200 and again.json()["data"]["duplicate_issue"]["external_id"] == "9301"

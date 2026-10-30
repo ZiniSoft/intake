@@ -57,9 +57,15 @@ Giữ nguyên `SECRET_KEY` và `BACKUP_PASSPHRASE`. Sửa hoặc thêm trên ser
 COMPOSE_FILE=docker-compose.yml:docker-compose.server.yml
 INTAKE_DOMAIN=intake.example.com
 ACME_EMAIL=<email nhận thông báo về chứng chỉ>
+APP_ENV=production
 COOKIE_SECURE=true
 BACKUP_DIR=/srv/intake-backups
 ```
+
+`APP_ENV=production` bật kiểm tra fail-closed khi khởi động. API sẽ không chạy nếu `SECRET_KEY` hoặc
+`CTO_INITIAL_PASSWORD` bị thiếu, quá ngắn, còn là giá trị mẫu trong repository, hoặc nếu cookie chưa bật
+`Secure`. Overlay Caddy cũng bắt buộc hai biến này ngay từ bước `docker compose config`. Với cách dùng
+Cloudflare Tunnel và Nginx không nạp overlay, kiểm tra trong API vẫn áp dụng nhờ `APP_ENV=production`.
 
 ```bash
 sudo mkdir -p /srv/intake-backups && sudo chown $USER /srv/intake-backups

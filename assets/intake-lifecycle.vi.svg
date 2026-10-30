@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Từ yêu cầu thô đến công việc được nghiệm thu</title>
+  <desc id="desc">Vòng đời Intake có sáu bước: tiếp nhận yêu cầu, AI chuẩn hóa, con người phê duyệt, tạo công việc, xếp kế hoạch ngày, thực hiện và nghiệm thu.</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0b2f2a" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#5f786f"/>
+    </marker>
+    <style>
+      .title { font: 700 46px Inter, Segoe UI, Arial, sans-serif; fill: #102a26; }
+      .subtitle { font: 400 25px Inter, Segoe UI, Arial, sans-serif; fill: #526961; }
+      .group { font: 700 18px Inter, Segoe UI, Arial, sans-serif; letter-spacing: 2px; fill: #397267; }
+      .step-number { font: 700 19px Inter, Segoe UI, Arial, sans-serif; fill: #ffffff; }
+      .step-title { font: 700 23px Inter, Segoe UI, Arial, sans-serif; fill: #102a26; }
+      .step-copy { font: 400 17px Inter, Segoe UI, Arial, sans-serif; fill: #526961; }
+      .principle { font: 700 25px Inter, Segoe UI, Arial, sans-serif; fill: #102a26; }
+      .principle-copy { font: 400 19px Inter, Segoe UI, Arial, sans-serif; fill: #526961; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="#f6f8f5"/>
+  <text x="80" y="100" class="title">Từ yêu cầu thô đến công việc được nghiệm thu</text>
+  <text x="80" y="148" class="subtitle">Một luồng xuyên suốt từ thông tin khách hàng đến bàn giao và xác nhận kết quả.</text>
+
+  <rect x="70" y="215" width="470" height="455" rx="28" fill="#eef7f4" stroke="#cde3dc" stroke-width="2"/>
+  <rect x="565" y="215" width="470" height="455" rx="28" fill="#fff8eb" stroke="#eedbb1" stroke-width="2"/>
+  <rect x="1060" y="215" width="470" height="455" rx="28" fill="#eff5fb" stroke="#cfdeeb" stroke-width="2"/>
+
+  <text x="105" y="265" class="group">HIỂU YÊU CẦU</text>
+  <text x="600" y="265" class="group">RA QUYẾT ĐỊNH</text>
+  <text x="1095" y="265" class="group">BÀN GIAO</text>
+
+  <g filter="url(#shadow)">
+    <rect x="105" y="300" width="400" height="135" rx="20" fill="#ffffff"/>
+    <circle cx="145" cy="340" r="22" fill="#287567"/>
+    <text x="145" y="347" text-anchor="middle" class="step-number">1</text>
+    <text x="180" y="342" class="step-title">Tiếp nhận yêu cầu</text>
+    <text x="130" y="390" class="step-copy">Chat, email, cuộc họp hoặc biểu mẫu</text>
+
+    <rect x="105" y="485" width="400" height="135" rx="20" fill="#ffffff"/>
+    <circle cx="145" cy="525" r="22" fill="#287567"/>
+    <text x="145" y="532" text-anchor="middle" class="step-number">2</text>
+    <text x="180" y="527" class="step-title">AI chuẩn hóa</text>
+    <text x="130" y="575" class="step-copy">Tiêu đề, tóm tắt và câu hỏi còn thiếu</text>
+
+    <rect x="600" y="300" width="400" height="135" rx="20" fill="#ffffff"/>
+    <circle cx="640" cy="340" r="22" fill="#cc7a13"/>
+    <text x="640" y="347" text-anchor="middle" class="step-number">3</text>
+    <text x="675" y="342" class="step-title">Con người phê duyệt</text>
+    <text x="625" y="390" class="step-copy">Ưu tiên, nơi nhận và quyết định cuối</text>
+
+    <rect x="600" y="485" width="400" height="135" rx="20" fill="#ffffff"/>
+    <circle cx="640" cy="525" r="22" fill="#cc7a13"/>
+    <text x="640" y="532" text-anchor="middle" class="step-number">4</text>
+    <text x="675" y="527" class="step-title">Tạo công việc</text>
+    <text x="625" y="569" class="step-copy">GitHub/GitLab Issue</text>
+    <text x="625" y="596" class="step-copy">hoặc việc nội bộ</text>
+
+    <rect x="1095" y="300" width="400" height="135" rx="20" fill="#ffffff"/>
+    <circle cx="1135" cy="340" r="22" fill="#326b92"/>
+    <text x="1135" y="347" text-anchor="middle" class="step-number">5</text>
+    <text x="1170" y="342" class="step-title">Xếp kế hoạch ngày</text>
+    <text x="1120" y="390" class="step-copy">Người làm, buổi làm và năng lực</text>
+
+    <rect x="1095" y="485" width="400" height="135" rx="20" fill="#ffffff"/>
+    <circle cx="1135" cy="525" r="22" fill="#326b92"/>
+    <text x="1135" y="532" text-anchor="middle" class="step-number">6</text>
+    <text x="1170" y="527" class="step-title">Làm và nghiệm thu</text>
+    <text x="1120" y="575" class="step-copy">Bằng chứng, đánh giá và hoàn thành</text>
+  </g>
+
+  <path d="M 305 442 L 305 473" fill="none" stroke="#5f786f" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M 505 552 C 550 552 555 367 590 367" fill="none" stroke="#5f786f" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M 800 442 L 800 473" fill="none" stroke="#5f786f" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M 1000 552 C 1045 552 1050 367 1085 367" fill="none" stroke="#5f786f" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M 1295 442 L 1295 473" fill="none" stroke="#5f786f" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <rect x="80" y="730" width="1440" height="105" rx="24" fill="#ffffff" stroke="#dce5e1" stroke-width="2"/>
+  <circle cx="135" cy="782" r="25" fill="#dff1eb"/>
+  <path d="M 123 782 l 8 8 l 17 -19" fill="none" stroke="#287567" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="180" y="777" class="principle">AI đề xuất. Con người quyết định.</text>
+  <text x="180" y="811" class="principle-copy">Yêu cầu gốc, mọi quyết định và dấu vết bàn giao luôn được kết nối.</text>
+</svg>

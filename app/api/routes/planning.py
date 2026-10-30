@@ -8,7 +8,7 @@ from app.api.errors import api_exception
 from app.api.security import AuthContext, require_account, require_cto, require_member
 from app.modules.planning.add_work import add_work_service
 from app.modules.planning import scope as planning_scope
-from app.modules.planning.day_plans import day_plans
+from app.modules.planning.day_plans import ProjectOrderError, day_plans, save_project_order
 from app.modules.planning.work_status import WorkStatusError, set_work_status
 from app.modules.planning.overview import day_overview
 from app.modules.planning import mapping as tracker_mapping
@@ -48,6 +48,8 @@ from app.schemas import (
     WorkforceMemberCreate,
     PlanningAddWorkOut,
     PlanningAddWorkRequest,
+    PlanningProjectOrderOut,
+    PlanningProjectOrderUpdate,
     PlanningAssignWaitingRequest,
     PlanningWorkItemOut,
     WorkforceMemberOut,
@@ -331,7 +333,22 @@ async def get_my_day(plan_date: date, context: AuthContext = Depends(require_acc
 async def get_day_plans(plan_date: date, context: AuthContext = Depends(require_member)) -> dict:
     """Read-only: every software project's plan for the day as it stands, with who has work, who is free and what
     waits to be placed. The "all projects" view of Daily Planning; never opens a plan."""
-    return day_plans(plan_date, context.project_ids)
+    return day_plans(plan_date, context.project_ids, context.user_id)
+
+
+@router.put(
+    "/project-order",
+    response_model=PlanningProjectOrderOut,
+    openapi_extra={"x-requirement-ids": ["FR-PLAN-33", "FR-ID-08"]},
+)
+async def put_project_order(
+    payload: PlanningProjectOrderUpdate, context: AuthContext = Depends(require_member),
+) -> PlanningProjectOrderOut:
+    try:
+        saved = save_project_order(context.user_id, context.project_ids, payload.mode, payload.project_ids)
+    except ProjectOrderError as error:
+        raise api_exception(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error), "Thứ tự dự án không hợp lệ hoặc có dự án ngoài phạm vi của bạn") from error
+    return PlanningProjectOrderOut.model_validate(saved)
 
 
 @router.get(

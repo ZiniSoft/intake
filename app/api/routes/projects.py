@@ -19,6 +19,10 @@ from app.schemas import (
     ProjectContextPaste,
     ProjectContextSuggestionOut,
     ProjectCreate,
+    ProjectMemberAdd,
+    ProjectMemberAddedOut,
+    ProjectMemberCandidateOut,
+    ProjectMemberRemovedOut,
     ProjectOut,
     ProjectTeamOut,
     ProjectTeamUpdate,
@@ -42,6 +46,14 @@ def _out(project_ref: str) -> ProjectOut:
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     return ProjectOut.model_validate(asdict(project))
+
+
+def _team_project(project_ref: str, context: AuthContext):
+    project = project_catalog_service.get_project(project_ref)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    ensure_project(context, project.id, "Project")
+    return project
 
 
 @router.get("", response_model=list[ProjectOut], openapi_extra={"x-requirement-ids": ["FR-PRJ-01", "FR-PRJ-04"]})
@@ -204,9 +216,10 @@ async def get_integration_probe(probe_id: str, _: AuthContext = Depends(require_
 
 @router.get(
     "/{project_ref}/team", response_model=ProjectTeamOut,
-    openapi_extra={"x-requirement-ids": ["FR-PRJ-10", "FR-ID-07"]},
+    openapi_extra={"x-requirement-ids": ["FR-PRJ-10", "FR-PRJ-11", "FR-ID-07"]},
 )
-async def get_project_team(project_ref: str, _: AuthContext = Depends(require_cto)) -> ProjectTeamOut:
+async def get_project_team(project_ref: str, context: AuthContext = Depends(require_member)) -> ProjectTeamOut:
+    _team_project(project_ref, context)
     try:
         return ProjectTeamOut.model_validate(project_team_service.get(project_ref))
     except KeyError as error:
@@ -222,6 +235,52 @@ async def set_project_team(project_ref: str, payload: ProjectTeamUpdate, context
         return ProjectTeamOut.model_validate(project_team_service.set(
             project_ref, payload.owner_member_id, payload.member_ids, context.user_id,
         ))
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found") from error
+    except ProjectError as error:
+        _raise(error)
+
+
+@router.get(
+    "/{project_ref}/team/candidates", response_model=list[ProjectMemberCandidateOut],
+    openapi_extra={"x-requirement-ids": ["FR-PRJ-11", "FR-ID-07", "NFR-SEC-03"]},
+)
+async def get_project_member_candidates(
+    project_ref: str, context: AuthContext = Depends(require_member),
+) -> list[ProjectMemberCandidateOut]:
+    _team_project(project_ref, context)
+    return [ProjectMemberCandidateOut.model_validate(row) for row in project_team_service.candidates(project_ref)]
+
+
+@router.post(
+    "/{project_ref}/team/members", response_model=ProjectMemberAddedOut,
+    openapi_extra={"x-requirement-ids": ["FR-PRJ-11", "FR-ID-07", "NFR-SEC-03"]},
+)
+async def add_project_member(
+    project_ref: str, payload: ProjectMemberAdd, context: AuthContext = Depends(require_member),
+) -> ProjectMemberAddedOut:
+    _team_project(project_ref, context)
+    try:
+        return ProjectMemberAddedOut.model_validate(
+            project_team_service.add_member(project_ref, payload.member_id, context.user_id)
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found") from error
+    except ProjectError as error:
+        _raise(error)
+
+
+@router.delete(
+    "/{project_ref}/team/members/{member_id}", response_model=ProjectMemberRemovedOut,
+    openapi_extra={"x-requirement-ids": ["FR-PRJ-11", "FR-ID-06", "NFR-SEC-03"]},
+)
+async def remove_project_member(
+    project_ref: str, member_id: str, context: AuthContext = Depends(require_cto),
+) -> ProjectMemberRemovedOut:
+    try:
+        return ProjectMemberRemovedOut.model_validate(
+            project_team_service.remove_member(project_ref, member_id, context.user_id)
+        )
     except KeyError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found") from error
     except ProjectError as error:

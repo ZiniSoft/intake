@@ -98,7 +98,7 @@ def get_current_user(
             detail="Unknown user subject",
         ) from exc
     if auth_version is not None and auth_version != user.auth_version:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session was revoked after a password reset")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session was revoked after a credential change")
 
     return AuthContext(
         user_id=user.user_id,

@@ -10,7 +10,7 @@ from app.models import AiProvider, AiRoute
 from app.modules.ai_config.routing import db_route, resolve_route
 from app.modules.ai_config.service import AiConfigError, ai_config_service, clean_base_url
 
-SECRET = "fixture-ai-key-1234"
+SECRET = "fixture-ai-key-1234"  # gitleaks:allow - synthetic test credential
 
 
 @pytest.fixture(autouse=True)

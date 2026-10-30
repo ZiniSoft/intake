@@ -12,6 +12,7 @@ if test_database_url:
 else:
     TEST_DATABASE.unlink(missing_ok=True)
     os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DATABASE.as_posix()}"
+os.environ["APP_ENV"] = "test"
 os.environ["ALLOW_SUBJECT_HEADER_AUTH"] = "true"
 os.environ["CTO_INITIAL_PASSWORD"] = "dev-cto-password"
 os.environ["PROJECT_OWNER_INITIAL_PASSWORD"] = "dev-owner-password"

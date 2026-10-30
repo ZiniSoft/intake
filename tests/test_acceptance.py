@@ -9,8 +9,9 @@ from sqlalchemy import select
 
 from app.db import get_session
 from app.main import app
-from app.models import EmailMessage, GitLabIssueSnapshot, IssueVerification, PlanningCandidate, PlanningRun, PlanningWarning, Project, ReportItem, WorkforceMember
+from app.models import EmailMessage, ExternalLink, GitLabIssueSnapshot, IssueVerification, PlanningCandidate, PlanningRun, PlanningWarning, Project, ReportItem, User, WorkforceMember
 from app.modules.planning import acceptance
+from tests.test_intake_reopen import _approved, _mark_synced
 
 cto = TestClient(app, headers={"X-User-Subject": "cto"})
 owner = TestClient(app, headers={"X-User-Subject": "project-owner"})
@@ -147,6 +148,49 @@ def test_the_owner_confirms_the_cto_accepts_and_not_done_goes_back_to_the_plan()
                     session.delete(run_row)
                 session.commit()
     finally:
+        _cleanup()
+
+
+def test_owner_acceptance_completes_the_linked_intake_lifecycle() -> None:
+    """INT-26W44-002: owner-confirmed work must not leave its Intake waiting for acceptance."""
+    request = _approved("GITLAB")
+    _mark_synced(request["id"], "GITLAB", "9701")
+    _member()
+    _issues()
+    today = date.today().isoformat()
+    try:
+        _report(
+            "acc-owner-lifecycle",
+            today,
+            "[DONE] Xuất báo cáo tuần ra PDF | Thời gian: 4 giờ | Tiến độ: 100%\n"
+            "Tham chiếu: GitLab #9701 | Plane: Không có | Intake: Không có",
+        )
+        with get_session() as session:
+            verification = session.scalar(select(IssueVerification).where(
+                IssueVerification.issue_external_id == "9701",
+                IssueVerification.project_id == _project_id(),
+            ))
+            assert verification is not None
+            actor_id = str(session.scalar(select(User.id).where(User.auth_subject == "cto")))
+
+        confirmed = acceptance.decide(
+            str(verification.id), decision="ACCEPTED", reason=None, actor_id=actor_id, role="PROJECT_OWNER",
+            allowed_project_ids=frozenset({_project_id()}), evidence_missing_reason="Project Owner đã kiểm trực tiếp",
+        )
+        assert confirmed["po_decision"] == "ACCEPTED"
+        assert confirmed["decision"] == "PENDING", "CTO sampling remains a separate decision"
+
+        detail = cto.get(f"/api/v1/intakes/{request['id']}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["data"]["lifecycle_stage"] == "ACCEPTED"
+        accepted_page = cto.get("/api/v1/intakes", params={"stage": "ACCEPTED", "search": request["public_id"]})
+        assert accepted_page.status_code == 200, accepted_page.text
+        assert [row["id"] for row in accepted_page.json()["data"]["items"]] == [request["id"]]
+    finally:
+        with get_session() as session:
+            for link in session.scalars(select(ExternalLink).where(ExternalLink.intake_id == request["id"])).all():
+                link.target_system = "PLANE"
+            session.commit()
         _cleanup()
 
 

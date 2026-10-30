@@ -66,6 +66,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(32), default="PROJECT_OWNER", nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     mfa_secret_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Enrollment is staged separately so starting or abandoning replacement cannot disable the active factor.
+    mfa_pending_secret_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mfa_pending_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Set when the CTO issues a temporary password; cleared when the user chooses their own.
@@ -134,6 +137,20 @@ class PasswordResetRequest(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     send_error: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class UserPlanningProjectOrder(Base):
+    """One person's preferred order for the all-projects Daily Planning view."""
+
+    __tablename__ = "user_planning_project_orders"
+    __table_args__ = (
+        CheckConstraint("sort_mode IN ('PRIORITY', 'CUSTOM')", name="ck_user_planning_project_orders_mode"),
+    )
+
+    user_id: Mapped[str] = mapped_column(ID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    sort_mode: Mapped[str] = mapped_column(String(16), default="PRIORITY", nullable=False)
+    project_ids: Mapped[list] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
 class Customer(Base):

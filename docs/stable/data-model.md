@@ -62,13 +62,15 @@ erDiagram
 | `display_name` | VARCHAR(255) | NOT NULL |
 | `role` | VARCHAR(32) | CHECK `CTO`, `PROJECT_OWNER`; pilot chỉ CTO active |
 | `password_hash` | TEXT | NOT NULL |
-| `auth_version` | INTEGER | NOT NULL DEFAULT 0; được nhúng vào session và tăng khi cấp/reset mật khẩu để vô hiệu session cũ |
+| `auth_version` | INTEGER | NOT NULL DEFAULT 0; được nhúng vào session và tăng khi cấp/reset mật khẩu hoặc đổi MFA để vô hiệu session cũ |
 | `mfa_secret_ciphertext` | TEXT | nullable tới khi setup |
+| `mfa_pending_secret_ciphertext` | TEXT | nullable; secret enrollment chờ xác nhận, không thay factor đang hoạt động |
+| `mfa_pending_expires_at` | TIMESTAMPTZ | nullable; enrollment chờ xác nhận hết hạn sau 10 phút |
 | `mfa_enabled` | BOOLEAN | NOT NULL DEFAULT false |
 | `is_active` | BOOLEAN | NOT NULL DEFAULT true |
 | `created_at`, `updated_at` | TIMESTAMPTZ | NOT NULL |
 
-Recovery code không lưu plaintext. Dùng bảng `mfa_recovery_codes(user_id, code_hash, used_at, created_at)` với unique `(user_id, code_hash)`.
+Recovery code không lưu plaintext. Dùng bảng `mfa_recovery_codes(user_id, code_hash, used_at, created_at)` với unique `(user_id, code_hash)`. Thay MFA hoặc tạo lại recovery code yêu cầu step-up bằng mật khẩu hiện tại và OTP của factor đang hoạt động. Xác nhận MFA đổi `mfa_secret_ciphertext` trong cùng transaction, tăng `auth_version` và thu hồi token cá nhân.
 
 ### 4.1A `password_reset_requests` (INT-26W43-009, migration 058)
 
@@ -314,7 +316,11 @@ Nhân sự được lập kế hoạch không bắt buộc có tài khoản đă
 
 Unique `(member_id, work_date)`. Mọi giá trị giờ phải `>= 0`; tổng khấu trừ không được làm `available_hours < 0`. Cuối tuần không có record vẫn được hiểu là 0 giờ, không phải 8 giờ.
 
-### 8.3 `planning_runs`
+### 8.3 `user_planning_project_orders`
+
+Tùy chọn thứ tự dự án ở tổng quan Daily Planning, một dòng cho mỗi tài khoản: `user_id` là khóa chính và FK tới `users` với `ON DELETE CASCADE`; `sort_mode` chỉ nhận `PRIORITY` hoặc `CUSTOM`; `project_ids JSONB` là mảng ID dự án theo thứ tự người dùng đã lưu; `updated_at` là `TIMESTAMPTZ`. Chế độ `PRIORITY` lưu mảng rỗng. Service chỉ nhận và trả các dự án phần mềm đang hoạt động trong phạm vi hiện tại của tài khoản; quyền bị thu hồi không làm lộ ID đã lưu trong API.
+
+### 8.4 `planning_runs`
 
 Các cột: `id`, `plan_date`, `timezone`, `scope_hash`, `status`, `version`, `source_snapshot_at`, `report_cutoff_at`, `gitlab_snapshot_at`, `supersedes_run_id`, `created_by`, timestamps.
 
@@ -327,7 +333,7 @@ PARTIAL, SYNC_FAILED, SUPERSEDED
 
 Database unique theo `(plan_date, scope_hash, revision)`; service runtime trả lại run chưa `SUPERSEDED` hiện hữu cho cùng ngày/scope. Target amendment tạo revision mới cho toàn run, liên kết `supersedes_run_id`, giữ snapshot cũ bất biến và tính per-Issue delta cho snapshot mới; runtime 1.2 chưa có amendment/supersede API và run đã approved không được sửa.
 
-### 8.4 `planning_assignments`
+### 8.5 `planning_assignments`
 
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
@@ -348,7 +354,7 @@ Database unique theo `(plan_date, scope_hash, revision)`; service runtime trả 
 
 Constraint/application validation bảo đảm tổng giờ theo member/slot không vượt available capacity nếu không có CTO override; mỗi member/run có tối đa một distinct primary development Issue ở trạng thái Doing nếu không có override.
 
-### 8.5 `planning_candidates`
+### 8.6 `planning_candidates`
 
 Quick Add và Daily Report lưu candidate trước khi trở thành assignment: `planning_run_id`, `project_id`, optional `member_id/intake_id/assignment_id`, `source_type`, `source_reference`, optional GitLab/Plane reference, title/summary đã sanitize, `status`, proposed priority, requested hours/slot, idempotency hash, actor và timestamps.
 
@@ -356,23 +362,23 @@ State allowlist: `PENDING_TRIAGE`, `READY`, `ASSIGNED`, `REJECTED` (hoãn hôm n
 
 `source_type` allowlist: `GITLAB`, `INTAKE`, `PLANE`, `FORM`, `PASTE`, `REPORT`, `VERIFICATION` (việc bị bác khi kiểm xác suất, ADR-0045). Candidate `REPORT` (ADR-0019) sinh từ task chưa xong của Daily Report: có `member_id` là người báo cáo, `source_reference = "Daily Report YYYY-MM-DD"`, không có `intake_id`, và khóa idempotent theo run + report item. Có Issue đang mở thì `READY`, không thì `PENDING_TRIAGE`.
 
-### 8.6 `planning_warnings`
+### 8.7 `planning_warnings`
 
 Lưu `planning_run_id`, optional `assignment_id/member_id/project_id`, `code`, `severity`, `source_values JSONB`, `message`, `acknowledged_by`, `acknowledged_at`, timestamps. Code runtime gồm `REPORT_IDENTITY_UNMAPPED`, `REPORT_MISSING`, `REPORT_MALFORMED`, `REPORT_LATE`, `REPORT_BLOCKER`, `GITLAB_REFERENCE_NOT_FOUND`, `EMAIL_DONE_GITLAB_OPEN`, `EMAIL_ACTIVE_GITLAB_CLOSED`, `GITLAB_MILESTONE_MISSING` và `GITLAB_DUE_DATE_MISSING`. Capacity/WIP/mapping violation hiện trả error code khi mutate/approve; target có thể materialize thêm warning nếu cần UI acknowledgement. Theo ADR-0013, `GITLAB_MILESTONE_MISSING` và `GITLAB_DUE_DATE_MISSING` là warning phải được CTO acknowledge trước approval, không chặn approval; runtime 1.2 vẫn fail closed.
 
 Không lưu raw email/chat trong `source_values`; chỉ lưu reference và giá trị đã sanitize.
 
-### 8.7 `planning_approval_snapshots`
+### 8.8 `planning_approval_snapshots`
 
 Immutable: `planning_run_id`, `run_version`, `approved_by`, `approved_at`, `payload JSONB`, `payload_hash`, `warning_acknowledgements JSONB`, `override_reason`, timestamps. Snapshot chứa exact assignee/milestone/due date và slot/hour plan đã duyệt, không chứa raw source.
 
-### 8.8 `planning_sync_jobs`
+### 8.9 `planning_sync_jobs`
 
 Một record cho mỗi `(planning_snapshot_id, project_id, gitlab_issue_external_id)`: `status`, `idempotency_key`, `request_payload_hash`, `before_state JSONB`, `after_state JSONB`, `attempt`, `max_attempts`, `next_attempt_at`, `lease_expires_at`, error đã redact và timestamps.
 
 Unique `idempotency_key`. `before_state`/`after_state` chỉ chứa assignee, milestone, due date và identifiers allowlist. Worker claim `PENDING`/`RETRY`; manual retry chỉ chuyển job `FAILED` còn attempt budget về `PENDING`, tạo outbox event idempotent và audit. Run `PARTIAL` không rollback job `SUCCEEDED`.
 
-### 8.9 `issue_verifications` (ADR-0045, ADR-0055)
+### 8.10 `issue_verifications` (ADR-0045, ADR-0055)
 
 Từ 2026-10-15 (migration 041) thêm `source_note`: ghi chú lúc "Hủy" một việc chờ đã làm rồi, chép lên Issue khi CTO chấp nhận (FR-PLAN-34).
 

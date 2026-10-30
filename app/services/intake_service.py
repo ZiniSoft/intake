@@ -138,7 +138,7 @@ class IntakeStore:
         )
         accepted_issue = exists(
             select(1).select_from(IssueVerification).where(
-                IssueVerification.decision == "ACCEPTED",
+                or_(IssueVerification.decision == "ACCEPTED", IssueVerification.po_decision == "ACCEPTED"),
                 tuple_(IssueVerification.project_id, IssueVerification.issue_external_id).in_(current_link),
             )
         ).correlate(IntakeItem)
