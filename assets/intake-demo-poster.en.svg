@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Intake public walkthrough</title>
+  <desc id="desc">A video poster showing a request moving through AI organization, human approval, a GitHub Issue, and daily planning.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef7f4"/>
+      <stop offset="1" stop-color="#f7f4e8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0b2f2a" flood-opacity="0.14"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0L12 6L0 12Z" fill="#789087"/>
+    </marker>
+    <style>
+      .eyebrow { font: 700 19px Inter, Segoe UI, Arial, sans-serif; letter-spacing: 2.4px; fill: #287567; }
+      .headline { font: 750 62px Inter, Segoe UI, Arial, sans-serif; fill: #102a26; }
+      .subhead { font: 400 27px Inter, Segoe UI, Arial, sans-serif; fill: #526961; }
+      .card-title { font: 700 23px Inter, Segoe UI, Arial, sans-serif; fill: #102a26; }
+      .card-copy { font: 400 17px Inter, Segoe UI, Arial, sans-serif; fill: #61756e; }
+      .footer { font: 650 22px Inter, Segoe UI, Arial, sans-serif; fill: #102a26; }
+      .url { font: 500 19px Inter, Segoe UI, Arial, sans-serif; fill: #397267; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <circle cx="1110" cy="110" r="190" fill="#dcefe9" opacity="0.72"/>
+  <circle cx="1225" cy="645" r="250" fill="#f5e7c9" opacity="0.62"/>
+
+  <text x="72" y="82" class="eyebrow">INTAKE WALKTHROUGH</text>
+  <text x="72" y="157" class="headline">From request to</text>
+  <text x="72" y="224" class="headline">traceable work</text>
+  <text x="72" y="274" class="subhead">A 90-second, human-in-the-loop workflow.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="72" y="338" width="250" height="178" rx="24" fill="#ffffff"/>
+    <circle cx="112" cy="381" r="21" fill="#287567"/>
+    <path d="M102 381h20M112 371v20" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+    <text x="145" y="388" class="card-title">Capture</text>
+    <text x="102" y="438" class="card-copy">Keep the original request</text>
+    <text x="102" y="465" class="card-copy">and its project context.</text>
+
+    <rect x="371" y="338" width="250" height="178" rx="24" fill="#ffffff"/>
+    <circle cx="411" cy="381" r="21" fill="#cc7a13"/>
+    <path d="M402 381l7 7 13-16" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="444" y="388" class="card-title">Decide</text>
+    <text x="401" y="438" class="card-copy">AI suggests. A person</text>
+    <text x="401" y="465" class="card-copy">approves priority and route.</text>
+
+    <rect x="670" y="338" width="250" height="178" rx="24" fill="#ffffff"/>
+    <circle cx="710" cy="381" r="21" fill="#326b92"/>
+    <path d="M700 373h20v16h-20zM705 368h10" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="743" y="388" class="card-title">Create</text>
+    <text x="700" y="438" class="card-copy">Sync an approved snapshot</text>
+    <text x="700" y="465" class="card-copy">to a real GitHub Issue.</text>
+
+    <rect x="969" y="338" width="239" height="178" rx="24" fill="#ffffff"/>
+    <circle cx="1009" cy="381" r="21" fill="#287567"/>
+    <path d="M999 373h20M999 381h20M999 389h13" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+    <text x="1042" y="388" class="card-title">Plan</text>
+    <text x="999" y="438" class="card-copy">Assign an owner, a slot,</text>
+    <text x="999" y="465" class="card-copy">and capacity for the day.</text>
+  </g>
+
+  <path d="M322 427h38" stroke="#789087" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M621 427h38" stroke="#789087" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M920 427h38" stroke="#789087" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <rect x="72" y="578" width="1136" height="82" rx="22" fill="#ffffff" stroke="#d8e3df" stroke-width="2"/>
+  <text x="105" y="616" class="footer">AI proposes. People decide.</text>
+  <text x="105" y="642" class="url">github.com/ZiniSoft/intake</text>
+  <rect x="1035" y="598" width="138" height="40" rx="20" fill="#102a26"/>
+  <path d="M1082 608l25 10-25 10z" fill="#ffffff"/>
+  <text x="1111" y="625" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">PLAY</text>
+</svg>

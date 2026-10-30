@@ -1,6 +1,18 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_LOCAL_ENVIRONMENTS = frozenset({"dev", "development", "local", "test", "testing"})
+_KNOWN_SECRET_KEYS = frozenset({"", "dev-secret-key", "change-me-in-production"})
+_KNOWN_INITIAL_PASSWORDS = frozenset({
+    "",
+    "dev-cto-password",
+    "change-me-cto-password",
+    "dev-owner-password",
+    "change-me-owner-password",
+})
 
 
 class Settings(BaseSettings):
@@ -108,6 +120,32 @@ class Settings(BaseSettings):
     report_imap_folder: str = "INBOX"
     report_imap_poll_seconds: int = 1800
     report_imap_fetch_limit: int = 200
+
+    @property
+    def is_deployed_environment(self) -> bool:
+        """Unknown environment names fail closed instead of silently behaving like development."""
+        return self.app_env.strip().lower() not in _LOCAL_ENVIRONMENTS
+
+    @model_validator(mode="after")
+    def validate_deployed_security(self) -> "Settings":
+        if not self.is_deployed_environment:
+            return self
+
+        errors: list[str] = []
+        secret_key = self.secret_key.strip()
+        initial_password = self.cto_initial_password.strip()
+        owner_password = self.project_owner_initial_password.strip()
+        if secret_key.lower() in _KNOWN_SECRET_KEYS or len(secret_key) < 32 or len(set(secret_key)) < 8:
+            errors.append("SECRET_KEY must be at least 32 characters, have sufficient character diversity, and not use a repository default")
+        if initial_password.lower() in _KNOWN_INITIAL_PASSWORDS or len(initial_password) < 12:
+            errors.append("CTO_INITIAL_PASSWORD must be at least 12 characters and must not use a repository default")
+        if owner_password and (owner_password.lower() in _KNOWN_INITIAL_PASSWORDS or len(owner_password) < 12):
+            errors.append("PROJECT_OWNER_INITIAL_PASSWORD must be at least 12 characters and must not use a repository default")
+        if not self.cookie_secure:
+            errors.append("COOKIE_SECURE must be true outside local and test environments")
+        if errors:
+            raise ValueError("Unsafe deployed configuration: " + "; ".join(errors))
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

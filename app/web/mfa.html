@@ -20,6 +20,7 @@
       <form id="loginForm" class="stack">
         <label>Account subject<input id="subject" name="subject" value="cto" autocomplete="username" required></label>
         <label>Password<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <label>Authenticator code, if enabled<input id="loginOtp" name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label>
         <button class="button button-primary" type="submit">Sign in</button>
       </form>
       <p id="loginMessage" class="message" role="status"></p>
@@ -34,7 +35,11 @@
       <div class="grid">
         <article class="panel setup-card">
           <div class="card-heading"><span class="step">01</span><div><h2>Authenticator app</h2><p>Generate a secret, add it to your authenticator, then confirm a current code.</p></div></div>
-          <button id="setupButton" class="button button-primary" type="button">Generate setup secret</button>
+          <form id="setupForm" class="stack">
+            <label>Current password<input id="setupPassword" type="password" autocomplete="current-password" required></label>
+            <label>Current authenticator code, if MFA is enabled<input id="setupOtp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label>
+            <button class="button button-primary" type="submit">Generate setup secret</button>
+          </form>
           <div id="setupResult" class="result hidden">
             <div class="result-label">Manual setup secret</div>
             <code id="secretValue"></code>
@@ -49,7 +54,11 @@
 
         <article class="panel recovery-card">
           <div class="card-heading"><span class="step">02</span><div><h2>Recovery codes</h2><p>Generate a fresh set for offline storage. Generating again invalidates the previous set.</p></div></div>
-          <button id="recoveryButton" class="button button-outline" type="button">Generate recovery codes</button>
+          <form id="recoveryForm" class="stack">
+            <label>Current password<input id="recoveryPassword" type="password" autocomplete="current-password" required></label>
+            <label>Current authenticator code<input id="recoveryOtp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+            <button class="button button-outline" type="submit">Generate recovery codes</button>
+          </form>
           <div id="recoveryResult" class="result hidden">
             <div class="result-label">Store these codes offline</div>
             <div id="codesGrid" class="codes-grid"></div>

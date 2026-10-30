@@ -361,6 +361,80 @@ class ProjectTeamService:
         with get_session() as session:
             return self._view(session, self._project(session, project_ref))
 
+    def candidates(self, project_ref: str) -> list[dict[str, object]]:
+        """Active staff not yet on the project, with only the fields an owner needs to choose them."""
+        with get_session() as session:
+            project = self._project(session, project_ref)
+            current = set(session.scalars(
+                select(WorkforceProjectMembership.member_id).where(
+                    WorkforceProjectMembership.project_id == project.id,
+                    WorkforceProjectMembership.active.is_(True),
+                )
+            ).all())
+            return [
+                {"member_id": str(member.id), "display_name": member.display_name, "email": member.email_reference}
+                for member in session.scalars(
+                    select(WorkforceMember)
+                    .where(WorkforceMember.status == "ACTIVE", WorkforceMember.id.not_in(current))
+                    .order_by(WorkforceMember.display_name)
+                ).all()
+            ]
+
+    def add_member(self, project_ref: str, member_id: str, actor_id: str) -> dict[str, object]:
+        """Add one active staff member without granting the caller the wider replace-team operation."""
+        now = datetime.now(timezone.utc)
+        with get_session() as session:
+            project = self._project(session, project_ref)
+            member = session.get(WorkforceMember, member_id)
+            if member is None or member.status != "ACTIVE":
+                raise ProjectError("MEMBER_NOT_ACTIVE", "The chosen staff member does not exist or is inactive")
+            membership = session.scalar(select(WorkforceProjectMembership).where(
+                WorkforceProjectMembership.project_id == project.id,
+                WorkforceProjectMembership.member_id == member.id,
+            ))
+            added = membership is None or not membership.active
+            if membership is None:
+                session.add(WorkforceProjectMembership(
+                    id=str(uuid4()), member_id=str(member.id), project_id=str(project.id),
+                    gitlab_user_external_id=None, role=None, active=True, created_at=now, updated_at=now,
+                ))
+            elif not membership.active:
+                membership.active = True
+                membership.updated_at = now
+            if added:
+                project.updated_at = now
+                session.add(AuditEvent(
+                    id=str(uuid4()), project_id=project.id, actor_type="USER", actor_id=actor_id,
+                    event_type="project.member_added", entity_type="project", entity_id=project.id,
+                    details={"member_id": str(member.id)}, created_at=now,
+                ))
+            session.commit()
+            return {"added": added, "team": self._view(session, project)}
+
+    def remove_member(self, project_ref: str, member_id: str, actor_id: str) -> dict[str, object]:
+        """Deactivate one project membership without deleting the staff profile, account, or history."""
+        now = datetime.now(timezone.utc)
+        with get_session() as session:
+            project = self._project(session, project_ref)
+            if project.owner_member_id and str(project.owner_member_id) == str(member_id):
+                raise ProjectError("MEMBER_OWNS_PROJECT", "Choose another Project Owner before removing this person")
+            membership = session.scalar(select(WorkforceProjectMembership).where(
+                WorkforceProjectMembership.project_id == project.id,
+                WorkforceProjectMembership.member_id == member_id,
+            ))
+            removed = bool(membership and membership.active)
+            if removed:
+                membership.active = False
+                membership.updated_at = now
+                project.updated_at = now
+                session.add(AuditEvent(
+                    id=str(uuid4()), project_id=project.id, actor_type="USER", actor_id=actor_id,
+                    event_type="project.member_removed", entity_type="project", entity_id=project.id,
+                    details={"member_id": str(member_id)}, created_at=now,
+                ))
+            session.commit()
+            return {"removed": removed, "team": self._view(session, project)}
+
     @staticmethod
     def _view(session, project: Project) -> dict[str, object]:
         rows = session.execute(

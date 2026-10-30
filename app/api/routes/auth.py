@@ -15,6 +15,7 @@ from app.schemas import (
     LoginRequest,
     MfaCodeRequest,
     MfaSetupResponse,
+    MfaStepUpRequest,
     PasswordChange,
     PasswordResetAccepted,
     PasswordResetConfirm,
@@ -133,29 +134,51 @@ async def logout(response: Response, _: AuthContext = Depends(get_current_user_s
 
 
 @router.post("/mfa/setup", response_model=MfaSetupResponse, openapi_extra={"x-requirement-ids": ["FR-ID-02"]})
-async def setup_mfa(context: AuthContext = Depends(get_current_user_strict)) -> MfaSetupResponse:
-    secret = identity_service.start_mfa_setup(context.subject)
+async def setup_mfa(
+    payload: MfaStepUpRequest,
+    context: AuthContext = Depends(get_current_user_strict),
+) -> MfaSetupResponse:
+    try:
+        secret = identity_service.start_mfa_setup(
+            context.subject, current_password=payload.current_password, otp=payload.otp,
+        )
+    except IdentityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": error.code, "message": error.message},
+        ) from error
     return MfaSetupResponse(secret=secret, issuer="Private Feedback Intake", subject=context.subject)
 
 
 @router.post("/mfa/confirm", openapi_extra={"x-requirement-ids": ["FR-ID-02"]})
 async def confirm_mfa(
     payload: MfaCodeRequest,
+    response: Response,
     context: AuthContext = Depends(get_current_user_strict),
 ) -> dict[str, bool]:
     if not identity_service.confirm_mfa_setup(context.subject, payload.code):
         raise HTTPException(status_code=400, detail="Invalid MFA code")
+    # The factor change revokes every older auth_version. Keep only this freshly stepped-up browser signed in.
+    issue_session(response, context.subject)
     return {"enabled": True}
 
 
 @router.post("/mfa/recovery-codes", response_model=RecoveryCodesResponse, openapi_extra={"x-requirement-ids": ["FR-ID-02"]})
 async def generate_recovery_codes(
+    payload: MfaStepUpRequest,
     context: AuthContext = Depends(get_current_user_strict),
 ) -> RecoveryCodesResponse:
     try:
-        codes = identity_service.generate_recovery_codes(context.subject)
+        codes = identity_service.generate_recovery_codes(
+            context.subject, current_password=payload.current_password, otp=payload.otp,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=409, detail="MFA must be enabled before generating recovery codes") from exc
+    except IdentityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": error.code, "message": error.message},
+        ) from error
     return RecoveryCodesResponse(recovery_codes=codes)
 
 

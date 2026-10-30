@@ -25,18 +25,65 @@ def _create_account() -> tuple[str, str, str]:
     return subject, email, response.json()["data"]["temporary_password"]
 
 
+def _csrf(client: TestClient) -> dict[str, str]:
+    return {"X-CSRF-Token": client.cookies.get(get_settings().csrf_cookie_name, "")}
+
+
+def _ready_account() -> tuple[str, str, str, TestClient]:
+    subject, email, temporary_password = _create_account()
+    bootstrap = TestClient(app)
+    assert bootstrap.post("/api/v1/auth/login", json={"subject": subject, "password": temporary_password}).status_code == 200
+    current_password = f"current-password-{uuid4().hex}"
+    changed = bootstrap.post(
+        "/api/v1/auth/password",
+        json={"current_password": temporary_password, "new_password": current_password},
+        headers=_csrf(bootstrap),
+    )
+    assert changed.status_code == 200, changed.text
+    signed_in = TestClient(app)
+    assert signed_in.post("/api/v1/auth/login", json={"subject": subject, "password": current_password}).status_code == 200
+    return subject, email, current_password, signed_in
+
+
+def test_password_change_revokes_old_sessions_and_personal_tokens() -> None:
+    subject, _, current_password, signed_in = _ready_account()
+    issued = signed_in.post("/api/v1/auth/tokens", json={"name": "old agent token"}, headers=_csrf(signed_in))
+    assert issued.status_code == 201, issued.text
+    old_agent = TestClient(app, headers={"Authorization": f"Bearer {issued.json()['data']['token']}"})
+    assert old_agent.get("/api/v1/auth/me").status_code == 200
+
+    new_password = f"changed-password-{uuid4().hex}"
+    changed = signed_in.post(
+        "/api/v1/auth/password",
+        json={"current_password": current_password, "new_password": new_password},
+        headers=_csrf(signed_in),
+    )
+    assert changed.status_code == 200, changed.text
+
+    assert signed_in.get("/api/v1/auth/me").status_code == 401
+    assert old_agent.get("/api/v1/auth/me").status_code == 401
+    fresh = TestClient(app)
+    assert fresh.post("/api/v1/auth/login", json={"subject": subject, "password": new_password}).status_code == 200
+    assert fresh.get("/api/v1/auth/tokens").json()["data"] == []
+    new_token = fresh.post("/api/v1/auth/tokens", json={"name": "new agent token"}, headers=_csrf(fresh))
+    assert new_token.status_code == 201, new_token.text
+    new_agent = TestClient(app, headers={"Authorization": f"Bearer {new_token.json()['data']['token']}"})
+    assert new_agent.get("/api/v1/auth/me").status_code == 200
+
+
 def test_password_reset_email_is_private_single_use_and_revokes_old_session(monkeypatch) -> None:
-    subject, email, old_password = _create_account()
+    subject, email, old_password, signed_in = _ready_account()
     delivered: list[dict[str, str]] = []
 
     async def fake_send(**message: str) -> None:
         delivered.append(message)
 
     monkeypatch.setattr(password_reset_mailer, "send", fake_send)
-    signed_in = TestClient(app)
-    login = signed_in.post("/api/v1/auth/login", json={"subject": subject, "password": old_password})
-    assert login.status_code == 200, login.text
     assert signed_in.get("/api/v1/auth/me").status_code == 200
+    issued = signed_in.post("/api/v1/auth/tokens", json={"name": "old reset token"}, headers=_csrf(signed_in))
+    assert issued.status_code == 201, issued.text
+    old_agent = TestClient(app, headers={"Authorization": f"Bearer {issued.json()['data']['token']}"})
+    assert old_agent.get("/api/v1/auth/me").status_code == 200
 
     public = TestClient(app)
     requested = public.post("/api/v1/auth/password-reset/request", json={"identifier": email.upper()})
@@ -64,8 +111,15 @@ def test_password_reset_email_is_private_single_use_and_revokes_old_session(monk
 
     # The old cookie and password are both invalid; the reset link cannot be replayed.
     assert signed_in.get("/api/v1/auth/me").status_code == 401
+    assert old_agent.get("/api/v1/auth/me").status_code == 401
     assert TestClient(app).post("/api/v1/auth/login", json={"subject": subject, "password": old_password}).status_code == 401
-    assert TestClient(app).post("/api/v1/auth/login", json={"subject": subject, "password": new_password}).status_code == 200
+    fresh = TestClient(app)
+    assert fresh.post("/api/v1/auth/login", json={"subject": subject, "password": new_password}).status_code == 200
+    assert fresh.get("/api/v1/auth/tokens").json()["data"] == []
+    new_token = fresh.post("/api/v1/auth/tokens", json={"name": "new reset token"}, headers=_csrf(fresh))
+    assert new_token.status_code == 201, new_token.text
+    new_agent = TestClient(app, headers={"Authorization": f"Bearer {new_token.json()['data']['token']}"})
+    assert new_agent.get("/api/v1/auth/me").status_code == 200
     replay = public.post("/api/v1/auth/password-reset/confirm", json={"token": token, "new_password": f"other-{uuid4().hex}"})
     assert replay.status_code == 422 and replay.json()["error"] == "RESET_TOKEN_INVALID"
 

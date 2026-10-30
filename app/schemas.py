@@ -575,6 +575,11 @@ class MfaCodeRequest(BaseModel):
     code: str = Field(..., min_length=6, max_length=6)
 
 
+class MfaStepUpRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=256)
+    otp: str | None = Field(default=None, min_length=6, max_length=6)
+
+
 class MfaSetupResponse(BaseModel):
     secret: str
     issuer: str
@@ -999,6 +1004,27 @@ class AcceptanceItemOut(BaseModel):
     evidence_missing_reason: str | None = None
 
 
+class AcceptanceWorkLogOut(BaseModel):
+    """Off-plan work waiting for the CTO's review (FR-PLAN-38, FR-MCP-03)."""
+    id: str
+    intake_id: str
+    intake_public_id: str
+    project_id: str
+    project_name: str | None = None
+    title: str
+    summary: str
+    issue_external_id: str | None = None
+    web_url: str | None = None
+    executor: str
+    details: IntakeWorkLogDetails = Field(default_factory=IntakeWorkLogDetails)
+    review_decision: Literal["PENDING", "CONFIRMED", "RETURNED"]
+    review_note: str | None = None
+    reviewed_by_name: str | None = None
+    reviewed_at: datetime | None = None
+    accepted_at: datetime | None = None
+    created_at: datetime
+
+
 class AcceptanceQueueOut(BaseModel):
     plan_date: date
     sample_size: int = 5
@@ -1006,6 +1032,9 @@ class AcceptanceQueueOut(BaseModel):
     today: list[AcceptanceItemOut] = Field(default_factory=list)
     more: list[AcceptanceItemOut] = Field(default_factory=list)
     decided: list[AcceptanceItemOut] = Field(default_factory=list)
+    work_log_pending_total: int = 0
+    work_logs_pending: list[AcceptanceWorkLogOut] = Field(default_factory=list)
+    work_logs_decided: list[AcceptanceWorkLogOut] = Field(default_factory=list)
 
 
 class AcceptanceDecisionRequest(BaseModel):
@@ -2398,6 +2427,26 @@ class ProjectTeamUpdate(BaseModel):
     member_ids: list[str] = Field(default_factory=list, max_length=200)
 
 
+class ProjectMemberAdd(BaseModel):
+    member_id: str = Field(..., min_length=36, max_length=36)
+
+
+class ProjectMemberCandidateOut(BaseModel):
+    member_id: str
+    display_name: str
+    email: str | None = None
+
+
+class ProjectMemberAddedOut(BaseModel):
+    added: bool
+    team: ProjectTeamOut
+
+
+class ProjectMemberRemovedOut(BaseModel):
+    removed: bool
+    team: ProjectTeamOut
+
+
 class PlanningAddWorkRequest(BaseModel):
     expected_run_version: int = Field(..., ge=1)
     project_id: str
@@ -2415,6 +2464,18 @@ class PlanningAddWorkRequest(BaseModel):
     slot: PlanningSlot | None = None
     planned_hours: float | None = Field(default=None, gt=0, le=24)
     override_reason: str | None = Field(default=None, max_length=2000)
+
+
+class PlanningProjectOrderUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["PRIORITY", "CUSTOM"]
+    project_ids: list[str] = Field(default_factory=list, max_length=200)
+
+
+class PlanningProjectOrderOut(BaseModel):
+    mode: Literal["PRIORITY", "CUSTOM"]
+    project_ids: list[str] = Field(default_factory=list)
 
 
 class PlanningWorkItemOut(BaseModel):

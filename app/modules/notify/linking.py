@@ -291,7 +291,7 @@ def download_telegram_file(file_id: str) -> bytes:
     client = TelegramClient()
     path = str(client.get_file(file_id).get("file_path") or "")
     if not path:
-        raise TelegramError("TELEGRAM_REJECTED", "no file path")
+        raise TelegramError("TELEGRAM_REJECTED", error_type="TelegramAPIError")
     return client.download(path)
 
 

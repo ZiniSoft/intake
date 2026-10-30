@@ -13,7 +13,7 @@ import hashlib
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.db import get_session
 from app.models import (
@@ -225,6 +225,35 @@ def _dict(session, row: IssueVerification, names: dict[str, str], projects: dict
     }
 
 
+def _work_log_dict(session, row: IntakeWorkLog, users: dict[str, str], projects: dict[str, str]) -> dict[str, object]:
+    item = session.get(IntakeItem, row.intake_id)
+    link = session.scalar(select(ExternalLink).where(
+        ExternalLink.intake_id == row.intake_id,
+        ExternalLink.target_system.in_(("GITLAB", "GITHUB")),
+    ).order_by(ExternalLink.created_at.desc()))
+    accepted = None
+    if link is not None:
+        accepted = session.scalar(select(IssueVerification).where(
+            IssueVerification.project_id == link.project_id,
+            IssueVerification.issue_external_id == link.external_id,
+            IssueVerification.decision == "ACCEPTED",
+        ).order_by(IssueVerification.decided_at.desc()))
+    actor = users.get(str(row.actor_id)) if row.actor_id else None
+    return {
+        "id": str(row.id), "intake_id": str(row.intake_id),
+        "intake_public_id": item.public_id if item is not None else str(row.intake_id),
+        "project_id": str(row.project_id), "project_name": projects.get(str(row.project_id)),
+        "title": (item.normalized_title if item is not None else None) or row.summary,
+        "summary": row.summary, "issue_external_id": link.external_id if link is not None else None,
+        "web_url": link.url if link is not None else None,
+        "executor": row.agent_name or actor or "Không rõ", "details": row.details or {},
+        "review_decision": row.review_decision, "review_note": row.review_note,
+        "reviewed_by_name": users.get(str(row.reviewed_by)) if row.reviewed_by else None,
+        "reviewed_at": row.reviewed_at, "accepted_at": accepted.decided_at if accepted is not None else None,
+        "created_at": row.created_at,
+    }
+
+
 def queue(allowed_project_ids: frozenset[str] | None, *, is_cto: bool, project_id: str | None = None) -> dict[str, object]:
     """What waits for acceptance. The CTO gets today's sample apart from the rest; a Project Owner gets their projects."""
     today = _today()
@@ -249,11 +278,31 @@ def queue(allowed_project_ids: frozenset[str] | None, *, is_cto: bool, project_i
             decided = [row for row in rows if row.decision != "PENDING" or row.po_decision is not None][:30]
         today_rows = [row for row in pending if row.picked_on == today] if is_cto else pending
         rest = [row for row in pending if row.picked_on != today] if is_cto else []
+        work_logs_pending: list[IntakeWorkLog] = []
+        work_logs_decided: list[IntakeWorkLog] = []
+        if is_cto:
+            work_log_query = select(IntakeWorkLog).where(or_(
+                IntakeWorkLog.review_decision == "PENDING",
+                IntakeWorkLog.reviewed_at >= since,
+            ))
+            if allowed_project_ids is not None:
+                work_log_query = work_log_query.where(IntakeWorkLog.project_id.in_(sorted(allowed_project_ids)))
+            if project_id:
+                work_log_query = work_log_query.where(IntakeWorkLog.project_id == project_id)
+            work_logs = session.scalars(work_log_query.order_by(IntakeWorkLog.created_at.desc())).all()
+            work_logs_pending = [row for row in work_logs if row.review_decision == "PENDING"]
+            work_logs_decided = [
+                row for row in work_logs
+                if row.review_decision != "PENDING" and _utc(row.reviewed_at) and _utc(row.reviewed_at) >= since
+            ][:30]
         order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
         as_dicts = lambda items: sorted((_dict(session, row, names, projects, users) for row in items), key=lambda item: (order.get(str(item["priority"]), 9), int(item["level"]), str(item["created_at"])))
         return {
             "today": today_rows and as_dicts(today_rows) or [], "more": as_dicts(rest), "decided": [_dict(session, row, names, projects, users) for row in decided],
             "pending_total": len(pending), "sample_size": SAMPLE_PER_DAY, "plan_date": today,
+            "work_log_pending_total": len(work_logs_pending),
+            "work_logs_pending": [_work_log_dict(session, row, users, projects) for row in work_logs_pending],
+            "work_logs_decided": [_work_log_dict(session, row, users, projects) for row in work_logs_decided],
         }
 
 

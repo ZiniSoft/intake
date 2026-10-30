@@ -430,9 +430,9 @@ def send_due(now_local: datetime | None = None, client: TelegramClient | None = 
             status, error = "SENT", None
             sent += 1
         except TelegramError as exc:
-            status, error = "FAILED", f"{exc.code}: {exc}"[:300]
+            status, error = "FAILED", exc.safe_summary[:300]
             failed += 1
-            logger.warning("telegram %s to %s failed: %s", message.kind, message.chat_id, exc)
+            logger.warning("telegram %s to %s failed: %s", message.kind, message.chat_id, exc.safe_summary)
         with get_session() as session:
             row = session.get(TelegramMessage, row_id)
             if row is not None:
@@ -460,7 +460,7 @@ def send_test(client: TelegramClient | None = None) -> list[dict[str, object]]:
             client.send_message(chat_id, escape(text), thread_id=thread_id)
             status, error = "SENT", None
         except TelegramError as exc:
-            status, error = "FAILED", f"{exc.code}: {exc}"[:300]
+            status, error = "FAILED", exc.safe_summary[:300]
         with get_session() as session:
             session.add(TelegramMessage(
                 id=str(uuid4()), kind="TEST", chat_id=chat_id, thread_id=thread_id or 0, project_id=project_id, member_id=member_id,

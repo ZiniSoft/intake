@@ -20,7 +20,7 @@ from tests.test_private_space import VOICE, _space, cto
 
 WATCH = "/api/v1/private-space/watch"
 KEY = "khoa-doc-cau-hinh-quet-chi-dung-trong-test"
-SECRET = "khoa-ky-tin-hieu-chi-dung-trong-test-12"
+SECRET = "khoa-ky-tin-hieu-chi-dung-trong-test-12"  # gitleaks:allow - synthetic test credential
 flow = TestClient(app)
 
 

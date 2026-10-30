@@ -18,7 +18,7 @@ from app.config import get_settings
 from app.db import init_db
 from app.modules.notify import linking
 from app.modules.notify.reminders import build_messages, send_due, send_test
-from app.modules.notify.telegram import TelegramClient, TelegramError
+from app.modules.notify.telegram import TelegramClient, TelegramError, configure_telegram_logging
 from app.modules.planning.overview import LOCAL_TZ
 
 logger = logging.getLogger("telegram-bot")
@@ -38,7 +38,7 @@ def handle_updates(client: TelegramClient) -> int:
                 client.send_message(reply[0], reply[1], thread_id=reply[2])
                 handled += 1
         except TelegramError as exc:
-            logger.warning("reply failed: %s", exc)
+            logger.warning("reply failed: %s", exc.safe_summary)
         except Exception:  # noqa: BLE001 - one bad update must not stop the loop; the offset still moves on
             logger.exception("update %s not handled", update_id)
         linking.set_state(OFFSET_KEY, str(update_id + 1))
@@ -46,7 +46,7 @@ def handle_updates(client: TelegramClient) -> int:
 
 
 def run() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    configure_telegram_logging(logging.INFO)
     settings = get_settings()
     if not settings.telegram_bot_token:
         logger.info("TELEGRAM_BOT_TOKEN is empty; the bot sleeps")
@@ -60,13 +60,13 @@ def run() -> None:
         linking.set_state("bot_seen_at", datetime.now(timezone.utc).isoformat())
         logger.info("bot @%s ready", me.get("username"))
     except TelegramError as exc:
-        logger.error("getMe failed: %s", exc)
+        logger.error("getMe failed: %s", exc.safe_summary)
     last_tick = 0.0
     while True:
         try:
             handle_updates(client)
         except TelegramError as exc:
-            logger.warning("getUpdates failed: %s", exc)
+            logger.warning("getUpdates failed: %s", exc.safe_summary)
             time.sleep(10)
         except Exception:  # noqa: BLE001
             logger.exception("polling failed")
@@ -102,7 +102,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command is None:
         run()
         return
-    logging.basicConfig(level=logging.WARNING)
+    configure_telegram_logging(logging.WARNING)
     init_db()
     if args.command == "preview":
         at = _parse_at(args.at)
