@@ -26,6 +26,11 @@
 - The optional Project Owner account now explains that it can review requests, plan and assign work, and track progress only for assigned projects.
 - Installers can skip the account and assign a Project Owner later from project settings; the role does not have system-wide administrator access.
 
+### Easier AI model setup
+- AI settings now keep provider forms and task rows away from panel edges and align provider, model and save controls consistently on desktop and mobile.
+- Adding a provider automatically checks the connection and loads its model list. The model field explains how to search the loaded list or enter a model ID manually when the provider does not expose one.
+- First-run setup asks only for the default model; optional per-task overrides are grouped under advanced settings with a plain-language description of each task.
+
 ## 2026-10-30
 
 ### English public walkthrough foundation `7a6c827`
