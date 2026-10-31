@@ -8734,7 +8734,10 @@ function WelcomePage() {
           {error != null && <ErrorNotice error={error} />}
           <h3>CTO (quản trị)</h3>
           {fields(cto, setCto, 'section-cto')}
-          <label className="checkbox-row"><input type="checkbox" checked={withOwner} onChange={(event) => setWithOwner(event.target.checked)} /> Tạo luôn tài khoản Project Owner</label>
+          <div className="welcome-role-option">
+            <label className="checkbox-row"><input type="checkbox" checked={withOwner} aria-describedby="project-owner-role-help" onChange={(event) => setWithOwner(event.target.checked)} /> Tạo luôn tài khoản Project Owner</label>
+            <p className="welcome-role-help" id="project-owner-role-help">Project Owner phụ trách các dự án được giao: duyệt yêu cầu, sắp xếp và phân công công việc, theo dõi tiến độ. Họ chỉ thấy dữ liệu của dự án mình phụ trách và không có quyền quản trị toàn hệ thống như CTO. Nếu chưa có người phù hợp, bỏ chọn; bạn có thể tạo tài khoản sau khi gán Project Owner trong Cài đặt › Dự án.</p>
+          </div>
           {withOwner && (<><h3>Project Owner</h3>{fields(owner, setOwner, 'section-owner')}</>)}
           <button className="button button-primary button-wide" disabled={submitting}>{submitting ? 'Đang tạo…' : 'Tạo tài khoản và tiếp tục'}</button>
         </form>

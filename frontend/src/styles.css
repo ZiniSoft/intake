@@ -2636,3 +2636,6 @@ button.strip-item:hover, .strip-item.active { border-color: var(--zs-ink); box-s
 .welcome-form h3 { margin: 18px 0 10px; font-size: 14px; }
 .checkbox-row { display: flex; align-items: center; gap: 8px; }
 .checkbox-row input { width: auto; min-height: 0; }
+.welcome-role-option { margin: 4px 0 12px; }
+.welcome-role-option .checkbox-row { margin-bottom: 6px; }
+.welcome-role-help { margin: 0 0 0 24px; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
