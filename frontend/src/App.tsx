@@ -1662,6 +1662,7 @@ function ProtectedLayout() {
     { to: '/rieng', icon: <Lightbulb size={17} />, label: 'Kho ý tưởng', active: pathname === '/rieng' || pathname.startsWith('/rieng/y/') },
     { to: '/rieng/giong', icon: <UserRound size={17} />, label: 'Giọng của tôi', active: pathname === '/rieng/giong' },
     { to: '/rieng/nguon', icon: <Eye size={17} />, label: 'Nguồn theo dõi', active: pathname === '/rieng/nguon' },
+    { to: '/rieng/thiet-lap/kenh-dang', icon: <Settings size={17} />, label: 'Thiết lập nội dung', active: pathname.startsWith('/rieng/thiet-lap') },
   ] : []
   const inPrivate = pathname.startsWith('/rieng')
   const togglePrivate = () => { try { localStorage.setItem(PRIVATE_OPEN_KEY, privateOpen ? '0' : '1') } catch { /* no memory in a private window */ } setPrivateOpen(!privateOpen) }
@@ -1681,7 +1682,7 @@ function ProtectedLayout() {
               {group.label && <div className="nav-group-label nav-text">{group.label}</div>}
               {group.links.map(({ to, icon, label, active, count }) => (
                 <Link key={to} to={to} className={active ? 'active' : undefined} aria-current={active ? 'page' : undefined} title={collapsed ? label : undefined} onClick={() => setMenuOpen(false)}>
-                  <span className="nav-icon" aria-hidden="true">{icon}</span><span className="nav-text">{label}</span>{isBetaPath(to) && <span className="nav-beta nav-text">Beta</span>}{count && <NavCount kind={count} />}
+                  <span className="nav-icon" aria-hidden="true">{icon}</span><span className="nav-text">{label}</span>{isBetaPath(to) && <span className="nav-beta nav-text">BETA</span>}{count && <NavCount kind={count} />}
                 </Link>
               ))}
             </div>
@@ -1695,7 +1696,7 @@ function ProtectedLayout() {
               )}
               {showPrivate && privateLinks.map(({ to, icon, label, active }) => (
                 <Link key={to} to={to} className={`nav-sub${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined} title={collapsed ? label : undefined} onClick={() => setMenuOpen(false)}>
-                  <span className="nav-icon" aria-hidden="true">{icon}</span><span className="nav-text">{label}</span>{isBetaPath(to) && <span className="nav-beta nav-text">Beta</span>}
+                  <span className="nav-icon" aria-hidden="true">{icon}</span><span className="nav-text">{label}</span>{isBetaPath(to) && <span className="nav-beta nav-text">BETA</span>}
                 </Link>
               ))}
             </div>
@@ -8734,7 +8735,10 @@ function WelcomePage() {
           {error != null && <ErrorNotice error={error} />}
           <h3>CTO (quản trị)</h3>
           {fields(cto, setCto, 'section-cto')}
-          <label className="checkbox-row"><input type="checkbox" checked={withOwner} onChange={(event) => setWithOwner(event.target.checked)} /> Tạo luôn tài khoản Project Owner</label>
+          <div className="welcome-role-option">
+            <label className="checkbox-row"><input type="checkbox" checked={withOwner} aria-describedby="project-owner-role-help" onChange={(event) => setWithOwner(event.target.checked)} /> Tạo luôn tài khoản Project Owner</label>
+            <p className="welcome-role-help" id="project-owner-role-help">Project Owner phụ trách các dự án được giao: duyệt yêu cầu, sắp xếp và phân công công việc, theo dõi tiến độ. Họ chỉ thấy dữ liệu của dự án mình phụ trách và không có quyền quản trị toàn hệ thống như CTO. Nếu chưa có người phù hợp, bỏ chọn; bạn có thể tạo tài khoản sau khi gán Project Owner trong Cài đặt › Dự án.</p>
+          </div>
           {withOwner && (<><h3>Project Owner</h3>{fields(owner, setOwner, 'section-owner')}</>)}
           <button className="button button-primary button-wide" disabled={submitting}>{submitting ? 'Đang tạo…' : 'Tạo tài khoản và tiếp tục'}</button>
         </form>
@@ -8766,8 +8770,8 @@ function SetupPage() {
           {data?.wizard ? (
             <>
               <h3>2. Khóa AI (bắt buộc) {data.ai_ready && <Check size={15} aria-label="Đã xong" />}</h3>
-              <p>Thêm khóa LLM, rồi chọn nhà cung cấp và model cho tác vụ "Mặc định". Hệ thống cần bước này để chuẩn hóa yêu cầu.</p>
-              <AiSettings />
+              <p>Chọn nhà cung cấp và nhập khóa API. Hệ thống sẽ tự kiểm tra kết nối, tải danh sách model và hướng dẫn bạn chọn model mặc định.</p>
+              <AiSettings setupMode />
             </>
           ) : (
             <>
@@ -9124,8 +9128,6 @@ const settingsTabs = [
   { to: '/settings/glossary', label: 'Thuật ngữ', ctoOnly: false },
   { to: '/settings/ai', label: 'AI', ctoOnly: true },
   { to: '/settings/system', label: 'Hệ thống', ctoOnly: true },
-  { to: '/settings/channels', label: 'Kênh đăng', ctoOnly: true },
-  { to: '/settings/watch', label: 'Nguồn quét', ctoOnly: true },
   { to: '/settings/account', label: 'Tài khoản & bảo mật', ctoOnly: false },
 ]
 
@@ -9136,7 +9138,25 @@ function SettingsLayout() {
     <>
       <PageHeader title="Cài đặt" />
       <nav className="settings-tabs" aria-label="Các mục cài đặt">
-        {settingsTabs.filter((tab) => (user?.beta_features_enabled !== false || (tab.to !== '/settings/channels' && tab.to !== '/settings/watch')) && (!tab.ctoOnly || user?.role === 'CTO') && (user?.role !== 'DEVELOPER' || tab.to === '/settings/account')).map((tab) => <Link key={tab.to} to={tab.to} className={pathname.startsWith(tab.to) ? 'active' : undefined} aria-current={pathname.startsWith(tab.to) ? 'page' : undefined}>{tab.label}</Link>)}
+        {settingsTabs.filter((tab) => (!tab.ctoOnly || user?.role === 'CTO') && (user?.role !== 'DEVELOPER' || tab.to === '/settings/account')).map((tab) => <Link key={tab.to} to={tab.to} className={pathname.startsWith(tab.to) ? 'active' : undefined} aria-current={pathname.startsWith(tab.to) ? 'page' : undefined}>{tab.label}</Link>)}
+      </nav>
+      <Outlet context={useOutletContext<ShellContext>()} />
+    </>
+  )
+}
+
+function PrivateContentSettingsLayout() {
+  const { pathname } = useLocation()
+  return (
+    <>
+      <PageHeader title="Thiết lập nội dung" helper={[
+        'Khu thử nghiệm dành riêng cho nội dung thương hiệu cá nhân của tài khoản CTO.',
+        'Cấu hình ở đây được lưu trong Không gian riêng, không thay đổi dự án của công ty hoặc khách hàng.',
+        'Tính năng đang hoàn thiện; kiểm tra kỹ trước khi nối dịch vụ quét vào cổng nhận.',
+      ]} action={<span className="private-tag beta-tag"><Lock size={13} aria-hidden="true" /> Chỉ bạn thấy · BETA</span>} />
+      <nav className="settings-tabs" aria-label="Thiết lập nội dung thử nghiệm">
+        <Link to="/rieng/thiet-lap/kenh-dang" className={pathname.endsWith('/kenh-dang') ? 'active' : undefined} aria-current={pathname.endsWith('/kenh-dang') ? 'page' : undefined}>Kênh đăng <span className="nav-beta">BETA</span></Link>
+        <Link to="/rieng/thiet-lap/nguon-quet" className={pathname.endsWith('/nguon-quet') ? 'active' : undefined} aria-current={pathname.endsWith('/nguon-quet') ? 'page' : undefined}>Nguồn quét <span className="nav-beta">BETA</span></Link>
       </nav>
       <Outlet context={useOutletContext<ShellContext>()} />
     </>
@@ -9215,12 +9235,21 @@ const aiPresets: { label: string; name: string; base_url: string; extra_body: Re
 ]
 
 const aiTaskLabels: Record<string, string> = {
-  default: 'Mặc định (tác vụ chưa đặt riêng)',
+  default: 'Model mặc định',
   normalize: 'Chuẩn hóa yêu cầu',
   report: 'Báo cáo cuối ngày',
   meeting: 'Biên bản họp',
   vision: 'Đọc ảnh đính kèm',
   content: 'Bài viết và nội dung',
+}
+
+const aiTaskHelp: Record<string, string> = {
+  default: 'Dùng cho mọi tác vụ chưa chọn model riêng. Đây là lựa chọn duy nhất cần thiết để bắt đầu.',
+  normalize: 'Hiểu và chuẩn hóa yêu cầu mới thành nội dung có cấu trúc.',
+  report: 'Đọc báo cáo cuối ngày và tổng hợp tiến độ công việc.',
+  meeting: 'Tạo biên bản, quyết định và việc cần làm từ nội dung cuộc họp.',
+  vision: 'Đọc chữ và nội dung trong ảnh đính kèm.',
+  content: 'Soạn bài viết và nội dung theo giọng thương hiệu.',
 }
 
 const aiSourceLabels: Record<string, string> = { route: 'đặt riêng', default: 'theo Mặc định', env: 'theo .env', none: 'chưa cấu hình' }
@@ -9232,7 +9261,7 @@ const aiTestErrors: Record<string, string> = {
   KEY_UNREADABLE: 'không đọc được khóa đã lưu, hãy nhập lại',
 }
 
-function AiSettings() {
+function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
   const queryClient = useQueryClient()
   const [error, setError] = useState<unknown>()
   const [preset, setPreset] = useState(0)
@@ -9254,7 +9283,14 @@ function AiSettings() {
   }
   const add = useMutation({
     mutationFn: () => api<AiProvider>('/ai/providers', { method: 'POST', body: JSON.stringify({ ...form, extra_body: aiPresets[preset].extra_body }) }),
-    onSuccess: () => { setForm({ ...form, api_key: '' }); setError(undefined); refresh() },
+    onSuccess: (provider) => {
+      setForm({ ...form, api_key: '' })
+      setError(undefined)
+      setNotes((current) => ({ ...current, [provider.id]: 'Đang kiểm tra kết nối và tải danh sách model…' }))
+      setDraft((current) => ({ ...current, default: { provider_id: provider.id, model: '' } }))
+      refresh()
+      test.mutate(provider.id)
+    },
     onError: setError,
   })
   const patch = useMutation({
@@ -9271,7 +9307,7 @@ function AiSettings() {
     mutationFn: (id: string) => api<AiProviderTest>(`/ai/providers/${id}/test`, { method: 'POST' }).then((result) => ({ id, result })),
     onSuccess: ({ id, result }) => {
       setModels((current) => ({ ...current, [id]: result.models }))
-      setNotes((current) => ({ ...current, [id]: result.ok ? `Kết nối được, thấy ${result.models.length} model.` : `Không kết nối được: ${aiTestErrors[result.error || ''] || result.error}` }))
+      setNotes((current) => ({ ...current, [id]: result.ok ? (result.models.length > 0 ? `Kết nối thành công. Đã tải ${result.models.length} model để bạn chọn.` : 'Kết nối thành công nhưng nhà cung cấp không trả danh sách model. Hãy nhập đúng mã model bên dưới.') : `Không kết nối được: ${aiTestErrors[result.error || ''] || result.error}` }))
       refresh()
     },
     onError: setError,
@@ -9292,9 +9328,42 @@ function AiSettings() {
     const known = aiPresets.find((item) => row && item.base_url === row.base_url)?.models || []
     return Array.from(new Set([...(models[providerId] || []), ...known]))
   }
+  const renderRoute = (route: AiRoute) => {
+    const value = draft[route.task] || { provider_id: route.provider_id || '', model: route.model || '' }
+    const dirty = value.provider_id !== (route.provider_id || '') || value.model !== (route.model || '')
+    const listId = `ai-models-${route.task}`
+    const modelSuggestions = suggestions(value.provider_id)
+    const isDefault = route.task === 'default'
+    return (
+      <div className={`ai-route ${isDefault ? 'ai-route-default' : ''}`} key={route.task}>
+        <div className="ai-route-summary">
+          <strong>{aiTaskLabels[route.task] || route.task}</strong>
+          <p>{aiTaskHelp[route.task]}</p>
+          <div className="field-help">Đang dùng: {route.effective_provider ? `${route.effective_provider} · ${route.effective_model}` : 'chưa có'} ({aiSourceLabels[route.source] || route.source})</div>
+        </div>
+        <div className="ai-route-controls">
+          <label>Nhà cung cấp
+            <select aria-label={`Nhà cung cấp cho ${aiTaskLabels[route.task]}`} value={value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { provider_id: event.target.value, model: '' } })}>
+              <option value="">{isDefault ? 'Chọn nhà cung cấp' : 'Dùng model mặc định'}</option>
+              {rows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+            </select>
+          </label>
+          <label>Model
+            <input aria-label={`Model cho ${aiTaskLabels[route.task]}`} list={listId} value={value.model} maxLength={128} placeholder={value.provider_id ? 'Chọn hoặc nhập mã model' : 'Chọn nhà cung cấp trước'} disabled={!value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { ...value, model: event.target.value } })} />
+            <datalist id={listId}>{modelSuggestions.map((name) => <option key={name} value={name} />)}</datalist>
+          </label>
+          <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !value.model.trim())} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? value.model.trim() : null })}>Lưu</button>
+          {value.provider_id && <p className="ai-model-help">{modelSuggestions.length > 0 ? 'Gõ để tìm trong danh sách model đã tải, hoặc nhập đúng mã model khác.' : 'Chưa tải được danh sách. Bạn có thể nhập đúng mã model, hoặc bấm “Kiểm tra và tải model” ở nhà cung cấp.'}</p>}
+        </div>
+      </div>
+    )
+  }
+  const routeRows = routes.data || []
+  const defaultRoute = routeRows.find((route) => route.task === 'default')
+  const taskRoutes = routeRows.filter((route) => route.task !== 'default')
   return (
     <>
-      <SectionHeader title="AI" helper="Khóa LLM và model cho từng tác vụ. Chỉ nhận API tương thích OpenAI. Khóa được mã hóa và không hiển thị lại." />
+      <SectionHeader title="AI" helper="Chọn nhà cung cấp, nhập khóa API rồi chọn model mặc định. Chỉ nhận API tương thích OpenAI. Khóa được mã hóa và không hiển thị lại." />
       {error != null && <ErrorNotice error={error} onRetry={() => setError(undefined)} />}
       <section className="panel ai-panel">
         <div className="panel-heading"><div><h2>Nhà cung cấp</h2></div></div>
@@ -9313,7 +9382,7 @@ function AiSettings() {
                   {notes[row.id] && <div className="field-help" role="status">{notes[row.id]}</div>}
                 </div>
                 <div className="ai-actions">
-                  <button className="button button-secondary" disabled={test.isPending} onClick={() => test.mutate(row.id)}>Thử kết nối</button>
+                  <button className="button button-secondary" disabled={test.isPending} onClick={() => test.mutate(row.id)}>Kiểm tra và tải model</button>
                   <button className="button button-secondary" onClick={() => patch.mutate({ id: row.id, body: { enabled: !row.enabled } })}>{row.enabled ? 'Tắt' : 'Bật'}</button>
                   <button className="button button-secondary" onClick={() => { const key = window.prompt('Nhập khóa mới'); if (key) patch.mutate({ id: row.id, body: { api_key: key } }) }}>Đổi khóa</button>
                   <button className="button button-secondary" onClick={() => { if (window.confirm(`Xóa nhà cung cấp ${row.name}?`)) remove.mutate(row.id) }}>Xóa</button>
@@ -9339,37 +9408,23 @@ function AiSettings() {
             <input type="password" autoComplete="off" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} />
           </label>
         </div>
-        <p><button className="button button-primary" disabled={add.isPending || !form.name.trim() || !form.base_url.trim() || !form.api_key.trim()} onClick={() => add.mutate()}>Thêm</button></p>
+        <p><button className="button button-primary" disabled={add.isPending || !form.name.trim() || !form.base_url.trim() || !form.api_key.trim()} onClick={() => add.mutate()}>{add.isPending ? 'Đang thêm…' : 'Thêm và tải model'}</button></p>
       </section>
       <section className="panel ai-panel">
         <div className="panel-heading"><div><h2>Model theo tác vụ</h2></div></div>
         {routes.isLoading ? <LoadingBlock /> : routes.error ? <ErrorNotice error={routes.error} onRetry={() => { void routes.refetch() }} /> : (
-          <div className="ai-list">
-            {(routes.data || []).map((route) => {
-              const value = draft[route.task] || { provider_id: route.provider_id || '', model: route.model || '' }
-              const dirty = value.provider_id !== (route.provider_id || '') || value.model !== (route.model || '')
-              const listId = `ai-models-${route.task}`
-              return (
-                <div className="ai-route" key={route.task}>
-                  <div>
-                    <strong>{aiTaskLabels[route.task] || route.task}</strong>
-                    <div className="field-help">Đang dùng: {route.effective_provider ? `${route.effective_provider} · ${route.effective_model}` : 'chưa có'} ({aiSourceLabels[route.source] || route.source})</div>
-                  </div>
-                  <div className="ai-actions">
-                    <select aria-label={`Nhà cung cấp cho ${aiTaskLabels[route.task]}`} value={value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { ...value, provider_id: event.target.value } })}>
-                      <option value="">Không đặt riêng</option>
-                      {rows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                    </select>
-                    <input aria-label={`Model cho ${aiTaskLabels[route.task]}`} list={listId} value={value.model} maxLength={128} placeholder="tên model" disabled={!value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { ...value, model: event.target.value } })} />
-                    <datalist id={listId}>{suggestions(value.provider_id).map((name) => <option key={name} value={name} />)}</datalist>
-                    <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !value.model.trim())} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? value.model.trim() : null })}>Lưu</button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <>
+            <div className="ai-list">{defaultRoute && renderRoute(defaultRoute)}</div>
+            {setupMode ? (
+              <details className="ai-route-advanced">
+                <summary>Cấu hình nâng cao: chọn model riêng cho từng tác vụ</summary>
+                <p className="field-help">Không bắt buộc. Chỉ mở phần này khi một tác vụ cần model khác với model mặc định.</p>
+                <div className="ai-list">{taskRoutes.map(renderRoute)}</div>
+              </details>
+            ) : <div className="ai-list ai-task-routes">{taskRoutes.map(renderRoute)}</div>}
+          </>
         )}
-        <p className="field-help">Tác vụ chưa đặt riêng dùng dòng Mặc định; chưa có cả hai thì dùng khóa trong .env nếu có. Tác vụ đã đặt ở đây chỉ gọi một lần, không chuyển sang model khác khi lỗi.</p>
+        <p className="field-help ai-routing-help">Các tác vụ chưa đặt riêng sẽ tự dùng model mặc định. Tác vụ đã đặt riêng chỉ gọi một model, không tự chuyển sang model khác khi lỗi.</p>
       </section>
     </>
   )
@@ -10076,6 +10131,7 @@ function isPostProject(kind: string | null | undefined): boolean {
   return kind === 'NON_CODE'
 }
 const channelRulesQuery = { queryKey: ['channel-rules'], queryFn: () => api<ChannelRule[]>('/channel-rules'), staleTime: 300_000 }
+const privateChannelRulesQuery = { queryKey: ['private-channel-rules'], queryFn: () => api<ChannelRule[]>('/private-space/content-settings/channels'), staleTime: 300_000 }
 const CHANNELS_KEY = 'intake.post.channels.'
 
 function ChannelChips({ row }: { row: WorkItem }) {
@@ -10699,33 +10755,33 @@ function WatchSourcesPage() {
   )
 }
 
-// Cài đặt > Nguồn quét: the networks the CTO opens for every project, and the daily cap on AI runs.
+// Không gian riêng > Thiết lập nội dung > Nguồn quét: private CTO-only Beta settings.
 function WatchPlatformsPage() {
   const queryClient = useQueryClient()
-  const platforms = useQuery({ queryKey: ['watch-platforms'], queryFn: () => api<WatchPlatform[]>('/settings/watch-platforms') })
-  const limits = useQuery({ queryKey: ['watch-limits'], queryFn: () => api<{ max_ai_runs_per_day: number }>('/settings/watch-limits') })
+  const platforms = useQuery({ queryKey: ['private-watch-platforms'], queryFn: () => api<WatchPlatform[]>('/private-space/content-settings/watch-platforms') })
+  const limits = useQuery({ queryKey: ['private-watch-limits'], queryFn: () => api<{ max_ai_runs_per_day: number }>('/private-space/content-settings/watch-limits') })
   const [draft, setDraft] = useState<Record<string, Partial<WatchPlatform>>>({})
   const [cap, setCap] = useState<string>()
   const [error, setError] = useState<unknown>()
   const save = useMutation({
-    mutationFn: (code: string) => api<WatchPlatform>(`/settings/watch-platforms/${code}`, { method: 'PUT', body: JSON.stringify(draft[code]) }),
+    mutationFn: (code: string) => api<WatchPlatform>(`/private-space/content-settings/watch-platforms/${code}`, { method: 'PUT', body: JSON.stringify(draft[code]) }),
     onMutate: () => setError(undefined),
-    onSuccess: (_row, code) => { setDraft((prev) => { const next = { ...prev }; delete next[code]; return next }); void queryClient.invalidateQueries({ queryKey: ['watch-platforms'] }) },
+    onSuccess: (_row, code) => { setDraft((prev) => { const next = { ...prev }; delete next[code]; return next }); void queryClient.invalidateQueries({ queryKey: ['private-watch-platforms'] }) },
     onError: setError,
   })
   const saveCap = useMutation({
-    mutationFn: (value: number) => api<{ max_ai_runs_per_day: number }>('/settings/watch-limits', { method: 'PUT', body: JSON.stringify({ max_ai_runs_per_day: value }) }),
-    onMutate: () => setError(undefined), onSuccess: (row) => { queryClient.setQueryData(['watch-limits'], row); setCap(undefined) }, onError: setError,
+    mutationFn: (value: number) => api<{ max_ai_runs_per_day: number }>('/private-space/content-settings/watch-limits', { method: 'PUT', body: JSON.stringify({ max_ai_runs_per_day: value }) }),
+    onMutate: () => setError(undefined), onSuccess: (row) => { queryClient.setQueryData(['private-watch-limits'], row); setCap(undefined) }, onError: setError,
   })
   const edit = (code: string, field: keyof WatchPlatform, value: unknown) => setDraft((prev) => ({ ...prev, [code]: { ...(prev[code] || {}), [field]: value } }))
   const value = <K extends keyof WatchPlatform>(row: WatchPlatform, field: K): WatchPlatform[K] => (draft[row.code] && field in draft[row.code] ? (draft[row.code][field] as WatchPlatform[K]) : row[field])
   return (
     <>
-      <SectionHeader title="Nguồn quét" helper="Kênh nào công cụ quét bên ngoài được đọc, bằng API chính thức hay dịch vụ cào anh cài trong n8n; và mỗi dự án marketing được bao nhiêu lượt AI tóm chủ đề mỗi ngày. Project Owner chỉ bật được trong phạm vi này." />
+      <SectionHeader title="Nguồn quét" helper="Chọn nguồn mà công cụ quét bên ngoài được phép đọc cho thương hiệu cá nhân của CTO, cùng trần lượt AI mỗi ngày. Cấu hình BETA này chỉ thuộc Không gian riêng và không áp dụng cho dự án công ty hoặc khách hàng." />
       {error != null && <ErrorNotice error={new Error(workErrorText(error))} />}
       {platforms.error != null && <ErrorNotice error={platforms.error} onRetry={() => { void platforms.refetch() }} />}
       <section className="panel voice-form">
-        <div className="panel-heading"><div><h2>Trần lượt AI mỗi ngày, mỗi dự án</h2><p className="muted">Mỗi mốc giờ trong nhịp của một dự án là một lượt; Làm mới tay thêm tối đa 3 lượt.</p></div>
+        <div className="panel-heading"><div><h2>Trần lượt AI mỗi ngày</h2><p className="muted">Áp dụng riêng cho nội dung cá nhân của CTO. Mỗi mốc giờ quét là một lượt; Làm mới tay thêm tối đa 3 lượt.</p></div>
           <form className="voice-add" onSubmit={(event) => { event.preventDefault(); if (cap !== undefined) saveCap.mutate(Number(cap)) }}>
             <input type="number" min={0} max={8} value={cap ?? String(limits.data?.max_ai_runs_per_day ?? 4)} aria-label="Trần lượt AI mỗi ngày" onChange={(event) => setCap(event.target.value)} />
             <button className="button button-primary button-small" disabled={cap === undefined || saveCap.isPending}>Lưu</button>
@@ -10750,7 +10806,7 @@ function WatchPlatformsPage() {
           </table>
         </section>
       )}
-      <p className="field-help">Luồng quét đọc <code>GET /api/v1/watch/config</code> (trả mọi dự án đang nghe, kênh bật, giờ quét kế tiếp) và gửi tín hiệu về <code>POST /api/v1/watch/signals</code>; mẫu luồng n8n và cách ký ở <code>docs/stable/watch-flow.md</code>.</p>
+      <p className="field-help">BETA: Intake chỉ nhận dữ liệu từ cổng anh tự cấu hình ở dưới, chưa tự mở hoặc quét mạng xã hội. Dữ liệu nhận được chỉ đi vào Không gian riêng của CTO.</p>
       <ConnectorsPanel />
     </>
   )
@@ -10761,15 +10817,13 @@ const deliveryWords: Record<ConnectorDelivery['status'], string> = { ACCEPTED: '
 
 // The CTO's doors for outside services (FR-MKT-13): make one, keep its secret once, map and try a sample, watch the log.
 function ConnectorsPanel() {
-  const { user } = useAuth()
   const queryClient = useQueryClient()
-  const projects = (user?.projects || []).filter((p) => isPostProject(p.kind))
-  const [projectId, setProjectId] = useState('')
-  const project = projects.find((p) => p.id === projectId) || projects[0]
+  const space = usePrivateSpace()
+  const project = space.data?.project
   const code = project?.code || ''
-  const doors = useQuery({ queryKey: ['watch-connectors', code], queryFn: () => api<WatchConnector[]>(`/settings/watch-connectors?project=${code}`), enabled: Boolean(code) })
-  const presets = useQuery({ queryKey: ['connector-presets'], queryFn: () => api<Record<string, ConnectorMapping>>('/settings/watch-connectors/presets'), staleTime: 600_000 })
-  const pillars = useQuery({ queryKey: ['watch-pillars', code], queryFn: () => api<Pillar[]>(`/projects/${code}/watch/pillars`), enabled: Boolean(code) })
+  const doors = useQuery({ queryKey: ['private-watch-connectors'], queryFn: () => api<WatchConnector[]>('/private-space/content-settings/connectors'), enabled: Boolean(project) })
+  const presets = useQuery({ queryKey: ['private-connector-presets'], queryFn: () => api<Record<string, ConnectorMapping>>('/private-space/content-settings/connectors/presets'), staleTime: 600_000, enabled: Boolean(project) })
+  const pillars = Array.from(new Set(Object.values(space.data?.voices || {}).flatMap((voice) => voice.pillars || [])))
   const [form, setForm] = useState({ name: '', kind: 'GENERIC' as WatchConnector['kind'], via: 'api' as 'api' | 'scrape', default_pillar: '' })
   const [secret, setSecret] = useState<{ name: string; token: string; path: string } | null>(null)
   const [open, setOpen] = useState<string | null>(null)
@@ -10777,35 +10831,34 @@ function ConnectorsPanel() {
   const [sample, setSample] = useState('')
   const [tried, setTried] = useState<ConnectorTry | null>(null)
   const [error, setError] = useState<unknown>()
-  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['watch-connectors', code] }) }
+  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['private-watch-connectors'] }) }
   const create = useMutation({
-    mutationFn: () => api<WatchConnector>('/settings/watch-connectors', { method: 'POST', body: JSON.stringify({ project: code, name: form.name.trim(), kind: form.kind, via: form.via, default_pillar: form.default_pillar || null }) }),
+    mutationFn: () => api<WatchConnector>('/private-space/content-settings/connectors', { method: 'POST', body: JSON.stringify({ project: code, name: form.name.trim(), kind: form.kind, via: form.via, default_pillar: form.default_pillar || null }) }),
     onMutate: () => setError(undefined), onSuccess: (made) => { setSecret({ name: made.name, token: made.token || '', path: made.path }); setForm({ name: '', kind: 'GENERIC', via: 'api', default_pillar: '' }); refresh() }, onError: setError,
   })
   const patch = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api<WatchConnector>(`/settings/watch-connectors/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api<WatchConnector>(`/private-space/content-settings/connectors/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     onMutate: () => setError(undefined), onSuccess: refresh, onError: setError,
   })
   const rotate = useMutation({
-    mutationFn: (id: string) => api<WatchConnector>(`/settings/watch-connectors/${id}/rotate`, { method: 'POST' }),
+    mutationFn: (id: string) => api<WatchConnector>(`/private-space/content-settings/connectors/${id}/rotate`, { method: 'POST' }),
     onMutate: () => setError(undefined), onSuccess: (made) => { setSecret({ name: made.name, token: made.token || '', path: made.path }); refresh() }, onError: setError,
   })
-  const remove = useMutation({ mutationFn: (id: string) => api<void>(`/settings/watch-connectors/${id}`, { method: 'DELETE' }), onMutate: () => setError(undefined), onSuccess: () => { setOpen(null); refresh() }, onError: setError })
+  const remove = useMutation({ mutationFn: (id: string) => api<void>(`/private-space/content-settings/connectors/${id}`, { method: 'DELETE' }), onMutate: () => setError(undefined), onSuccess: () => { setOpen(null); refresh() }, onError: setError })
   const tryIt = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: string }) => api<ConnectorTry>(`/settings/watch-connectors/${id}/try`, { method: 'POST', body }),
+    mutationFn: ({ id, body }: { id: string; body: string }) => api<ConnectorTry>(`/private-space/content-settings/connectors/${id}/try`, { method: 'POST', body }),
     onMutate: () => { setError(undefined); setTried(null) }, onSuccess: setTried, onError: setError,
   })
-  const deliveries = useQuery({ queryKey: ['connector-deliveries', open], queryFn: () => api<ConnectorDelivery[]>(`/settings/watch-connectors/${open}/deliveries`), enabled: Boolean(open) })
+  const deliveries = useQuery({ queryKey: ['private-connector-deliveries', open], queryFn: () => api<ConnectorDelivery[]>(`/private-space/content-settings/connectors/${open}/deliveries`), enabled: Boolean(open) })
   const absolute = (path: string) => `${window.location.origin}${path}`
   const openDoor = (door: WatchConnector) => { setOpen(open === door.id ? null : door.id); setMappingText(JSON.stringify(door.mapping, null, 2)); setSample(''); setTried(null) }
   const saveMapping = (id: string) => {
     try { patch.mutate({ id, body: { mapping: JSON.parse(mappingText) } }) } catch { setError(new Error('Ánh xạ phải là JSON hợp lệ: {"items": "...", "fields": {"url": "...", "title": "..."}}')) }
   }
-  if (projects.length === 0) return null
+  if (!project) return null
   return (
     <section className="panel voice-form" aria-label="Cổng nhận">
       <div className="panel-heading"><div><h2>Cổng nhận từ dịch vụ ngoài</h2><p className="muted">Mỗi cổng một bí mật riêng, một đường đẩy riêng, một bảng ánh xạ từ payload của dịch vụ sang tín hiệu của Intake. n8n, Make, Zapier, dịch vụ cào hay nghe đều đẩy vào đây; Intake không gọi ngược ra ngoài.</p></div>
-        {projects.length > 1 && <select aria-label="Dự án" value={project?.id || ''} onChange={(e) => { setProjectId(e.target.value); setOpen(null) }}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
       </div>
       {error != null && <ErrorNotice error={new Error(workErrorText(error))} />}
       {secret && (
@@ -10820,7 +10873,7 @@ function ConnectorsPanel() {
         <input value={form.name} maxLength={80} placeholder="Tên cổng (Make tìm tin ngành, Apify Facebook…)" aria-label="Tên cổng" onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <select aria-label="Loại dịch vụ" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as WatchConnector['kind'] })}>{(Object.keys(connectorKinds) as WatchConnector['kind'][]).map((k) => <option key={k} value={k}>{connectorKinds[k]}</option>)}</select>
         <select aria-label="Đường lấy dữ liệu" value={form.via} onChange={(e) => setForm({ ...form, via: e.target.value as 'api' | 'scrape' })}><option value="api">API chính thức</option><option value="scrape">Dịch vụ cào (điểm thấp hơn một bậc)</option></select>
-        <select aria-label="Trụ mặc định" value={form.default_pillar} onChange={(e) => setForm({ ...form, default_pillar: e.target.value })}><option value="">Không gán trụ mặc định</option>{(pillars.data || []).map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}</select>
+        <select aria-label="Trụ mặc định" value={form.default_pillar} onChange={(e) => setForm({ ...form, default_pillar: e.target.value })}><option value="">Không gán trụ mặc định</option>{pillars.map((pillar) => <option key={pillar} value={pillar}>{pillar}</option>)}</select>
         <button className="button button-primary button-small" disabled={!form.name.trim() || create.isPending}>Tạo cổng</button>
       </form>
       {doors.isLoading ? <LoadingBlock /> : (doors.data || []).length === 0 ? <p className="field-help">Chưa có cổng nào cho dự án này.</p> : (
@@ -11079,30 +11132,29 @@ function ReviewPage() {
   )
 }
 
-// Cài đặt > Kênh đăng: the CTO's table of what each channel allows.
+// Không gian riêng > Thiết lập nội dung > Kênh đăng: private drafting rules for the CTO.
 function ChannelRulesPage() {
   const queryClient = useQueryClient()
-  const rules = useQuery(channelRulesQuery)
+  const rules = useQuery(privateChannelRulesQuery)
   const [draft, setDraft] = useState<Record<string, Partial<ChannelRule>>>({})
   const [error, setError] = useState<unknown>()
   const save = useMutation({
-    mutationFn: (code: string) => api<ChannelRule>(`/channel-rules/${code}`, { method: 'PUT', body: JSON.stringify(draft[code]) }),
+    mutationFn: (code: string) => api<ChannelRule>(`/private-space/content-settings/channels/${code}`, { method: 'PUT', body: JSON.stringify(draft[code]) }),
     onMutate: () => setError(undefined),
-    onSuccess: (_row, code) => { setDraft((prev) => { const next = { ...prev }; delete next[code]; return next }); void queryClient.invalidateQueries({ queryKey: ['channel-rules'] }) },
+    onSuccess: (_row, code) => { setDraft((prev) => { const next = { ...prev }; delete next[code]; return next }); void queryClient.invalidateQueries({ queryKey: ['private-channel-rules'] }) },
     onError: setError,
   })
   const edit = (code: string, field: keyof ChannelRule, value: unknown) => setDraft((prev) => ({ ...prev, [code]: { ...(prev[code] || {}), [field]: value } }))
   const value = <K extends keyof ChannelRule>(row: ChannelRule, field: K): ChannelRule[K] => (draft[row.code] && field in draft[row.code] ? (draft[row.code][field] as ChannelRule[K]) : row[field])
   return (
     <>
-      <SectionHeader title="Kênh đăng" helper="Mỗi kênh cho phép gì: ký tự, ảnh, hashtag, link, ngôn ngữ, giờ tốt. Bộ đếm trong thẻ bài và AI soạn bản kênh đọc từ bảng này; nền tảng đổi luật thì sửa ở đây, không cần cập nhật phần mềm." />
-      <PublishPauseToggle />
+      <SectionHeader title="Kênh đăng" helper="Chọn quy tắc để AI soạn và kiểm tra bản nháp cho thương hiệu cá nhân của CTO. Cấu hình BETA này chỉ thuộc Không gian riêng; Intake chưa tự đăng bài ra nền tảng." />
       {error != null && <ErrorNotice error={error} />}
       {rules.error != null && <ErrorNotice error={rules.error} onRetry={() => { void rules.refetch() }} />}
       {rules.isLoading ? <LoadingBlock /> : (
         <section className="panel channel-table-wrap">
           <table className="project-table channel-table">
-            <thead><tr><th>Kênh</th><th>Ngôn ngữ</th><th>Ký tự tối đa</th><th>Nên dùng</th><th>Bài dài</th><th>Ảnh</th><th>Tỉ lệ ảnh</th><th>Tỉ lệ video</th><th>Hashtag</th><th>Link tính ký tự</th><th>Giờ tốt</th><th>Bật</th><th>Tự đăng</th><th></th></tr></thead>
+            <thead><tr><th>Kênh</th><th>Ngôn ngữ</th><th>Ký tự tối đa</th><th>Nên dùng</th><th>Bài dài</th><th>Ảnh</th><th>Tỉ lệ ảnh</th><th>Tỉ lệ video</th><th>Hashtag</th><th>Link tính ký tự</th><th>Giờ tốt</th><th>Bật</th><th></th></tr></thead>
             <tbody>
               {(rules.data || []).map((row) => (
                 <tr key={row.code} className={row.enabled ? '' : 'is-off'}>
@@ -11118,7 +11170,6 @@ function ChannelRulesPage() {
                   <td><label className="check-line"><input type="checkbox" checked={value(row, 'link_counts_chars')} onChange={(e) => edit(row.code, 'link_counts_chars', e.target.checked)} /> {value(row, 'link_chars') > 0 ? `${value(row, 'link_chars')} ký tự` : 'có'}</label></td>
                   <td><input value={(value(row, 'best_hours') || []).join(', ')} onChange={(e) => edit(row.code, 'best_hours', e.target.value.split(',').map((h) => h.trim()).filter(Boolean))} aria-label={`Giờ tốt ${row.code}`} placeholder="09:00, 19:30" /></td>
                   <td><input type="checkbox" checked={value(row, 'enabled')} onChange={(e) => edit(row.code, 'enabled', e.target.checked)} aria-label={`Bật ${row.code}`} /></td>
-                  <td><input type="checkbox" checked={value(row, 'auto_publish')} onChange={(e) => edit(row.code, 'auto_publish', e.target.checked)} aria-label={`Tự đăng ${row.code}`} /></td>
                   <td className="project-actions">{draft[row.code] && <button type="button" className="button button-primary button-small" disabled={save.isPending} onClick={() => save.mutate(row.code)}>Lưu</button>}</td>
                 </tr>
               ))}
@@ -11126,7 +11177,7 @@ function ChannelRulesPage() {
           </table>
         </section>
       )}
-      <p className="field-help">"Tự đăng": bản Đã duyệt và Sẵn sàng của kênh đó, tới giờ đăng, được đưa cho luồng đăng bên ngoài (n8n hoặc dịch vụ) qua <code>GET /api/v1/publish/queue</code>; luồng đăng xong báo link về và bản sang Đã đăng. Kênh chưa bật thì người làm đăng tay như trước.</p>
+      <p className="field-help">BETA: các quy tắc này chỉ hướng dẫn AI và kiểm tra bản nháp trong Không gian riêng. Anh vẫn duyệt và đăng bài thủ công; tính năng tự đăng chưa được mở.</p>
     </>
   )
 }
@@ -11570,7 +11621,7 @@ function FeedbackPage() {
 }
 
 // Areas still changing: marked Beta in the menu and switched off by BETA_FEATURES_ENABLED.
-const BETA_PATHS = ['/viec', '/tuan-nay', '/duyet', '/nguon', '/rieng/nguon']
+const BETA_PATHS = ['/viec', '/tuan-nay', '/duyet', '/nguon', '/rieng/nguon', '/rieng/thiet-lap/kenh-dang']
 function isBetaPath(to: string) { return BETA_PATHS.includes(to) }
 
 function BetaOnly() {
@@ -11624,6 +11675,11 @@ export default function App() {
             <Route path="giong" element={<PrivateVoicePage />} />
             <Route element={<BetaOnly />}>
               <Route path="nguon" element={<PrivateWatchPage />} />
+              <Route path="thiet-lap" element={<PrivateContentSettingsLayout />}>
+                <Route index element={<Navigate to="kenh-dang" replace />} />
+                <Route path="kenh-dang" element={<ChannelRulesPage />} />
+                <Route path="nguon-quet" element={<WatchPlatformsPage />} />
+              </Route>
             </Route>
           </Route>
           <Route path="settings" element={<SettingsLayout />}>
@@ -11637,8 +11693,8 @@ export default function App() {
               <Route path="ai" element={<AiSettings />} />
               <Route path="system" element={<SystemSettings />} />
               <Route element={<BetaOnly />}>
-                <Route path="channels" element={<ChannelRulesPage />} />
-                <Route path="watch" element={<WatchPlatformsPage />} />
+                <Route path="channels" element={<Navigate to="/rieng/thiet-lap/kenh-dang" replace />} />
+                <Route path="watch" element={<Navigate to="/rieng/thiet-lap/nguon-quet" replace />} />
               </Route>
             </Route>
             <Route path="glossary" element={<GlossarySettings />} />

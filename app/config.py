@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     # The HTML comment prefix written into Issue bodies to find them again; a deployment that already created Issues must keep its old prefix.
     integration_marker_prefix: str = "intake"
     # Marketing posts and watch sources are still changing; false hides them from the menu and routes.
-    beta_features_enabled: bool = True
+    beta_features_enabled: bool = False
     gitlab_integration_enabled: bool = False
     gitlab_token: str | None = None
     # Read-only token of the repo-reader worker (ADR-0063): reads docs/agent/CONTEXT.md, never writes.

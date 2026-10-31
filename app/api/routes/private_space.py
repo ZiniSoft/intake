@@ -1,12 +1,25 @@
-from fastapi import APIRouter, Depends, Query, Response, status
+import json
+
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from app.api.errors import api_exception
 from app.api.routes.intakes import intake_member
 from app.api.security import AuthContext, require_cto
 from app.modules.drafts.service import DraftError, draft_service
 from app.modules.identity.service import identity_service
+from app.modules.private_space import content_settings
 from app.modules.private_space.service import IDEA_STATES, PrivateSpaceError, private_space_service
+from app.modules.watch.connectors import BODY_LIMIT, ConnectorError, PRESETS, connector_service
+from app.modules.watch.platforms import PlatformError
+from app.modules.work.channels import ChannelRuleError
 from app.schemas import (
+    ChannelRuleOut,
+    ChannelRuleUpdate,
+    ConnectorCreate,
+    ConnectorDelivery,
+    ConnectorOut,
+    ConnectorTryOut,
+    ConnectorUpdate,
     PostDraftApprove,
     PostDraftCreate,
     PostDraftOut,
@@ -23,6 +36,10 @@ from app.schemas import (
     VoiceTrialRequest,
     TrackNoteCreate,
     TrackNoteOut,
+    WatchLimitsOut,
+    WatchLimitsUpdate,
+    WatchPlatformOut,
+    WatchPlatformUpdate,
 )
 
 # The private space belongs to the CTO role (ADR-0031). A Project Owner gets 403 here and 404 on anything inside it.
@@ -60,6 +77,160 @@ async def open_private_space(context: AuthContext = Depends(require_cto)) -> Pri
         return PrivateSpaceOut.model_validate(private_space_service.create(context.user_id))
     except PrivateSpaceError as error:
         raise api_exception(status.HTTP_409_CONFLICT, error.code, error.message) from error
+
+
+def _private_settings_error(error: PrivateSpaceError | PlatformError | ChannelRuleError) -> None:
+    code = getattr(error, "code", "PRIVATE_SETTINGS_INVALID")
+    raise api_exception(status.HTTP_409_CONFLICT if code == "PRIVATE_SPACE_MISSING" else status.HTTP_422_UNPROCESSABLE_ENTITY, code, str(error)) from error
+
+
+@router.get("/content-settings/channels", response_model=list[ChannelRuleOut], openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-02", "NFR-SEC-03"]})
+async def list_private_channel_rules(context: AuthContext = Depends(require_cto)) -> list[dict]:
+    try:
+        return [ChannelRuleOut.model_validate(row).model_dump() for row in content_settings.list_channel_rules()]
+    except PrivateSpaceError as error:
+        _private_settings_error(error)
+
+
+@router.put("/content-settings/channels/{code}", response_model=ChannelRuleOut, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-02", "NFR-SEC-03"]})
+async def put_private_channel_rule(code: str, payload: ChannelRuleUpdate, context: AuthContext = Depends(require_cto)) -> dict:
+    try:
+        return ChannelRuleOut.model_validate(content_settings.update_channel_rule(code.upper(), payload.model_dump(exclude_unset=True), actor_id=context.user_id)).model_dump()
+    except KeyError as error:
+        raise api_exception(status.HTTP_404_NOT_FOUND, "CHANNEL_NOT_FOUND", "Channel not found") from error
+    except (PrivateSpaceError, ChannelRuleError) as error:
+        _private_settings_error(error)
+
+
+@router.get("/content-settings/watch-platforms", response_model=list[WatchPlatformOut], openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-08", "NFR-SEC-03"]})
+async def list_private_watch_platforms(context: AuthContext = Depends(require_cto)) -> list[dict]:
+    try:
+        return [WatchPlatformOut.model_validate(row).model_dump() for row in content_settings.list_platforms()]
+    except PrivateSpaceError as error:
+        _private_settings_error(error)
+
+
+@router.put("/content-settings/watch-platforms/{code}", response_model=WatchPlatformOut, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-08", "NFR-SEC-03"]})
+async def put_private_watch_platform(code: str, payload: WatchPlatformUpdate, context: AuthContext = Depends(require_cto)) -> dict:
+    try:
+        return WatchPlatformOut.model_validate(content_settings.update_platform(code.upper(), payload.model_dump(exclude_unset=True), actor_id=context.user_id)).model_dump()
+    except KeyError as error:
+        raise api_exception(status.HTTP_404_NOT_FOUND, "NETWORK_NOT_FOUND", "Network not found") from error
+    except (PrivateSpaceError, PlatformError) as error:
+        _private_settings_error(error)
+
+
+@router.get("/content-settings/watch-limits", response_model=WatchLimitsOut, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-10", "NFR-SEC-03"]})
+async def get_private_watch_limits(context: AuthContext = Depends(require_cto)) -> dict:
+    try:
+        return {"max_ai_runs_per_day": content_settings.get_ai_runs_cap()}
+    except PrivateSpaceError as error:
+        _private_settings_error(error)
+
+
+@router.put("/content-settings/watch-limits", response_model=WatchLimitsOut, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-10", "NFR-SEC-03"]})
+async def put_private_watch_limits(payload: WatchLimitsUpdate, context: AuthContext = Depends(require_cto)) -> dict:
+    try:
+        return {"max_ai_runs_per_day": content_settings.set_ai_runs_cap(payload.max_ai_runs_per_day, actor_id=context.user_id)}
+    except (PrivateSpaceError, PlatformError) as error:
+        _private_settings_error(error)
+
+
+def _private_connector_id(connector_id: str) -> str:
+    try:
+        project_id = content_settings.private_project_id()
+    except PrivateSpaceError as error:
+        _private_settings_error(error)
+    if connector_id not in {str(row["id"]) for row in connector_service.list(project_id)}:
+        raise api_exception(status.HTTP_404_NOT_FOUND, "CONNECTOR_NOT_FOUND", "Connector not found")
+    return project_id
+
+
+def _connector_error(error: ConnectorError) -> None:
+    codes = {"CONNECTOR_NOT_FOUND": status.HTTP_404_NOT_FOUND, "CONNECTORS_FULL": status.HTTP_409_CONFLICT, "BODY_TOO_LARGE": status.HTTP_413_REQUEST_ENTITY_TOO_LARGE}
+    raise api_exception(codes.get(error.code, status.HTTP_422_UNPROCESSABLE_ENTITY), error.code, error.message) from error
+
+
+@router.get("/content-settings/connectors", response_model=list[ConnectorOut], openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-13", "NFR-SEC-03"]})
+async def list_private_connectors(context: AuthContext = Depends(require_cto)) -> list[dict]:
+    try:
+        return [ConnectorOut.model_validate(row).model_dump() for row in connector_service.list(content_settings.private_project_id())]
+    except PrivateSpaceError as error:
+        _private_settings_error(error)
+    except ConnectorError as error:
+        _connector_error(error)
+
+
+@router.get("/content-settings/connectors/presets", response_model=dict, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-13", "NFR-SEC-03"]})
+async def private_connector_presets(context: AuthContext = Depends(require_cto)) -> dict:
+    return PRESETS
+
+
+@router.post("/content-settings/connectors", response_model=ConnectorOut, status_code=status.HTTP_201_CREATED, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-13", "NFR-SEC-03"]})
+async def create_private_connector(payload: ConnectorCreate, context: AuthContext = Depends(require_cto)) -> dict:
+    try:
+        made = connector_service.create(content_settings.private_project_id(), name=payload.name, kind=payload.kind, via=payload.via, default_pillar=payload.default_pillar, mapping=payload.mapping.model_dump() if payload.mapping else None, actor_id=context.user_id)
+        return ConnectorOut.model_validate(made).model_dump()
+    except PrivateSpaceError as error:
+        _private_settings_error(error)
+    except ConnectorError as error:
+        _connector_error(error)
+
+
+@router.patch("/content-settings/connectors/{connector_id}", response_model=ConnectorOut, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-13", "NFR-SEC-03"]})
+async def update_private_connector(connector_id: str, payload: ConnectorUpdate, context: AuthContext = Depends(require_cto)) -> dict:
+    try:
+        _private_connector_id(connector_id)
+        changes = {name: getattr(payload, name) for name in payload.model_fields_set}
+        if "mapping" in changes and changes["mapping"] is not None:
+            changes["mapping"] = payload.mapping.model_dump()
+        return ConnectorOut.model_validate(connector_service.update(connector_id, changes, actor_id=context.user_id)).model_dump()
+    except ConnectorError as error:
+        _connector_error(error)
+
+
+@router.post("/content-settings/connectors/{connector_id}/rotate", response_model=ConnectorOut, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-13", "NFR-SEC-03"]})
+async def rotate_private_connector(connector_id: str, context: AuthContext = Depends(require_cto)) -> dict:
+    try:
+        _private_connector_id(connector_id)
+        return ConnectorOut.model_validate(connector_service.rotate(connector_id, actor_id=context.user_id)).model_dump()
+    except ConnectorError as error:
+        _connector_error(error)
+
+
+@router.delete("/content-settings/connectors/{connector_id}", status_code=status.HTTP_204_NO_CONTENT, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-13", "NFR-SEC-03"]})
+async def delete_private_connector(connector_id: str, context: AuthContext = Depends(require_cto)) -> Response:
+    try:
+        _private_connector_id(connector_id)
+        connector_service.remove(connector_id, actor_id=context.user_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except ConnectorError as error:
+        _connector_error(error)
+
+
+@router.post("/content-settings/connectors/{connector_id}/try", response_model=ConnectorTryOut, openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-13", "NFR-SEC-03"]})
+async def try_private_connector(connector_id: str, request: Request, context: AuthContext = Depends(require_cto)) -> dict:
+    _private_connector_id(connector_id)
+    body = await request.body()
+    if len(body) > BODY_LIMIT:
+        raise api_exception(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "BODY_TOO_LARGE", "The payload is too large")
+    try:
+        payload = json.loads(body or b"null")
+    except ValueError as error:
+        raise api_exception(status.HTTP_422_UNPROCESSABLE_ENTITY, "BATCH_INVALID", "The body is not JSON") from error
+    try:
+        return ConnectorTryOut.model_validate(connector_service.try_payload(connector_id, payload)).model_dump()
+    except ConnectorError as error:
+        _connector_error(error)
+
+
+@router.get("/content-settings/connectors/{connector_id}/deliveries", response_model=list[ConnectorDelivery], openapi_extra={"x-requirement-ids": ["FR-CNT-03", "FR-MKT-13", "NFR-SEC-03"]})
+async def private_connector_deliveries(connector_id: str, context: AuthContext = Depends(require_cto)) -> list[dict]:
+    _private_connector_id(connector_id)
+    try:
+        return [ConnectorDelivery.model_validate(row).model_dump() for row in connector_service.deliveries(connector_id)]
+    except ConnectorError as error:
+        _connector_error(error)
 
 
 @router.get("/ideas", response_model=list[PrivateIdeaOut], openapi_extra={"x-requirement-ids": ["FR-CNT-03", "NFR-SEC-03"]})

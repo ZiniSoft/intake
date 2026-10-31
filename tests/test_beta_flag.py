@@ -8,6 +8,6 @@ cto = TestClient(app, headers={"X-User-Subject": "cto"})
 
 
 def test_me_reports_the_beta_flag(monkeypatch):
-    assert cto.get("/api/v1/auth/me").json()["data"]["beta_features_enabled"] is True
-    monkeypatch.setattr(get_settings(), "beta_features_enabled", False)
     assert cto.get("/api/v1/auth/me").json()["data"]["beta_features_enabled"] is False
+    monkeypatch.setattr(get_settings(), "beta_features_enabled", True)
+    assert cto.get("/api/v1/auth/me").json()["data"]["beta_features_enabled"] is True

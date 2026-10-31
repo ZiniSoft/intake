@@ -2,6 +2,11 @@
 
 ## 2026-10-31
 
+### Private CTO content settings stay isolated `4023061`
+- Moved posting-channel and watch-source configuration out of general Settings and into a clearly marked BETA area under the CTO's private space.
+- Channel rules, watch platforms, AI-run limits and inbound connectors now belong to the private project and cannot change company or customer projects.
+- The private BETA explains that scanning and publishing are not automatic yet, hides inactive auto-publishing controls, and defaults to disabled in public installations.
+
 ### Account and deployment security hardening
 - Production startup now rejects unsafe signing secrets and bootstrap passwords, requires secure session cookies, and keeps development and test setup lightweight.
 - Password changes, email resets and temporary-password replacement revoke older web sessions and personal API tokens in the same transaction.
@@ -21,6 +26,15 @@
 ### Docker image includes the public agent command
 - Fixed fresh public clones failing to build because the Dockerfile referenced an agent command that the release export had omitted.
 - Kept the public `/fix-issue` command available to the application while continuing to exclude private `.claude` project settings.
+
+### Project Owner role explained during first-run setup
+- The optional Project Owner account now explains that it can review requests, plan and assign work, and track progress only for assigned projects.
+- Installers can skip the account and assign a Project Owner later from project settings; the role does not have system-wide administrator access.
+
+### Easier AI model setup
+- AI settings now keep provider forms and task rows away from panel edges and align provider, model and save controls consistently on desktop and mobile.
+- Adding a provider automatically checks the connection and loads its model list. The model field explains how to search the loaded list or enter a model ID manually when the provider does not expose one.
+- First-run setup asks only for the default model; optional per-task overrides are grouped under advanced settings with a plain-language description of each task.
 
 ## 2026-10-30
 
