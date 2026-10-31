@@ -18,7 +18,7 @@ from sqlalchemy import delete as sql_delete, func, select
 
 from app.db import get_session
 from app.models import AuditEvent, Project, WatchConnector, WatchDelivery
-from app.modules.watch.service import CONTENT_TRACK, WatchError, is_content_project, pillar_names_of, watch_service
+from app.modules.watch.service import CONTENT_TRACK, WatchError, pillar_names_of, tracks_of, watch_service
 
 KINDS = ("GENERIC", "N8N", "MAKE", "APIFY", "MENTION")
 VIAS = ("api", "scrape")
@@ -139,8 +139,8 @@ class ConnectorService:
             project = session.get(Project, project_id)
         except (ValueError, TypeError):
             project = None
-        if project is None or not is_content_project(project):
-            raise ConnectorError("WATCH_NOT_FOR_PROJECT", "Only a marketing project has doors for outside services")
+        if project is None or not tracks_of(project):
+            raise ConnectorError("WATCH_NOT_FOR_PROJECT", "Only a content project has doors for outside services")
         return project
 
     @staticmethod

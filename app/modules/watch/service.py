@@ -22,6 +22,7 @@ from sqlalchemy import delete as sql_delete, func, or_, select
 
 from app.db import get_session
 from app.models import AuditEvent, Project, WatchCheck, WatchContact, WatchRequest, WatchSignal, WatchSource, WatchTopic
+from app.modules.private_space import content_settings as private_content_settings
 from app.modules.private_space.service import PRIVATE_FLAG, TRACKS, by_track, master_dna_of, private_project_ids, private_space_service, voices_of
 from app.modules.watch.platforms import PLATFORM_CODES, ai_runs_cap, enabled_codes
 
@@ -422,11 +423,12 @@ class WatchService:
 
     def _watch_out(self, session, project) -> dict[str, object]:
         stored = watch_of(project.project_settings)
-        open_codes = enabled_codes()
+        open_codes = private_content_settings.enabled_codes_of(project) if _is_private(project) else enabled_codes()
+        cap = private_content_settings.ai_runs_cap_of(project) if _is_private(project) else ai_runs_cap()
         runs = len(stored["schedule"]["times"]) * len(stored["schedule"]["weekdays"])
         return {
             **stored, "networks": [code for code in stored["networks"] if code in open_codes], "open_networks": open_codes,
-            "max_ai_runs_per_day": ai_runs_cap(), "ai_runs_per_week": runs, "scan_hours": list(SCAN_HOURS),
+            "max_ai_runs_per_day": cap, "ai_runs_per_week": runs, "scan_hours": list(SCAN_HOURS),
         }
 
     def save_watch_settings(self, project_id: str, *, networks: list[str] | None, times: list[str] | None, weekdays: list[int] | None,
@@ -437,16 +439,17 @@ class WatchService:
             if not is_content_project(project):
                 raise WatchError("WATCH_NOT_FOR_PROJECT", "Only a marketing project has collection settings")
             current = watch_of(project.project_settings)
+            cap = private_content_settings.ai_runs_cap_of(project) if _is_private(project) else ai_runs_cap()
             if networks is not None:
-                open_codes = set(enabled_codes())
+                open_codes = set(private_content_settings.enabled_codes_of(project) if _is_private(project) else enabled_codes())
                 unknown = [code for code in networks if code not in open_codes]
                 if unknown:
                     raise WatchError("NETWORK_NOT_OPEN", "The CTO has not opened that network: " + ", ".join(unknown))
                 current["networks"] = list(dict.fromkeys(str(code) for code in networks))
             if times is not None:
                 kept = sorted({str(value) for value in times if _TIME.match(str(value))})
-                if not kept or len(kept) > ai_runs_cap():
-                    raise WatchError("SCHEDULE_INVALID", f"Choose 1 to {ai_runs_cap()} times a day, written HH:MM")
+                if not kept or len(kept) > cap:
+                    raise WatchError("SCHEDULE_INVALID", f"Choose 1 to {cap} times a day, written HH:MM")
                 current["schedule"]["times"] = kept
             if weekdays is not None:
                 kept_days = sorted({int(value) for value in weekdays if isinstance(value, int) and 1 <= value <= 7})
@@ -473,8 +476,9 @@ class WatchService:
         used = session.scalars(select(WatchTopic.title).where(
             WatchTopic.project_id == project.id, WatchTopic.state == "USED", WatchTopic.updated_at >= cutoff,
         ).order_by(WatchTopic.updated_at.desc()).limit(30)).all()
+        source_rules = private_content_settings.channel_rules_of(project, enabled_only=True) if _is_private(project) else list_rules(enabled_only=True)
         rules = [{"code": rule["code"], "label": rule["label"], "language": rule["language"], "max_chars": rule["max_chars"], "recommended_chars": rule["recommended_chars"], "best_hours": rule["best_hours"], "tone": rule["tone"]}
-                 for rule in list_rules(enabled_only=True)]
+                 for rule in source_rules]
         return {"project": project.name, "pillars": pillars_of(project).get(CONTENT_TRACK, []), "channel_rules": rules, "used_titles": [str(title) for title in used]}
 
     # ---- keywords of each pillar
@@ -717,8 +721,9 @@ class WatchService:
         with get_session() as session:
             projects = self._projects(session)
             out: dict[str, object] = {"tracks": [], "projects": []}
-            open_codes = enabled_codes()
+            global_open_codes = enabled_codes()
             for project in projects:
+                open_codes = private_content_settings.enabled_codes_of(project) if _is_private(project) else global_open_codes
                 rows = session.scalars(select(WatchSource).where(WatchSource.project_id == project.id, WatchSource.active.is_(True)).order_by(WatchSource.created_at)).all()
                 if not rows and not _is_private(project):
                     continue
