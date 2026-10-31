@@ -8769,8 +8769,8 @@ function SetupPage() {
           {data?.wizard ? (
             <>
               <h3>2. Khóa AI (bắt buộc) {data.ai_ready && <Check size={15} aria-label="Đã xong" />}</h3>
-              <p>Thêm khóa LLM, rồi chọn nhà cung cấp và model cho tác vụ "Mặc định". Hệ thống cần bước này để chuẩn hóa yêu cầu.</p>
-              <AiSettings />
+              <p>Chọn nhà cung cấp và nhập khóa API. Hệ thống sẽ tự kiểm tra kết nối, tải danh sách model và hướng dẫn bạn chọn model mặc định.</p>
+              <AiSettings setupMode />
             </>
           ) : (
             <>
@@ -9218,12 +9218,21 @@ const aiPresets: { label: string; name: string; base_url: string; extra_body: Re
 ]
 
 const aiTaskLabels: Record<string, string> = {
-  default: 'Mặc định (tác vụ chưa đặt riêng)',
+  default: 'Model mặc định',
   normalize: 'Chuẩn hóa yêu cầu',
   report: 'Báo cáo cuối ngày',
   meeting: 'Biên bản họp',
   vision: 'Đọc ảnh đính kèm',
   content: 'Bài viết và nội dung',
+}
+
+const aiTaskHelp: Record<string, string> = {
+  default: 'Dùng cho mọi tác vụ chưa chọn model riêng. Đây là lựa chọn duy nhất cần thiết để bắt đầu.',
+  normalize: 'Hiểu và chuẩn hóa yêu cầu mới thành nội dung có cấu trúc.',
+  report: 'Đọc báo cáo cuối ngày và tổng hợp tiến độ công việc.',
+  meeting: 'Tạo biên bản, quyết định và việc cần làm từ nội dung cuộc họp.',
+  vision: 'Đọc chữ và nội dung trong ảnh đính kèm.',
+  content: 'Soạn bài viết và nội dung theo giọng thương hiệu.',
 }
 
 const aiSourceLabels: Record<string, string> = { route: 'đặt riêng', default: 'theo Mặc định', env: 'theo .env', none: 'chưa cấu hình' }
@@ -9235,7 +9244,7 @@ const aiTestErrors: Record<string, string> = {
   KEY_UNREADABLE: 'không đọc được khóa đã lưu, hãy nhập lại',
 }
 
-function AiSettings() {
+function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
   const queryClient = useQueryClient()
   const [error, setError] = useState<unknown>()
   const [preset, setPreset] = useState(0)
@@ -9257,7 +9266,14 @@ function AiSettings() {
   }
   const add = useMutation({
     mutationFn: () => api<AiProvider>('/ai/providers', { method: 'POST', body: JSON.stringify({ ...form, extra_body: aiPresets[preset].extra_body }) }),
-    onSuccess: () => { setForm({ ...form, api_key: '' }); setError(undefined); refresh() },
+    onSuccess: (provider) => {
+      setForm({ ...form, api_key: '' })
+      setError(undefined)
+      setNotes((current) => ({ ...current, [provider.id]: 'Đang kiểm tra kết nối và tải danh sách model…' }))
+      setDraft((current) => ({ ...current, default: { provider_id: provider.id, model: '' } }))
+      refresh()
+      test.mutate(provider.id)
+    },
     onError: setError,
   })
   const patch = useMutation({
@@ -9274,7 +9290,7 @@ function AiSettings() {
     mutationFn: (id: string) => api<AiProviderTest>(`/ai/providers/${id}/test`, { method: 'POST' }).then((result) => ({ id, result })),
     onSuccess: ({ id, result }) => {
       setModels((current) => ({ ...current, [id]: result.models }))
-      setNotes((current) => ({ ...current, [id]: result.ok ? `Kết nối được, thấy ${result.models.length} model.` : `Không kết nối được: ${aiTestErrors[result.error || ''] || result.error}` }))
+      setNotes((current) => ({ ...current, [id]: result.ok ? (result.models.length > 0 ? `Kết nối thành công. Đã tải ${result.models.length} model để bạn chọn.` : 'Kết nối thành công nhưng nhà cung cấp không trả danh sách model. Hãy nhập đúng mã model bên dưới.') : `Không kết nối được: ${aiTestErrors[result.error || ''] || result.error}` }))
       refresh()
     },
     onError: setError,
@@ -9295,9 +9311,42 @@ function AiSettings() {
     const known = aiPresets.find((item) => row && item.base_url === row.base_url)?.models || []
     return Array.from(new Set([...(models[providerId] || []), ...known]))
   }
+  const renderRoute = (route: AiRoute) => {
+    const value = draft[route.task] || { provider_id: route.provider_id || '', model: route.model || '' }
+    const dirty = value.provider_id !== (route.provider_id || '') || value.model !== (route.model || '')
+    const listId = `ai-models-${route.task}`
+    const modelSuggestions = suggestions(value.provider_id)
+    const isDefault = route.task === 'default'
+    return (
+      <div className={`ai-route ${isDefault ? 'ai-route-default' : ''}`} key={route.task}>
+        <div className="ai-route-summary">
+          <strong>{aiTaskLabels[route.task] || route.task}</strong>
+          <p>{aiTaskHelp[route.task]}</p>
+          <div className="field-help">Đang dùng: {route.effective_provider ? `${route.effective_provider} · ${route.effective_model}` : 'chưa có'} ({aiSourceLabels[route.source] || route.source})</div>
+        </div>
+        <div className="ai-route-controls">
+          <label>Nhà cung cấp
+            <select aria-label={`Nhà cung cấp cho ${aiTaskLabels[route.task]}`} value={value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { provider_id: event.target.value, model: '' } })}>
+              <option value="">{isDefault ? 'Chọn nhà cung cấp' : 'Dùng model mặc định'}</option>
+              {rows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+            </select>
+          </label>
+          <label>Model
+            <input aria-label={`Model cho ${aiTaskLabels[route.task]}`} list={listId} value={value.model} maxLength={128} placeholder={value.provider_id ? 'Chọn hoặc nhập mã model' : 'Chọn nhà cung cấp trước'} disabled={!value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { ...value, model: event.target.value } })} />
+            <datalist id={listId}>{modelSuggestions.map((name) => <option key={name} value={name} />)}</datalist>
+          </label>
+          <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !value.model.trim())} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? value.model.trim() : null })}>Lưu</button>
+          {value.provider_id && <p className="ai-model-help">{modelSuggestions.length > 0 ? 'Gõ để tìm trong danh sách model đã tải, hoặc nhập đúng mã model khác.' : 'Chưa tải được danh sách. Bạn có thể nhập đúng mã model, hoặc bấm “Kiểm tra và tải model” ở nhà cung cấp.'}</p>}
+        </div>
+      </div>
+    )
+  }
+  const routeRows = routes.data || []
+  const defaultRoute = routeRows.find((route) => route.task === 'default')
+  const taskRoutes = routeRows.filter((route) => route.task !== 'default')
   return (
     <>
-      <SectionHeader title="AI" helper="Khóa LLM và model cho từng tác vụ. Chỉ nhận API tương thích OpenAI. Khóa được mã hóa và không hiển thị lại." />
+      <SectionHeader title="AI" helper="Chọn nhà cung cấp, nhập khóa API rồi chọn model mặc định. Chỉ nhận API tương thích OpenAI. Khóa được mã hóa và không hiển thị lại." />
       {error != null && <ErrorNotice error={error} onRetry={() => setError(undefined)} />}
       <section className="panel ai-panel">
         <div className="panel-heading"><div><h2>Nhà cung cấp</h2></div></div>
@@ -9316,7 +9365,7 @@ function AiSettings() {
                   {notes[row.id] && <div className="field-help" role="status">{notes[row.id]}</div>}
                 </div>
                 <div className="ai-actions">
-                  <button className="button button-secondary" disabled={test.isPending} onClick={() => test.mutate(row.id)}>Thử kết nối</button>
+                  <button className="button button-secondary" disabled={test.isPending} onClick={() => test.mutate(row.id)}>Kiểm tra và tải model</button>
                   <button className="button button-secondary" onClick={() => patch.mutate({ id: row.id, body: { enabled: !row.enabled } })}>{row.enabled ? 'Tắt' : 'Bật'}</button>
                   <button className="button button-secondary" onClick={() => { const key = window.prompt('Nhập khóa mới'); if (key) patch.mutate({ id: row.id, body: { api_key: key } }) }}>Đổi khóa</button>
                   <button className="button button-secondary" onClick={() => { if (window.confirm(`Xóa nhà cung cấp ${row.name}?`)) remove.mutate(row.id) }}>Xóa</button>
@@ -9342,37 +9391,23 @@ function AiSettings() {
             <input type="password" autoComplete="off" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} />
           </label>
         </div>
-        <p><button className="button button-primary" disabled={add.isPending || !form.name.trim() || !form.base_url.trim() || !form.api_key.trim()} onClick={() => add.mutate()}>Thêm</button></p>
+        <p><button className="button button-primary" disabled={add.isPending || !form.name.trim() || !form.base_url.trim() || !form.api_key.trim()} onClick={() => add.mutate()}>{add.isPending ? 'Đang thêm…' : 'Thêm và tải model'}</button></p>
       </section>
       <section className="panel ai-panel">
         <div className="panel-heading"><div><h2>Model theo tác vụ</h2></div></div>
         {routes.isLoading ? <LoadingBlock /> : routes.error ? <ErrorNotice error={routes.error} onRetry={() => { void routes.refetch() }} /> : (
-          <div className="ai-list">
-            {(routes.data || []).map((route) => {
-              const value = draft[route.task] || { provider_id: route.provider_id || '', model: route.model || '' }
-              const dirty = value.provider_id !== (route.provider_id || '') || value.model !== (route.model || '')
-              const listId = `ai-models-${route.task}`
-              return (
-                <div className="ai-route" key={route.task}>
-                  <div>
-                    <strong>{aiTaskLabels[route.task] || route.task}</strong>
-                    <div className="field-help">Đang dùng: {route.effective_provider ? `${route.effective_provider} · ${route.effective_model}` : 'chưa có'} ({aiSourceLabels[route.source] || route.source})</div>
-                  </div>
-                  <div className="ai-actions">
-                    <select aria-label={`Nhà cung cấp cho ${aiTaskLabels[route.task]}`} value={value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { ...value, provider_id: event.target.value } })}>
-                      <option value="">Không đặt riêng</option>
-                      {rows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                    </select>
-                    <input aria-label={`Model cho ${aiTaskLabels[route.task]}`} list={listId} value={value.model} maxLength={128} placeholder="tên model" disabled={!value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { ...value, model: event.target.value } })} />
-                    <datalist id={listId}>{suggestions(value.provider_id).map((name) => <option key={name} value={name} />)}</datalist>
-                    <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !value.model.trim())} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? value.model.trim() : null })}>Lưu</button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <>
+            <div className="ai-list">{defaultRoute && renderRoute(defaultRoute)}</div>
+            {setupMode ? (
+              <details className="ai-route-advanced">
+                <summary>Cấu hình nâng cao: chọn model riêng cho từng tác vụ</summary>
+                <p className="field-help">Không bắt buộc. Chỉ mở phần này khi một tác vụ cần model khác với model mặc định.</p>
+                <div className="ai-list">{taskRoutes.map(renderRoute)}</div>
+              </details>
+            ) : <div className="ai-list ai-task-routes">{taskRoutes.map(renderRoute)}</div>}
+          </>
         )}
-        <p className="field-help">Tác vụ chưa đặt riêng dùng dòng Mặc định; chưa có cả hai thì dùng khóa trong .env nếu có. Tác vụ đã đặt ở đây chỉ gọi một lần, không chuyển sang model khác khi lỗi.</p>
+        <p className="field-help ai-routing-help">Các tác vụ chưa đặt riêng sẽ tự dùng model mặc định. Tác vụ đã đặt riêng chỉ gọi một model, không tự chuyển sang model khác khi lỗi.</p>
       </section>
     </>
   )
