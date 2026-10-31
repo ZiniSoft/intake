@@ -2,6 +2,11 @@
 
 ## 2026-10-31
 
+### Private CTO content settings stay isolated `4023061`
+- Moved posting-channel and watch-source configuration out of general Settings and into a clearly marked BETA area under the CTO's private space.
+- Channel rules, watch platforms, AI-run limits and inbound connectors now belong to the private project and cannot change company or customer projects.
+- The private BETA explains that scanning and publishing are not automatic yet, hides inactive auto-publishing controls, and defaults to disabled in public installations.
+
 ### Account and deployment security hardening
 - Production startup now rejects unsafe signing secrets and bootstrap passwords, requires secure session cookies, and keeps development and test setup lightweight.
 - Password changes, email resets and temporary-password replacement revoke older web sessions and personal API tokens in the same transaction.
