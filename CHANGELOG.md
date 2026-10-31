@@ -18,6 +18,10 @@
 ### Dependency update automation paused
 - Dependabot version-update pull requests are paused for Python, frontend npm and GitHub Actions by setting their open pull request limit to zero. Repository security alerts remain controlled separately in GitHub settings.
 
+### Docker image includes the public agent command
+- Fixed fresh public clones failing to build because the Dockerfile referenced an agent command that the release export had omitted.
+- Kept the public `/fix-issue` command available to the application while continuing to exclude private `.claude` project settings.
+
 ## 2026-10-30
 
 ### English public walkthrough foundation `7a6c827`
