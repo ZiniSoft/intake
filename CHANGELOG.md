@@ -22,6 +22,10 @@
 - Fixed fresh public clones failing to build because the Dockerfile referenced an agent command that the release export had omitted.
 - Kept the public `/fix-issue` command available to the application while continuing to exclude private `.claude` project settings.
 
+### Project Owner role explained during first-run setup
+- The optional Project Owner account now explains that it can review requests, plan and assign work, and track progress only for assigned projects.
+- Installers can skip the account and assign a Project Owner later from project settings; the role does not have system-wide administrator access.
+
 ## 2026-10-30
 
 ### English public walkthrough foundation `7a6c827`
