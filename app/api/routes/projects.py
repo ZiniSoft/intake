@@ -275,8 +275,10 @@ async def add_project_member(
     openapi_extra={"x-requirement-ids": ["FR-PRJ-11", "FR-ID-06", "NFR-SEC-03"]},
 )
 async def remove_project_member(
-    project_ref: str, member_id: str, context: AuthContext = Depends(require_cto),
+    project_ref: str, member_id: str, context: AuthContext = Depends(require_member),
 ) -> ProjectMemberRemovedOut:
+    # A Project Owner may take a person off their own project (ADR-0072); another project answers 404.
+    _team_project(project_ref, context)
     try:
         return ProjectMemberRemovedOut.model_validate(
             project_team_service.remove_member(project_ref, member_id, context.user_id)

@@ -158,9 +158,11 @@ def test_a_project_has_one_owner_from_the_staff_list_and_many_members() -> None:
     edited = cto.put(f"/api/v1/planning/members/{first['id']}", json=edit_body)
     assert edited.status_code == 200 and edited.json()["data"]["display_name"] == "Team Nhân sự 1 đã sửa"
     assert next(row for row in _team("ember")["members"] if row["member_id"] == first["id"])["email"] == "team.one.updated@example.test"
-    assert owner_two.delete(f"/api/v1/projects/ember/team/members/{first['id']}").status_code == 403
+    # The owner may take someone off their own project, but not themselves while they are the owner (ADR-0072).
+    assert "MEMBER_OWNS_PROJECT" in owner_two.delete(f"/api/v1/projects/ember/team/members/{second['id']}").text
     assert "MEMBER_OWNS_PROJECT" in cto.delete(f"/api/v1/projects/ember/team/members/{second['id']}").text
-    removed = cto.delete(f"/api/v1/projects/ember/team/members/{first['id']}")
+    assert owner_two.delete(f"/api/v1/projects/orbit/team/members/{first['id']}").status_code == 404
+    removed = owner_two.delete(f"/api/v1/projects/ember/team/members/{first['id']}")
     assert removed.status_code == 200 and removed.json()["data"]["removed"] is True
     assert first["id"] not in {row["member_id"] for row in removed.json()["data"]["team"]["members"]}
     assert cto.delete(f"/api/v1/projects/ember/team/members/{first['id']}").json()["data"]["removed"] is False
@@ -177,10 +179,10 @@ def test_a_project_has_one_owner_from_the_staff_list_and_many_members() -> None:
             AuditEvent.event_type == "project.member_added", AuditEvent.actor_id == owner_user.id,
         )).all()
         assert len(events) == 1 and events[0].details["member_id"] == first["id"]
-        cto_user = session.scalar(select(User).where(User.auth_subject == "cto"))
+        # The owner took the person off, so the audit names the owner (ADR-0072).
         removed_events = session.scalars(select(AuditEvent).where(
             AuditEvent.event_type == "project.member_removed", AuditEvent.entity_id == second_team["project_id"],
-            AuditEvent.actor_id == cto_user.id,
+            AuditEvent.actor_id == owner_user.id,
         )).all()
         assert len(removed_events) == 1 and removed_events[0].details["member_id"] == first["id"]
     cto.put("/api/v1/projects/ember/team", json={"owner_member_id": None, "member_ids": []})

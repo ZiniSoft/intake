@@ -700,6 +700,8 @@ input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]),
 .member-list > .notice { margin: 14px 20px 2px; }
 .member-row { display: grid; grid-template-columns: minmax(180px, 1.1fr) 1.4fr auto; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--zs-line); }
 .member-row:last-child { border-bottom: 0; }
+.member-row > .button, .member-row > .icon-button { justify-self: end; width: auto; white-space: nowrap; }
+.member-row .report-tags { justify-content: flex-start; }
 .member-row strong { display: block; font-size: 14px; font-weight: 500; }
 .member-row small { color: var(--zs-copy); font-size: 12px; }
 .member-editor { display: grid; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--zs-line); background: var(--zs-soft); }
@@ -2661,3 +2663,19 @@ button.strip-item:hover, .strip-item.active { border-color: var(--zs-ink); box-s
 .welcome-role-option { margin: 4px 0 12px; }
 .welcome-role-option .checkbox-row { margin-bottom: 6px; }
 .welcome-role-help { margin: 0 0 0 24px; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
+.chip-button { cursor: pointer; font: inherit; border: 1px solid #f1d9c4; }
+.chip-button:hover { background: #fdeede; }
+.member-picker { display: grid; gap: 8px; padding: 10px 20px 14px; border-bottom: 1px solid var(--zs-line); background: #fff8f2; font-size: 12px; }
+.member-picker strong { font-size: 13px; font-weight: 500; }
+.member-picker-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.member-picker-row select { min-height: 30px; min-width: 240px; padding: 3px 8px; font-size: 12px; }
+
+.people-checklist { display: grid; gap: 2px; max-height: 260px; overflow-y: auto; margin-top: 6px; }
+.people-check { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.people-check:hover { background: var(--zs-hover); }
+.people-check small { color: var(--zs-copy); }
+.project-people + .project-people { margin-top: 16px; }
+
+.member-detail { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 20px; border-bottom: 1px solid var(--zs-line); background: rgba(127,127,127,.06); }
+.member-detail > div { display: grid; flex: 1 1 240px; }
+.member-detail small { color: var(--zs-copy); font-size: 12px; }
