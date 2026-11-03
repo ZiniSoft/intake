@@ -1,6 +1,7 @@
 import {
   createContext,
   DragEvent,
+  Fragment,
   FormEvent,
   ReactNode,
   useCallback,
@@ -8985,10 +8986,10 @@ function ProjectMembersPanel({ project, projects }: { project: Project; projects
             <div className="member-row" key={member.member_id}>
               <div><strong>{member.display_name}{member.is_owner && <span className="capacity-owner">Project Owner</span>}</strong><small>{member.email || 'Chưa có email'} · {member.account_subject ? `tài khoản ${member.account_subject}` : 'Chưa có tài khoản'}</small></div>
               <span className="status">{member.is_owner ? 'Quản lý dự án' : 'Thành viên'}</span>
-              {user?.role === 'CTO' && <span className="project-actions">
-                <button className="button button-secondary button-small" type="button" disabled={!fullMember || staff.isLoading} onClick={() => { setNotice(''); setEditing(member.member_id) }}><Pencil size={14} /> Sửa</button>
+              <span className="project-actions">
+                {user?.role === 'CTO' && <button className="button button-secondary button-small" type="button" disabled={!fullMember || staff.isLoading} onClick={() => { setNotice(''); setEditing(member.member_id) }}><Pencil size={14} /> Sửa</button>}
                 <button className="icon-button" type="button" aria-label={`Gỡ ${member.display_name} khỏi dự án`} title={member.is_owner ? 'Đổi Project Owner trước khi gỡ người này' : 'Gỡ khỏi dự án, không xóa hồ sơ hoặc tài khoản'} disabled={member.is_owner || remove.isPending} onClick={() => { if (window.confirm(`Gỡ ${member.display_name} khỏi dự án ${project.name}?\n\nHồ sơ nhân sự, tài khoản, lịch sử và các dự án khác vẫn được giữ.`)) remove.mutate(member.member_id) }}><Trash2 size={15} /></button>
-              </span>}
+              </span>
             </div>
           )
         })}
@@ -9618,12 +9619,162 @@ function TelegramInvite({ member }: { member: WorkforceMember }) {
   )
 }
 
+// One member's tracker user for one project, chosen where the warning is shown (FR-PLAN-32): the list is read through
+// a probe, a name match is pre-chosen, and a person missing from it needs the CTO to add them on the tracker first.
+function MemberTrackerPicker({ member, project, onDone }: { member: Pick<WorkforceMember, 'id' | 'display_name'>; project: Project; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const trackerName = project.delivery_system === 'GITHUB' ? 'GitHub' : 'GitLab'
+  const [probeId, setProbeId] = useState<string>()
+  const [error, setError] = useState<unknown>()
+  const [choice, setChoice] = useState<string>()
+  const start = useMutation({
+    mutationFn: () => api<{ probe_id: string | null; status: string; error_code: string | null }>(`/planning/projects/${project.id}/tracker-users/lookup`, { method: 'POST' }),
+    onMutate: () => setError(undefined),
+    onSuccess: (started) => { if (started.probe_id) setProbeId(started.probe_id); else setError(new Error(probeErrors[started.error_code || ''] || `Không đọc được danh sách người dùng ${trackerName}.`)) },
+    onError: setError,
+  })
+  const startLookup = start.mutate
+  useEffect(() => { if (!probeId) startLookup() }, [probeId, startLookup])
+  const users = useQuery({
+    queryKey: ['tracker-users', project.id, probeId || '', ''],
+    queryFn: () => api<TrackerUsers>(`/planning/projects/${project.id}/tracker-users?probe=${encodeURIComponent(probeId!)}`),
+    enabled: Boolean(probeId), retry: false,
+    refetchInterval: (query) => (query.state.data?.status === 'PENDING' ? 1000 : false),
+  })
+  const save = useMutation({
+    mutationFn: (userId: string) => api(`/planning/projects/${project.id}/members/${member.id}/tracker-user`, { method: 'PUT', body: JSON.stringify({ gitlab_user_external_id: userId }) }),
+    onMutate: () => setError(undefined),
+    onSuccess: () => { for (const key of ['settings-members', 'planning-members']) void queryClient.invalidateQueries({ queryKey: [key] }); onDone() },
+    onError: setError,
+  })
+  const data = users.data?.status === 'DONE' ? users.data : undefined
+  const free = (data?.users || []).filter((user) => !user.mapped_member_id)
+  const suggested = data?.unmapped.find((row) => row.member_id === member.id)?.suggested_user_id || ''
+  const picked = choice ?? suggested
+  const failed = users.data?.status === 'FAILED' ? (probeErrors[users.data.error_code || ''] || `Không đọc được danh sách người dùng ${trackerName} (${users.data.error_code || 'lỗi'}).`) : null
+  return (
+    <div className="member-picker" role="group" aria-label={`Chọn người dùng ${trackerName} của ${member.display_name} ở ${project.name}`}>
+      <strong>{member.display_name} ở {project.name}: chọn người dùng {trackerName}</strong>
+      {!data && !failed && users.error == null && error == null && <small>Đang đọc danh sách từ {trackerName}…</small>}
+      {error != null && <ErrorNotice error={error} onRetry={() => setProbeId(undefined)} />}
+      {users.error != null && <ErrorNotice error={users.error} onRetry={() => { void users.refetch() }} />}
+      {failed && <small className="text-warn">{failed} <button type="button" className="text-button" onClick={() => setProbeId(undefined)}>Thử lại</button></small>}
+      {data && (
+        <div className="member-picker-row">
+          <select aria-label={`Người dùng ${trackerName} của ${member.display_name}`} value={picked} onChange={(event) => setChoice(event.target.value)}>
+            <option value="">Chọn người dùng {trackerName}…</option>
+            {free.map((user) => <option key={user.id} value={user.id}>{user.name}{user.username ? ` (${user.username})` : ''}{user.id === suggested ? ' · khớp tên' : ''}</option>)}
+          </select>
+          <button type="button" className="button button-primary button-small" disabled={!picked || save.isPending} onClick={() => save.mutate(picked)}>{save.isPending ? 'Đang gắn…' : 'Gắn'}</button>
+          <button type="button" className="button button-secondary button-small" onClick={onDone}>Đóng</button>
+        </div>
+      )}
+      <small className="field-help">Không thấy người này trong danh sách? Hãy nhờ CTO thêm họ vào {trackerName} của dự án, rồi quay lại đây.</small>
+    </div>
+  )
+}
+
+// Several people onto one project in a single step (FR-PRJ-12): one POST per person, the same call the project page uses.
+function AddPeopleDialog({ project, onClose }: { project: Project; onClose: (added: number) => void }) {
+  const queryClient = useQueryClient()
+  const candidates = useQuery({ queryKey: ['project-member-candidates', project.code], queryFn: () => api<ProjectMemberCandidate[]>(`/projects/${project.code}/team/candidates`) })
+  const [search, setSearch] = useState('')
+  const [chosen, setChosen] = useState<string[]>([])
+  const [failed, setFailed] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const shown = (candidates.data || []).filter((member) => `${member.display_name} ${member.email || ''}`.toLowerCase().includes(search.trim().toLowerCase()))
+  const toggle = (id: string) => setChosen((current) => (current.includes(id) ? current.filter((row) => row !== id) : [...current, id]))
+  const submit = async () => {
+    setBusy(true); setFailed([])
+    const left: string[] = []
+    let added = 0
+    for (const id of chosen) {
+      try { await api<ProjectMemberAdded>(`/projects/${project.code}/team/members`, { method: 'POST', body: JSON.stringify({ member_id: id }) }); added += 1 } catch { left.push(id) }
+    }
+    setBusy(false)
+    for (const key of ['project-team', 'project-member-candidates', 'planning-members', 'settings-members']) void queryClient.invalidateQueries({ queryKey: [key] })
+    if (left.length === 0) { onClose(added); return }
+    setChosen(left); setFailed(left)
+  }
+  const nameOf = (id: string) => (candidates.data || []).find((row) => row.member_id === id)?.display_name || id
+  return (
+    <ConfirmDialog plain title={`Thêm người vào ${project.name}`} confirmLabel={chosen.length > 1 ? `Thêm ${chosen.length} người` : 'Thêm vào dự án'} busyLabel="Đang thêm…" busy={busy} confirmDisabled={chosen.length === 0} onConfirm={() => { void submit() }} onCancel={() => { if (!busy) onClose(0) }}>
+      {candidates.isLoading ? <LoadingBlock /> : candidates.error != null ? <ErrorNotice error={candidates.error} onRetry={() => { void candidates.refetch() }} /> : (candidates.data || []).length === 0 ? <p>Mọi nhân sự đang hoạt động đã ở trong dự án này. Người mới do CTO tạo ở nút "Thêm nhân sự".</p> : (
+        <div className="member-picker">
+          <label>Tìm nhân sự<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nhập tên hoặc email" autoFocus /></label>
+          <div className="people-checklist" role="group" aria-label="Chọn nhân sự">
+            {shown.map((member) => <label key={member.member_id} className="people-check"><input type="checkbox" checked={chosen.includes(member.member_id)} onChange={() => toggle(member.member_id)} /> <span>{member.display_name}{member.email ? <small> · {member.email}</small> : null}</span></label>)}
+            {shown.length === 0 && <p className="field-help">Không tìm thấy nhân sự phù hợp.</p>}
+          </div>
+          {failed.length > 0 && <p className="field-help text-warn">Chưa thêm được: {failed.map(nameOf).join(', ')}. Bấm lại để thử tiếp, hoặc đóng.</p>}
+        </div>
+      )}
+    </ConfirmDialog>
+  )
+}
+
+// One project and the people on it (FR-PRJ-12): tracker status, take-off and add, in the place a Project Owner thinks in.
+function ProjectPeopleSection({ project }: { project: Project }) {
+  const queryClient = useQueryClient()
+  const teamKey = ['project-team', project.code]
+  const team = useQuery({ queryKey: teamKey, queryFn: () => api<ProjectTeam>(`/projects/${project.code}/team`) })
+  const [picking, setPicking] = useState<string>()
+  const [adding, setAdding] = useState(false)
+  const [notice, setNotice] = useState('')
+  const trackerName = project.delivery_system === 'GITHUB' ? 'GitHub' : 'GitLab'
+  const remove = useMutation({
+    mutationFn: (memberId: string) => api<ProjectMemberRemoved>(`/projects/${project.code}/team/members/${memberId}`, { method: 'DELETE' }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(teamKey, result.team)
+      for (const key of ['project-member-candidates', 'planning-members', 'settings-members']) void queryClient.invalidateQueries({ queryKey: [key] })
+      setNotice(result.removed ? 'Đã gỡ khỏi dự án. Hồ sơ, tài khoản và lịch sử vẫn được giữ.' : 'Người này không còn thuộc dự án.')
+    },
+  })
+  const members = team.data?.members || []
+  const missing = project.kind === 'SOFTWARE' ? members.filter((row) => !row.delivery_user_id).length : 0
+  return (
+    <section className="panel settings-panel member-list project-people">
+      {adding && <AddPeopleDialog project={project} onClose={(added) => { setAdding(false); if (added > 0) setNotice(added === 1 ? 'Đã thêm 1 người vào dự án.' : `Đã thêm ${added} người vào dự án.`) }} />}
+      <div className="panel-heading">
+        <div><h2>{project.name}</h2><p>{project.owner_name ? `Project Owner: ${project.owner_name}` : 'Chưa có Project Owner'} · {team.isLoading ? 'đang tải' : `${members.length} người`}{missing > 0 ? ` · ${missing} người chưa có tài khoản ${trackerName}` : ''}</p></div>
+        <button type="button" className="button button-secondary button-small" onClick={() => { setNotice(''); setAdding(true) }}><Plus size={15} /> Thêm người</button>
+      </div>
+      {notice && <p className="notice notice-success" role="status">{notice}</p>}
+      {(team.error != null || remove.error != null) && <ErrorNotice error={team.error || remove.error} onRetry={team.error ? () => { void team.refetch() } : undefined} />}
+      {team.isLoading ? <LoadingBlock /> : members.length === 0 ? <p className="field-help">Chưa có ai trong dự án này.</p> : members.map((member) => (
+        <Fragment key={member.member_id}>
+          <div className="member-row">
+            <div><strong>{member.display_name}{member.is_owner && <span className="capacity-owner">Project Owner</span>}</strong><small>{member.email || 'Chưa có email'}</small></div>
+            <div className="report-tags">
+              {project.kind !== 'SOFTWARE' ? <span className="status">Thành viên</span> : member.delivery_user_id ? <span className="status">Đã nối {trackerName}</span> : project.delivery_system ? (
+                <button type="button" className="status report-warning chip-button" title={`Chưa có người dùng ${trackerName}, nên chưa phân công được. Bấm để chọn.`} onClick={() => setPicking(member.member_id)}>Chọn {trackerName}</button>
+              ) : <span className="status report-warning" title="Dự án chưa nối nơi giao việc">Chưa nối nơi giao việc</span>}
+            </div>
+            <button className="icon-button" type="button" aria-label={`Gỡ ${member.display_name} khỏi ${project.name}`} title={member.is_owner ? 'Đổi Project Owner trước khi gỡ người này' : 'Gỡ khỏi dự án, không xóa hồ sơ hay tài khoản'} disabled={member.is_owner || remove.isPending} onClick={() => { if (window.confirm(`Gỡ ${member.display_name} khỏi dự án ${project.name}?\n\nHồ sơ nhân sự, tài khoản, lịch sử và các dự án khác vẫn được giữ.\n\nViệc đang giao cho người này không tự đổi: hãy kiểm lại trước khi gỡ.`)) { setNotice(''); remove.mutate(member.member_id) } }}><Trash2 size={15} /></button>
+          </div>
+          {picking === member.member_id && <MemberTrackerPicker key={member.member_id} member={{ id: member.member_id, display_name: member.display_name }} project={project} onDone={() => { setPicking(undefined); void queryClient.invalidateQueries({ queryKey: teamKey }) }} />}
+        </Fragment>
+      ))}
+    </section>
+  )
+}
+
+function MembersByProject({ projects }: { projects: Project[] }) {
+  if (projects.length === 0) return <section className="panel"><EmptyState icon={<UserRound size={20} />} title="Chưa có dự án" text="Tài khoản này chưa được giao quản lý dự án nào." /></section>
+  return <>{projects.map((project) => <ProjectPeopleSection key={project.id} project={project} />)}</>
+}
+
 function MembersSettings() {
   const { user, refresh } = useAuth()
   const queryClient = useQueryClient()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
   const members = useQuery({ queryKey: ['settings-members'], queryFn: () => api<WorkforceMember[]>('/planning/members?include_inactive=true') })
   const [editing, setEditing] = useState<string>()
+  const [picking, setPicking] = useState<{ memberId: string; projectId: string }>()
+  const [detail, setDetail] = useState<string>()
+  // Default is by project: that is how an owner thinks about who is on the team (FR-PRJ-12).
+  const [view, setViewState] = useState<'project' | 'person'>(() => { try { return localStorage.getItem('members-view') === 'person' ? 'person' : 'project' } catch { return 'project' } })
+  const setView = (next: 'project' | 'person') => { setViewState(next); try { localStorage.setItem('members-view', next) } catch { /* private window */ } }
   // The CTO's own staff record in one click (FR-PLAN-37): then they can be planned like anyone else.
   const addMe = useMutation({
     mutationFn: () => api<WorkforceMember>('/planning/members/me', { method: 'POST' }),
@@ -9635,25 +9786,42 @@ function MembersSettings() {
     <>
       <SectionHeader title="Nhân sự" helper="Gán nhân sự vào dự án. Dự án phần mềm cần thêm người dùng tương ứng ở nơi giao việc (GitLab hoặc GitHub) thì mới phân công được trong Daily Planning." action={editing === 'new' ? undefined : <span className="settings-actions">{user?.role === 'CTO' && !user.member_id && <button className="button button-secondary" type="button" disabled={addMe.isPending} title="Tạo hồ sơ nhân sự cho chính anh: 0 giờ mặc định, không đòi báo cáo ngày. Gán vào dự án kèm người dùng GitLab hoặc GitHub để nhận việc trong Daily Planning." onClick={() => addMe.mutate()}><UserRound size={16} /> {addMe.isPending ? 'Đang thêm…' : 'Thêm tôi vào nhân sự'}</button>}<button className="button button-primary" type="button" onClick={() => setEditing('new')}><Plus size={16} /> Thêm nhân sự</button></span>} />
       {addMe.error != null && <p className="field-help text-warn">{formatError(addMe.error)}</p>}
+      <div className="segmented" role="group" aria-label="Cách xem nhân sự">
+        <button type="button" className={view === 'project' ? 'active' : undefined} aria-pressed={view === 'project'} onClick={() => setView('project')}>Theo dự án</button>
+        <button type="button" className={view === 'person' ? 'active' : undefined} aria-pressed={view === 'person'} onClick={() => setView('person')}>Theo người</button>
+      </div>
       {(members.error || projects.error) && <ErrorNotice error={members.error || projects.error} onRetry={() => { void members.refetch(); void projects.refetch() }} />}
-      {members.isLoading || projects.isLoading ? <LoadingBlock /> : (
+      {view === 'project' ? (projects.isLoading ? <LoadingBlock /> : <MembersByProject projects={activeProjects} />) : members.isLoading || projects.isLoading ? <LoadingBlock /> : (
         <section className="panel settings-panel member-list">
           {editing === 'new' && <MemberEditor projects={activeProjects} onDone={() => setEditing(undefined)} />}
           {(members.data || []).length === 0 && editing !== 'new' && <EmptyState icon={<UserRound size={20} />} title="Chưa có nhân sự" text="Thêm nhân sự để nhận báo cáo ngày và lập kế hoạch." />}
           {(members.data || []).map((member) => editing === member.id ? <MemberEditor key={member.id} member={member} projects={activeProjects} onDone={() => setEditing(undefined)} /> : (
-            <div className="member-row" key={member.id}>
-              <div><strong>{member.display_name}{member.is_cto && <span className="capacity-owner" title="Hồ sơ nhân sự của chính CTO: không đòi báo cáo ngày; đặt giờ theo ngày ở Daily Planning khi nhận việc">CTO</span>}</strong><small>{member.email_reference || 'Chưa có email báo cáo'} · {member.default_weekday_hours} giờ/ngày{member.is_cto ? ' · không cần báo cáo ngày' : ''}{member.status !== 'ACTIVE' ? ' · đã ngừng' : ''}</small></div>
-              <div className="report-tags">
-                {member.project_mappings.filter((mapping) => mapping.active).length === 0 && <span className="status report-warning">Chưa gán dự án</span>}
-                {member.project_mappings.filter((mapping) => mapping.active).map((mapping) => {
-                  const project = projectById.get(mapping.project_id)
-                  const missingUser = project?.kind === 'SOFTWARE' && !mapping.gitlab_user_external_id
-                  return <span key={mapping.project_id} className={missingUser ? 'status report-warning' : 'status'} title={missingUser ? 'Chưa có người dùng ở nơi giao việc' : undefined}>{project?.name || 'Dự án'}{missingUser ? ` · thiếu ${project?.delivery_system === 'GITHUB' ? 'GitHub' : 'GitLab'}` : ''}</span>
-                })}
+            <Fragment key={member.id}>
+              <div className="member-row">
+                <div><strong>{member.display_name}{member.is_cto && <span className="capacity-owner" title="Hồ sơ nhân sự của chính CTO: không đòi báo cáo ngày; đặt giờ theo ngày ở Daily Planning khi nhận việc">CTO</span>}</strong><small>{member.email_reference || 'Chưa có email báo cáo'} · {member.default_weekday_hours} giờ/ngày{member.is_cto ? ' · không cần báo cáo ngày' : ''}{member.status !== 'ACTIVE' ? ' · đã ngừng' : ''}</small></div>
+                <div className="report-tags">
+                  {member.project_mappings.filter((mapping) => mapping.active).length === 0 && <span className="status report-warning">Chưa gán dự án</span>}
+                  {member.project_mappings.filter((mapping) => mapping.active).map((mapping) => {
+                    const project = projectById.get(mapping.project_id)
+                    const missingUser = project?.kind === 'SOFTWARE' && !mapping.gitlab_user_external_id
+                    const trackerName = project?.delivery_system === 'GITHUB' ? 'GitHub' : 'GitLab'
+                    if (missingUser && project?.delivery_system) {
+                      return <button type="button" key={mapping.project_id} className="status report-warning chip-button" title={`Chưa có người dùng ${trackerName}, nên chưa phân công được. Bấm để chọn.`} onClick={() => setPicking({ memberId: member.id, projectId: mapping.project_id })}>{project.name} · chọn {trackerName}</button>
+                    }
+                    return <span key={mapping.project_id} className={missingUser ? 'status report-warning' : 'status'} title={missingUser ? 'Dự án chưa nối nơi giao việc' : undefined}>{project?.name || 'Dự án'}{missingUser ? ' · chưa nối nơi giao việc' : ''}</span>
+                  })}
+                </div>
+                <button className="button button-secondary button-small" type="button" aria-expanded={detail === member.id} onClick={() => setDetail(detail === member.id ? undefined : member.id)}>{detail === member.id ? 'Đóng' : 'Chi tiết'}</button>
               </div>
-              {member.status === 'ACTIVE' && <TelegramInvite member={member} />}
-              <button className="button button-secondary button-small" type="button" onClick={() => setEditing(member.id)}><Pencil size={15} /> Sửa</button>
-            </div>
+              {detail === member.id && (
+                <div className="member-detail" role="region" aria-label={`Chi tiết ${member.display_name}`}>
+                  <div><strong>Telegram</strong><small>{member.status === 'ACTIVE' ? 'Nhận kế hoạch và nhắc báo cáo qua Telegram.' : 'Nhân sự đã ngừng hoạt động, không nhắc qua Telegram.'}</small></div>
+                  {member.status === 'ACTIVE' && <TelegramInvite member={member} />}
+                  <button className="button button-secondary button-small" type="button" onClick={() => { setDetail(undefined); setEditing(member.id) }}><Pencil size={15} /> Sửa hồ sơ</button>
+                </div>
+              )}
+              {picking?.memberId === member.id && projectById.get(picking.projectId) && <MemberTrackerPicker key={picking.projectId} member={member} project={projectById.get(picking.projectId)!} onDone={() => setPicking(undefined)} />}
+            </Fragment>
           ))}
         </section>
       )}
