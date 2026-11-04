@@ -815,6 +815,7 @@ export interface AcceptanceItem {
   evidence_fetched_at: string | null
   intake_id: string | null
   intake_public_id: string | null
+  needs_cto_acceptance: boolean
   acceptance: string[]
   picked_on: string | null
   decision: 'PENDING' | 'ACCEPTED' | 'REJECTED'

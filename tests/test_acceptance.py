@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.db import get_session
 from app.main import app
-from app.models import EmailMessage, ExternalLink, GitLabIssueSnapshot, IssueVerification, PlanningCandidate, PlanningRun, PlanningWarning, Project, ReportItem, User, WorkforceMember
+from app.models import EmailMessage, ExternalLink, GitLabIssueSnapshot, IntakeItem, IssueVerification, PlanningCandidate, PlanningRun, PlanningWarning, Project, ReportItem, SyncJob, User, WorkforceMember
 from app.modules.planning import acceptance
 from tests.test_intake_reopen import _approved, _mark_synced
 
@@ -214,4 +214,35 @@ def test_sync_target_says_what_to_write_and_record_sync_closes_the_snapshot() ->
             assert snapshot.state == "closed" and snapshot.closed_at is not None
             assert session.get(IssueVerification, verification_id).sync_status == "DONE"
     finally:
+        _cleanup()
+
+
+def test_the_owner_sees_which_acceptances_the_cto_marked_hard() -> None:
+    _member()
+    _issues()
+    today = date.today().isoformat()
+    approved = _approved("GITLAB")
+    _mark_synced(approved["id"], "GITLAB", "9701")
+    try:
+        _report("acc-hard", today, "[DONE] Xuất báo cáo tuần ra PDF | Thời gian: 4 giờ | Tiến độ: 100%\nTham chiếu: GitLab #9701 | Plane: Không có | Intake: Không có")
+        def flag(client: TestClient) -> bool | None:
+            data = client.get("/api/v1/acceptance").json()["data"]
+            rows = [row for key in ("today", "more") for row in data[key] if row["issue_external_id"] == "9701"]
+            return rows[0]["needs_cto_acceptance"] if rows else None
+        cto.post("/api/v1/acceptance/sample?extra=5")
+        assert flag(cto) is False
+        with get_session() as session:
+            session.get(IntakeItem, approved["id"]).needs_cto_acceptance = True
+            session.commit()
+        assert flag(cto) is True
+        assert flag(owner) in (True, None)
+    finally:
+        with get_session() as session:
+            for link in session.scalars(select(ExternalLink).where(ExternalLink.intake_id == approved["id"])).all():
+                job = session.get(SyncJob, link.sync_job_id)
+                session.delete(link)
+                session.flush()
+                if job is not None:
+                    session.delete(job)
+            session.commit()
         _cleanup()

@@ -1128,6 +1128,7 @@ function AcceptanceCard({ item, isCto, onDecide, busy }: { item: AcceptanceItem;
       {item.acceptance.length > 0 && <ul className="verification-acceptance">{item.acceptance.map((line, index) => <li key={index}>{line}</li>)}</ul>}
       <EvidenceBlock item={item} canAdd={open} />
       {item.evidence_missing_reason && <p className="acceptance-reported evidence-missing-note">Nghiệm thu không bằng chứng: {item.evidence_missing_reason}</p>}
+      {!isCto && item.needs_cto_acceptance && item.decision === 'PENDING' && <p className="acceptance-reported">Việc khó do CTO đánh dấu: bạn xác nhận phần mình, CTO là người nghiệm thu cuối và đóng Issue.</p>}
       {item.po_decision && <p className={`acceptance-po ${item.po_decision === 'ACCEPTED' ? 'is-ok' : 'is-no'}`}>Project Owner{item.po_decided_by_name ? ` (${item.po_decided_by_name})` : ''}: {item.po_decision === 'ACCEPTED' ? 'xác nhận xong' : `chưa xong: ${item.po_reason}`}</p>}
       {item.decision !== 'PENDING' && (
         <p className={`acceptance-cto ${item.decision === 'ACCEPTED' ? 'is-ok' : 'is-no'}`}>
