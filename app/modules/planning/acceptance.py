@@ -216,6 +216,7 @@ def _dict(session, row: IssueVerification, names: dict[str, str], projects: dict
         "evidence": auto, "evidence_fetched_at": issue.evidence_fetched_at if issue is not None else None,
         "evidence_links": links, "evidence_check": check, "evidence_missing_reason": row.evidence_missing_reason,
         "intake_id": str(intake.id) if intake else None, "intake_public_id": intake.public_id if intake else None, "acceptance": acceptance[:12],
+        "needs_cto_acceptance": bool(intake.needs_cto_acceptance) if intake else False,
         "picked_on": row.picked_on, "decision": row.decision, "reason": row.reason, "decided_at": row.decided_at,
         "decided_by_name": users.get(str(row.decided_by)) if row.decided_by else None,
         "po_decision": row.po_decision, "po_reason": row.po_reason, "po_decided_at": row.po_decided_at,

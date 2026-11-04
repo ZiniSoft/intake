@@ -119,6 +119,51 @@ def test_work_status_from_the_web_feeds_acceptance_and_the_next_day() -> None:
         _cleanup(project_id, [first["id"], second["id"]], user_id)
 
 
+def test_done_said_from_a_page_opened_before_the_plan_was_reopened_lands_on_the_live_plan() -> None:
+    """INT-26W45-001: the plan was reopened (new assignment ids) while the Developer's page still held the old ids;
+    "done" with a link must reach the live assignment instead of failing or vanishing on the superseded copy."""
+    with get_session() as session:
+        project_id = str(session.scalar(select(Project).where(Project.code == "orbit")).id)
+    tag = uuid4().hex[:6]
+    member = cto.post("/api/v1/planning/members", json={
+        "display_name": "Stale Page Dev", "email_reference": f"stale-{tag}@example.test",
+        "project_mappings": [{"project_id": project_id, "gitlab_user_external_id": "424331", "role": "Developer"}],
+    }).json()["data"]
+    user_id = None
+    try:
+        run = cto.post("/api/v1/planning/runs", json={"plan_date": DAY_ONE, "project_ids": [project_id]}).json()["data"]
+        placed = cto.post(f"/api/v1/planning/runs/{run['id']}/assignments", json={
+            "expected_run_version": run["version"], "project_id": project_id, "member_id": member["id"], "slot": "MORNING",
+            "work_type": "DEVELOPMENT", "is_primary": True, "planned_hours": 2, "source_type": "GITLAB", "source_reference": "GL#811",
+            "gitlab_issue_external_id": "811", "approved_priority": "P1",
+        })
+        assert placed.status_code == 201, placed.text
+        old_id = placed.json()["data"]["id"]
+        created = cto.post("/api/v1/users", json={"subject": f"stale{tag}", "role": "DEVELOPER", "member_id": member["id"]})
+        assert created.status_code == 201, created.text
+        user_id = created.json()["data"]["account"]["id"]
+        dev = TestClient(app, headers={"X-User-Subject": f"stale{tag}"})
+        assert dev.post("/api/v1/auth/password", json={"current_password": created.json()["data"]["temporary_password"], "new_password": f"stale-pass-{tag}-long"}).status_code == 200
+        stale_items = dev.get(f"/api/v1/planning/my-day/{DAY_ONE}").json()["data"]["items"]
+        assert [row["assignment_id"] for row in stale_items] == [old_id]
+
+        with get_session() as session:
+            closed = session.get(PlanningRun, run["id"])
+            closed.status = "SYNCED"
+            session.commit()
+            version = closed.version
+        reopened = cto.post(f"/api/v1/planning/runs/{run['id']}/reopen", json={"expected_version": version})
+        assert reopened.status_code == 201, reopened.text
+        live_run_id = reopened.json()["data"]["id"]
+
+        done = dev.patch(f"/api/v1/planning/runs/{run['id']}/assignments/{old_id}/work-status", json={"status": "DONE", "note": "Đã merge"})
+        assert done.status_code == 200, done.text
+        live = dev.get(f"/api/v1/planning/my-day/{DAY_ONE}").json()["data"]["items"]
+        assert [(row["run_id"], row["work_status"]) for row in live] == [(live_run_id, "DONE")]
+    finally:
+        _cleanup(project_id, [member["id"]], user_id)
+
+
 def test_waiting_work_done_elsewhere_leaves_the_list_with_a_note_and_goes_to_acceptance() -> None:
     """FR-PLAN-34: "Hủy" on a waiting entry that was already done: a note is required, the entry is taken off,
     the Issue waits for the CTO's acceptance, and the next day's plan does not offer it again."""

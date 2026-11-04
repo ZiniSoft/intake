@@ -255,6 +255,32 @@ async def get_people_day(plan_date: date, context: AuthContext = Depends(require
     return PeopleDayOut.model_validate(people_day(plan_date, context.project_ids))
 
 
+def _live_copy(session, assignment):
+    """A page opened before the plan was reopened still holds the ids of the superseded run; reopening copies each
+    assignment under a new id, so follow the chain forward and land the status on the copy that is live."""
+    from sqlalchemy import select
+
+    from app.models import PlanningAssignment, PlanningRun
+
+    current = assignment
+    for _ in range(20):
+        run = session.get(PlanningRun, current.planning_run_id)
+        if run is None or run.status != "SUPERSEDED":
+            return current
+        successor = session.scalar(select(PlanningRun).where(PlanningRun.supersedes_run_id == run.id))
+        if successor is None:
+            return current
+        match = session.scalar(select(PlanningAssignment).where(
+            PlanningAssignment.planning_run_id == successor.id, PlanningAssignment.project_id == current.project_id,
+            PlanningAssignment.member_id == current.member_id, PlanningAssignment.slot == current.slot,
+            PlanningAssignment.work_type == current.work_type, PlanningAssignment.source_reference == current.source_reference,
+        ))
+        if match is None:
+            raise api_exception(status.HTTP_404_NOT_FOUND, "PLANNING_ASSIGNMENT_NOT_FOUND", "Planning assignment was not found")
+        current = match
+    return current
+
+
 @router.patch("/runs/{run_id}/assignments/{assignment_id}/work-status", openapi_extra={"x-requirement-ids": ["FR-PLAN-34", "FR-MCP-06", "FR-ID-08"]})
 async def set_assignment_work_status(run_id: str, assignment_id: str, payload: WorkStatusUpdate, context: AuthContext = Depends(require_account)) -> dict:
     """Where a placed piece of work stands, said on the web: the CTO for anyone, a Project Owner within their projects,
@@ -266,6 +292,7 @@ async def set_assignment_work_status(run_id: str, assignment_id: str, payload: W
         assignment = session.get(PlanningAssignment, assignment_id)
         if assignment is None or str(assignment.planning_run_id) != run_id:
             raise api_exception(status.HTTP_404_NOT_FOUND, "PLANNING_ASSIGNMENT_NOT_FOUND", "Planning assignment was not found")
+        assignment = _live_copy(session, assignment)
         if context.role == "PROJECT_OWNER" and (context.project_ids is None or str(assignment.project_id) not in context.project_ids):
             raise api_exception(status.HTTP_404_NOT_FOUND, "PLANNING_ASSIGNMENT_NOT_FOUND", "Planning assignment was not found")
         if context.role == "DEVELOPER":

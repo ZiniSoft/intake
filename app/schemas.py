@@ -982,6 +982,7 @@ class AcceptanceItemOut(BaseModel):
     evidence_fetched_at: datetime | None = None
     intake_id: str | None = None
     intake_public_id: str | None = None
+    needs_cto_acceptance: bool = False
     acceptance: list[str] = Field(default_factory=list)
     picked_on: date | None = None
     decision: str

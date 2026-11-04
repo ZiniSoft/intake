@@ -66,6 +66,7 @@ export function formatError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 401) return 'Phiên đăng nhập đã hết hạn hoặc thông tin đăng nhập không đúng.'
     if (error.code === 'STALE_VERSION' || error.status === 409) return 'Dữ liệu đã thay đổi. Hãy tải phiên bản mới trước khi tiếp tục.'
+    if (error.code === 'PLANNING_ASSIGNMENT_NOT_FOUND') return 'Kế hoạch đã đổi nên việc này không còn ở vị trí cũ. Hãy tải lại trang rồi báo lại.'
     return error.message
   }
   return error instanceof Error ? error.message : 'Đã xảy ra lỗi không xác định.'
