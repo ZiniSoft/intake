@@ -10,7 +10,7 @@ Các bảng ghi **runtime** chỉ liệt kê endpoint hiện có trong OpenAPI. 
 |---|---|---|---|
 | POST | `/api/v1/auth/login` | Public; rate limit là target chưa triển khai | Password và optional OTP/recovery; đặt session + CSRF cookie, cùng hạn 7 ngày (`expires_in` = 604800; `ACCESS_TOKEN_TTL_MINUTES`, FR-ID-09) |
 | POST | `/api/v1/auth/password-reset/request` | Public; rate limit theo IP và cooldown theo tài khoản | Nhận username hoặc email; luôn trả 202 cùng thông báo. Nếu tài khoản active tồn tại, gửi link Mailgun một lần; không lộ account enumeration |
-| POST | `/api/v1/auth/password-reset/confirm` | Public + reset token | Nhận token và mật khẩu mới ≥12 ký tự; token lưu dạng hash, hết hạn 30 phút, chỉ dùng một lần; tăng `auth_version` để vô hiệu cookie cũ |
+| POST | `/api/v1/auth/password-reset/confirm` | Public + reset token | Nhận token và mật khẩu mới ≥8 ký tự; token lưu dạng hash, hết hạn 30 phút, chỉ dùng một lần; tăng `auth_version` để vô hiệu cookie cũ |
 | POST | `/api/v1/auth/logout` | Authenticated | Xóa session/CSRF cookie; persistent server-side revocation là target |
 | GET | `/api/v1/auth/me` | Authenticated | Role-safe identity |
 | POST | `/api/v1/auth/mfa/setup` | Authenticated + step-up | Nhận mật khẩu hiện tại và OTP hiện tại khi MFA đã bật; tạo pending secret 10 phút mà không đổi factor đang hoạt động |
@@ -111,11 +111,15 @@ Probe được integration worker xử lý qua task `intake.integration.probe`, 
 | POST, DELETE | `/api/v1/hints/{key}/dismiss` | Ghi hoặc bỏ "Đã hiểu" cho `key` (`page.work`, `page.my_day`, `page.feedback`, `page.account`); `422 HINT_KEY_INVALID` (FR-UI-17) |
 | POST | `/api/v1/hints/{key}/opened` | Một lượt mở hint, `204`; đếm cho thống kê (FR-UI-17) |
 | GET | `/api/v1/hints/stats` | Chỉ CTO. `?days=` (1..90, mặc định 7) → `{ days, since, opened[{ key, opens, people }], dismissed[{ key, people }] }` (FR-UI-17) |
+| (trang) | `/huong-dan` | Không đăng nhập: trang hướng dẫn công khai; chỉ có lần kiểm phiên sẵn có của app, không gọi `/hints` hay API dữ liệu nào. Đăng nhập: bản trong app, gọi ba endpoint `hints` ở trên. Bản tĩnh cùng nội dung trên GitHub Pages của repo công khai; `?lang=en\|vi` (FR-UI-18, ADR-0078) |
 | POST | `/api/v1/work/{id}/links` | Ai thấy việc. `{ url, note? }` → `201 WorkDetail` với `links[{ id, url, note, source: USER\|AGENT, added_by, added_by_name, mine, created_at }]`; `422 URL_INVALID\|TOO_MANY_LINKS` (FR-WRK-07). `WorkOut` thêm `link_count` |
 | DELETE | `/api/v1/work/{id}/links/{link_id}` | Của mình, hoặc CTO; `403 NOT_YOURS`; `204` (FR-WRK-07) |
 | POST | `/api/v1/mcp-server` (thêm từ FR-MCP-08) | Tool `list_work`, `get_work`, `create_work` (không cho Developer), `move_work`, `comment_work`, `attach_link`; prompt `content_day`; tệp lệnh `/in-content-day` ở `agent-commands/files/in-content-day.md` |
 | POST | `/api/v1/mcp-server` (thêm từ FR-MCP-09) | Tool dự án marketing: `hot_topics`, `trending`, `get_pillars`, `week_plan`, `review_queue`, `set_channel_text` (mọi vai trong dự án); `topic_to_post`, `dismiss_topic`, `refresh_topics`, `get_short_link`, `add_signals` (không cho Developer); prompt `hot_topics`, `draft_post`; tệp lệnh `in-hot-topics.md`, `in-draft-post.md` |
 | POST | `/api/v1/work/{id}/issue` | CTO hoặc Project Owner, dự án SOFTWARE có đồng bộ bật. Quyết định lại yêu cầu gốc sang GitLab/GitHub (hoặc tạo yêu cầu mới) và xếp hàng đồng bộ; trả `WorkDetail` với `issue_pending=true`; `422 PROJECT_NOT_SOFTWARE\|DELIVERY_SYNC_DISABLED\|INTAKE_NOT_READY`, `409 WORK_CLOSED` (FR-WRK-05) |
+| GET | `/api/v1/intakes/{id}/github-issue-link` | Liên kết tạo Issue điền sẵn trên GitHub, chỉ từ nội dung đã chuẩn hóa (FR-INTG-20). Trả `url`, `repository`, `host`, `shortened`. Lỗi 422: `NOT_NORMALIZED`, `NO_REPOSITORY`; 404 khi ngoài phạm vi |
+| GET/PUT | `/api/v1/integrations/github-tokens` | Chỉ CTO (FR-INTG-21). GET trả `[{name, key_hint, used_by_projects, updated_at}]`; PUT nhận `{label, token}`, `label` được đổi thành `GITHUB_TOKEN_<TÊN>`; không trả lại giá trị token. Lỗi 422: `NAME_INVALID`, `TOKEN_INVALID`. |
+| DELETE | `/api/v1/integrations/github-tokens/{name}` | Chỉ CTO. 204; 404 `NOT_FOUND`; 409 `TOKEN_IN_USE` khi một dự án đang bật còn dùng token. |
 | POST | `/api/v1/intakes/{id}/approve` (thêm từ ADR-0066) | `approved_route` nhận `WORK`; trả `IntakeOut.work_item { id, code, status, project_id }` khi duyệt tuyến này. `PLANE` chỉ còn hợp lệ cho yêu cầu đã quyết trước đó. `GET /intakes/{id}/journey` thêm `work_item` cùng dạng; `GET /intakes/{id}/sync-status` trả `target_system=null` cho tuyến không đồng bộ (FR-WRK-06) |
 | POST | `/api/v1/acceptance/{id}/evidence` | CTO hoặc Project Owner của dự án. `{ links: [{ kind?: COMMIT\|MR\|LINK, url?, ref?, note? }] }` (1..10) → thẻ nghiệm thu với `evidence_links[{id, kind, url, ref, note, source, added_by_name, created_at}]` và `evidence_check {work (CODE\|OTHER\|UNKNOWN), status (OK\|WEAK\|MISSING), why}`; `422 EVIDENCE_URL_INVALID`, `422 EVIDENCE_WRONG_REPO` (FR-PLAN-36) |
 | POST | `/api/v1/acceptance/{id}/accept` | Thêm `evidence_missing_reason?`: bắt buộc khi `evidence_check.status` khác `OK` (`422 EVIDENCE_REASON_REQUIRED`); thẻ trả `evidence_missing_reason` (FR-PLAN-36) |
@@ -375,6 +379,7 @@ Chỉ CTO. Mọi response JSON dùng envelope chung.
 
 | Method | Path | Ghi chú |
 |---|---|---|
+| GET | `/api/v1/meetings/speech` | Nhà cung cấp giọng nói đã cấu hình chưa, có chữ trực tiếp không (`{configured, live_text}`) |
 | GET, POST, DELETE | `/api/v1/meetings/glossary` | Thuật ngữ chung hoặc theo dự án |
 | POST | `/api/v1/meetings` | `project_id` bắt buộc (`MEETING_PROJECT_REQUIRED`), `source` là `TAB_AND_MIC`, `MIC` hoặc `FILE`, `title` tùy chọn; trả 409 khi `MEETING_CAPTURE_ENABLED=false` |
 | GET | `/api/v1/meetings`, `/api/v1/meetings/{id}` | Danh sách; chi tiết gồm bản chữ, người nói, tóm tắt và mục note |
@@ -590,6 +595,10 @@ Phần `details` có thêm `clarifications[]` gồm `question`, `answer`, `skipp
 | GET | `/api/v1/setup` | Chỉ CTO. Trả `completed`, `has_project`, `has_private_space`, `sample_available`. `completed` đúng khi đã đánh dấu hoặc đã có dự án thật |
 | POST | `/api/v1/setup/private-sample` | Chỉ CTO. Nạp bộ DNA mẫu hư cấu vào khu riêng (mở khu nếu chưa có). `422 SAMPLE_INVALID` hoặc `SAMPLE_MISSING` khi bộ mẫu hỏng; trả trạng thái như GET |
 | POST | `/api/v1/setup/complete` | Chỉ CTO. Đánh dấu đã thiết lập, gọi lại vô hại; trả trạng thái như GET. Khi cờ wizard bật mà chưa có route AI: `422 AI_KEY_REQUIRED`. `GET /setup` có thêm `ai_ready`, `wizard` |
+| POST | `/api/v1/setup/demo-project` | Chỉ CTO, chỉ khi cờ wizard bật (tắt: `422 NOT_FOUND`). Nạp dự án mẫu hư cấu (`demo`, khóa `DEM`) và đánh dấu đã thiết lập; gọi lại vô hại. `422 SAMPLE_MISSING`, `SAMPLE_INVALID`, `DEMO_CODE_TAKEN`. Trả trạng thái như GET. `GET /setup` có thêm `has_demo`, `demo_available`; khi `has_demo`, `/setup/complete` không đòi `AI_KEY_REQUIRED` |
+| GET | `/api/v1/showcase` | Chỉ CTO (FR-SETUP-15). Danh mục dự án mẫu từ `app/resources/showcase.json`: `{version, groups, items[]}`, mỗi mục có `key`, `kind` (`demo`/`real`), `name`, `summary`, `repo_url`, `languages`, `license`, `state` (`off`/`on`/`archived`), `project_code`, `sample_requests`, `in_catalog`. |
+| PUT | `/api/v1/showcase/{key}` | Chỉ CTO (FR-SETUP-15). Body `{enabled}`. Bật lần đầu tạo dự án (`real`) hoặc nạp dự án mẫu (`demo`); tắt đặt dự án `INACTIVE`, bật lại khôi phục đúng dự án. `404 NOT_FOUND` khi khóa không có trong danh mục, `409 PROJECT_CODE_TAKEN` khi mã dự án đã bị chiếm. |
+| DELETE | `/api/v1/showcase/{key}/samples` | Chỉ CTO (FR-SETUP-16). Xóa các yêu cầu thử (cờ `test_data`, còn chờ duyệt) của mục; trả `{removed}`. |
 | GET | `/api/v1/setup/status` | Công khai. `{needs_bootstrap}`; đúng khi `FIRST_RUN_WIZARD` bật và chưa tạo tài khoản đầu (FR-SETUP-05, ADR-0071) |
 | POST | `/api/v1/setup/bootstrap` | Công khai, một lần, miễn CSRF, có giới hạn tốc độ. Body `{cto:{email,display_name,password}, owner:{...}\|null}`. Đặt cookie phiên và CSRF của CTO. `404` khi cờ tắt, `409 BOOTSTRAP_DONE`, `422` mật khẩu ngắn hoặc email trùng (FR-SETUP-06) |
 
@@ -604,7 +613,8 @@ Tất cả chỉ CTO. Khóa chỉ nhận khi tạo hoặc sửa; response chỉ 
 | PATCH | `/api/v1/ai/providers/{id}` | Các trường như trên, đều tùy chọn; `api_key` để trống thì giữ khóa cũ |
 | DELETE | `/api/v1/ai/providers/{id}` | `409 PROVIDER_IN_USE` khi còn route trỏ tới |
 | POST | `/api/v1/ai/providers/{id}/test` | Gọi `GET {base_url}/models`. Trả `ok`, `error` (mã: `AUTH`, `TIMEOUT`, `HTTP_<n>`, `NETWORK`, `KEY_UNREADABLE`), `models[]` |
-| GET | `/api/v1/ai/routes` | Sáu dòng `default`, `normalize`, `report`, `meeting`, `vision`, `content`: `task`, `provider_id`, `provider_name`, `model`, `source` (`route`, `default`, `env`, `none`) |
+| POST | `/api/v1/ai/providers/{id}/probe` | `{ kind, model }` (`kind`: `vision` hoặc `stt`). Thử model bằng ảnh mẫu (số 482) hoặc 1,5 giây âm thanh mẫu; lưu kết quả theo (provider, model, kind). Trả `kind`, `model`, `ok`, `error` (`NOT_SUPPORTED`, `NOT_READ`, `AUTH`, `TIMEOUT`, `NETWORK`, `KEY_UNREADABLE`, `QUOTA` (nhà cung cấp trả 429: hết hạn mức hoặc model ngoài gói của khóa), `MODEL_NOT_FOUND` (trả 404: sai tên model hoặc model đã ngừng cho khóa mới), `PROVIDER_TRANSIENT` (trả 5xx khi thử ảnh), `HTTP_<n>`), `checked_at`. Chỉ `NOT_SUPPORTED` và `NOT_READ` của lần thử ảnh làm route `vision` bỏ qua model của `default` (FR-AI-22). `422 AI_PROBE_KIND_INVALID`, `422 AI_MODEL_INVALID`. Chỉ CTO (FR-AI-21) |
+| GET | `/api/v1/ai/routes` | Bảy dòng `default`, `normalize`, `report`, `meeting`, `vision`, `content`, `stt` (`stt` không rơi về `default`; chưa đặt thì hiện khóa ElevenLabs của `.env` với `source: env`): `task`, `provider_id`, `provider_name`, `model`, `source` (`route`, `default`, `env`, `none`), `check_ok`, `check_error`, `checked_at` (kết quả thử mẫu của model đang phục vụ; dòng `default` mang kết quả thử ảnh). `vision` không rơi về `default` khi model đó đã thử ảnh hỏng (FR-AI-22) |
 | PUT | `/api/v1/ai/routes/{task}` | `{ provider_id, model }`; `provider_id: null` xóa route. `404 AI_TASK_UNKNOWN`, `422 AI_PROVIDER_NOT_FOUND` |
 
 `GET /api/v1/operations/status` có thêm `ai_configured` và `ai_source`; các trường cũ giữ nguyên.

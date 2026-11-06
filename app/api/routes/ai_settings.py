@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Response, status
 from app.api.errors import api_exception
 from app.api.security import AuthContext, require_cto
 from app.modules.ai_config.service import AiConfigError, ai_config_service
-from app.schemas import AiProviderIn, AiProviderOut, AiProviderPatch, AiProviderTestOut, AiRouteIn, AiRouteOut
+from app.schemas import AiProbeIn, AiProbeOut, AiProviderIn, AiProviderOut, AiProviderPatch, AiProviderTestOut, AiRouteIn, AiRouteOut
 
 router = APIRouter(prefix="/ai", tags=["ai-settings"])
 
@@ -51,6 +51,15 @@ async def delete_provider(provider_id: str, context: AuthContext = Depends(requi
 async def test_provider(provider_id: str, context: AuthContext = Depends(require_cto)) -> AiProviderTestOut:
     try:
         return AiProviderTestOut.model_validate(await ai_config_service.test_provider(provider_id))
+    except AiConfigError as error:
+        raise _fail(error) from error
+
+
+@router.post("/providers/{provider_id}/probe", response_model=AiProbeOut, openapi_extra={"x-requirement-ids": ["FR-AI-21"]})
+async def probe_model(provider_id: str, payload: AiProbeIn, context: AuthContext = Depends(require_cto)) -> AiProbeOut:
+    """A sample picture or a sample sound to one model; the outcome is kept as a code and steers picture reading."""
+    try:
+        return AiProbeOut.model_validate(await ai_config_service.probe(provider_id, payload.kind, payload.model))
     except AiConfigError as error:
         raise _fail(error) from error
 

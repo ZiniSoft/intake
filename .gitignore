@@ -12,6 +12,7 @@ __pycache__/
 data/
 frontend/node_modules/
 frontend/dist/
+frontend/dist-guide/
 frontend/*.tsbuildinfo
 ui-template/node_modules/
 ui-template/dist/

@@ -1,7 +1,8 @@
 """GitHub as the delivery system of a customer's project (ADR-0021).
 
-Each project has its own token, named by an environment variable that only the integration worker
-receives. Nothing here is imported by the API process for network calls.
+Each project has its own token, named GITHUB_TOKEN_*. The value is a row the CTO added on a screen (encrypted,
+ADR-0076) or, as a fallback, an environment variable that only the integration worker receives. The API process
+makes no network calls here.
 """
 from __future__ import annotations
 
@@ -33,15 +34,42 @@ def issue_marker(public_id: str) -> str:
     return f"<!-- {get_settings().integration_marker_prefix}:{public_id} -->"
 
 
+def _stored_token(name: str) -> str | None:
+    """A token the CTO added on a screen (ADR-0076). Any failure reads as "not stored", so the environment still answers."""
+    try:
+        from app.db import get_session
+        from app.models import GithubToken
+        from app.services import raw_crypto
+
+        with get_session() as session:
+            row = session.get(GithubToken, name)
+            return (raw_crypto.decrypt(row.token_enc) or "").strip() or None if row is not None else None
+    except Exception:  # noqa: BLE001 - a missing table or a changed secret key must not hide the environment fallback
+        return None
+
+
+def stored_token_names() -> list[str]:
+    try:
+        from sqlalchemy import select
+
+        from app.db import get_session
+        from app.models import GithubToken
+
+        with get_session() as session:
+            return sorted(session.scalars(select(GithubToken.name)).all())
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def token_names() -> list[str]:
-    """Names, never values, of the GitHub tokens this process was given."""
-    return sorted(name for name, value in os.environ.items() if TOKEN_NAME.match(name) and value.strip())
+    """Names, never values, of the GitHub tokens this process can use: stored on a screen, or given as environment variables."""
+    return sorted({*stored_token_names(), *(name for name, value in os.environ.items() if TOKEN_NAME.match(name) and value.strip())})
 
 
 def _headers(token_ref: str) -> dict[str, str]:
     if not TOKEN_NAME.match(token_ref or ""):
         raise GitHubPermanentError("GITHUB_TOKEN_NAME_INVALID")
-    token = os.environ.get(token_ref, "").strip()
+    token = _stored_token(token_ref) or os.environ.get(token_ref, "").strip()
     if not token:
         raise GitHubPermanentError("GITHUB_TOKEN_NOT_FOUND")
     return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}

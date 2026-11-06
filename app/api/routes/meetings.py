@@ -27,7 +27,7 @@ from sqlalchemy import select
 
 from app.services.intake_service import intake_store
 from app.services.processing_repository import processing_repository
-from app.services.speech_provider import EXTENSIONS
+from app.services.speech_provider import EXTENSIONS, resolve_stt
 
 
 router = APIRouter(prefix="/meetings", tags=["meetings"])
@@ -70,6 +70,13 @@ def _raise(error: MeetingError) -> None:
         status_code=ERROR_STATUS.get(error.code, status.HTTP_422_UNPROCESSABLE_ENTITY),
         detail={"code": error.code, "message": error.message},
     ) from error
+
+
+@router.get("/speech", openapi_extra={"x-requirement-ids": ["FR-AI-20", "FR-REC-04"]})
+async def speech_capability(context: AuthContext = Depends(require_member)) -> dict[str, bool]:
+    """Tells the recording screen, before a meeting starts, whether words appear live or only after it ends."""
+    target = resolve_stt()
+    return {"configured": target is not None, "live_text": bool(target and target.live_text)}
 
 
 @router.get("/glossary", response_model=list[GlossaryTermOut], openapi_extra={"x-requirement-ids": ["FR-REC-07"]})

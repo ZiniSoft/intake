@@ -608,6 +608,18 @@ export interface AiRoute {
   source: string
   effective_provider: string | null
   effective_model: string | null
+  // Picture check for default and vision, sound check for stt; null when not tried.
+  check_ok: boolean | null
+  check_error: string | null
+  checked_at: string | null
+}
+
+export interface AiProbe {
+  kind: 'vision' | 'stt'
+  model: string
+  ok: boolean
+  error: string | null
+  checked_at: string
 }
 
 export type PlanningSlot = 'MORNING' | 'AFTERNOON'
@@ -1639,6 +1651,7 @@ export interface WorkItem {
   project_code: string | null
   project_name: string | null
   project_kind: string | null
+  has_delivery?: boolean
   title: string
   description: string
   status: WorkItemStatus
@@ -1726,4 +1739,34 @@ export interface SetupState {
   sample_available: boolean
   wizard: boolean
   ai_ready: boolean
+  has_demo: boolean
+  demo_available: boolean
+}
+
+export interface ShowcaseItem {
+  key: string
+  kind: 'demo' | 'real'
+  group: string
+  name: string
+  summary: string
+  repo_url: string
+  languages: string[]
+  license: string
+  state: 'off' | 'on' | 'archived'
+  project_code: string | null
+  sample_requests: number
+  in_catalog: boolean
+}
+
+export interface GithubTokenRow {
+  name: string
+  key_hint: string
+  used_by_projects: number
+  updated_at: string
+}
+
+export interface ShowcaseCatalog {
+  version: number
+  groups: Record<string, string>
+  items: ShowcaseItem[]
 }

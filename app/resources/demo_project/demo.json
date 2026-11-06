@@ -1,0 +1,73 @@
+{
+  "project": {
+    "code": "demo",
+    "intake_key": "DEM",
+    "name": "Dự án mẫu",
+    "kind": "SOFTWARE",
+    "demo_repo_url": "https://github.com/ZiniSoft/minigames"
+  },
+  "members": [
+    {"key": "linh", "display_name": "Linh Mẫu", "role": "Developer"},
+    {"key": "binh", "display_name": "Bình Mẫu", "role": "Developer"},
+    {"key": "chau", "display_name": "Châu Mẫu", "role": "QA"}
+  ],
+  "owner": "linh",
+  "intakes": [
+    {
+      "channel": "EMAIL",
+      "raw": "Chào team, game xếp hình bị đứng khi mình chơi tới màn 5 trên điện thoại. Mình thử mở lại vẫn bị.",
+      "type": "BUG", "priority": "P1", "status": "PENDING_APPROVAL", "route": "GITLAB",
+      "title": "Game xếp hình đứng ở màn 5 trên điện thoại",
+      "summary": "Người chơi báo game không phản hồi khi tới màn 5 trên điện thoại; mở lại vẫn lỗi.",
+      "details": {
+        "where": "Màn chơi 5, bản web trên điện thoại",
+        "steps": ["Mở game trên điện thoại", "Chơi tới màn 5", "Quan sát màn hình đứng"],
+        "expected": "Màn 5 tải được và chơi tiếp bình thường.",
+        "acceptance": ["Chơi hết màn 5 trên điện thoại không bị đứng"],
+        "clarifications": [
+          {"question": "Điện thoại và trình duyệt nào?", "answer": "iPhone 12, Safari.", "skipped": false}
+        ]
+      }
+    },
+    {
+      "channel": "ZALO",
+      "raw": "Anh ơi cho em thêm nút tắt tiếng nhạc nền với, chơi ở chỗ đông người ngại quá.",
+      "type": "FEATURE", "priority": "P2", "status": "PENDING_APPROVAL", "route": "GITLAB",
+      "title": "Thêm nút tắt tiếng nhạc nền",
+      "summary": "Người chơi muốn tắt nhạc nền nhanh khi chơi nơi đông người.",
+      "details": {
+        "expected": "Có nút bật/tắt nhạc nền, nhớ lựa chọn sau khi tải lại trang.",
+        "subtasks": ["Thêm nút ở màn hình chính", "Lưu lựa chọn trên trình duyệt"],
+        "acceptance": ["Tắt nhạc xong tải lại trang vẫn tắt"],
+        "clarifications": [
+          {"question": "Nút đặt ở màn chính hay trong lúc chơi?", "answer": "Cả hai nếu được.", "skipped": false}
+        ]
+      }
+    },
+    {
+      "channel": "MANUAL",
+      "raw": "Bảng điểm cao nhất hiện chưa sắp xếp đúng khi hai người bằng điểm.",
+      "type": "BUG", "priority": "P3", "status": "NEEDS_INFORMATION", "route": "NEEDS_INFO",
+      "title": "Bảng điểm cao sắp xếp sai khi bằng điểm",
+      "summary": "Khi hai người bằng điểm, thứ tự trong bảng điểm cao không ổn định.",
+      "details": {
+        "open_questions": ["Người nào nên đứng trên khi bằng điểm: người đạt trước hay người đạt sau?"]
+      }
+    },
+    {
+      "channel": "EMAIL",
+      "raw": "Cho mình hỏi game có chơi được không cần mạng không?",
+      "type": "TASK", "priority": "P3", "status": "APPROVED", "route": "RESPONSE", "approved": true,
+      "title": "Trả lời: game có chơi offline được không",
+      "summary": "Người chơi hỏi game có chạy khi không có mạng. Đã duyệt trả lời bằng thông tin hiện có.",
+      "details": {
+        "expected": "Trả lời rõ phần nào cần mạng, phần nào không."
+      }
+    }
+  ],
+  "plan": [
+    {"member": "linh", "slot": "MORNING", "hours": 4, "work_type": "DEVELOPMENT", "primary": true, "title": "Sửa game đứng ở màn 5"},
+    {"member": "binh", "slot": "MORNING", "hours": 3, "work_type": "DEVELOPMENT", "primary": true, "title": "Thêm nút tắt tiếng nhạc nền"},
+    {"member": "chau", "slot": "AFTERNOON", "hours": 2, "work_type": "QA", "primary": true, "title": "Kiểm màn 5 trên điện thoại"}
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "groups": {
+    "sample": "Dự án mẫu để thử",
+    "author_oss": "Dự án open source của Thanh"
+  },
+  "items": [
+    {
+      "key": "intake-demo",
+      "kind": "demo",
+      "group": "sample",
+      "name": "Dự án mẫu",
+      "summary": "Dự án hư cấu có sẵn vài yêu cầu và kế hoạch ngày để xem Intake chạy mà không cần khóa AI. Không gửi gì ra ngoài.",
+      "repo_url": "https://github.com/ZiniSoft/minigames",
+      "languages": [],
+      "license": "Dữ liệu hư cấu",
+      "default_enabled": false,
+      "sample_requests": []
+    },
+    {
+      "key": "zinisoft-minigames",
+      "kind": "real",
+      "group": "author_oss",
+      "name": "Minigames",
+      "summary": "Bộ mini-game HTML5 cho chiến dịch đồ ăn, đồ uống và cửa hàng trực tuyến. Hiện có Guess Me và Lucky Spin.",
+      "project_code": "minigames",
+      "intake_key": "MGM",
+      "repo_url": "https://github.com/ZiniSoft/minigames",
+      "languages": ["HTML5", "JavaScript"],
+      "license": "MIT (mã nguồn), CC BY 4.0 (nội dung gốc)",
+      "default_enabled": false,
+      "sample_requests": []
+    }
+  ]
+}

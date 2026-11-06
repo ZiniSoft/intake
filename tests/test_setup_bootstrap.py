@@ -94,6 +94,8 @@ def test_invalid_input_is_rejected_and_leaves_the_door_open(wizard) -> None:
     short = _body(tag)
     short["cto"]["password"] = "short"
     assert _post(short).json()["error"] == "PASSWORD_TOO_SHORT"
+    short["cto"]["password"] = "1234567"  # 7 characters: still too short; 8 is the minimum
+    assert _post(short).json()["error"] == "PASSWORD_TOO_SHORT"
     bad_email = _body(tag)
     bad_email["cto"]["email"] = "not-an-email"
     assert _post(bad_email).json()["error"] == "EMAIL_INVALID"

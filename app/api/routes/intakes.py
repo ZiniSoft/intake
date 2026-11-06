@@ -126,6 +126,18 @@ async def get_intake(intake_id: str, _: AuthContext = Depends(intake_member)) ->
     return item
 
 
+@router.get("/{intake_id}/github-issue-link", openapi_extra={"x-requirement-ids": ["FR-INTG-20"]})
+async def github_issue_link(intake_id: str, _: AuthContext = Depends(intake_member)) -> dict:
+    """A pre-filled GitHub "new issue" page built from normalized content only (FR-INTG-20)."""
+    from app.modules.integrations.issue_link import IssueLinkError, new_issue_link
+
+    try:
+        return new_issue_link(intake_id)
+    except IssueLinkError as error:
+        code = status.HTTP_404_NOT_FOUND if error.code == "NOT_FOUND" else status.HTTP_422_UNPROCESSABLE_ENTITY
+        raise api_exception(code, error.code, error.message) from error
+
+
 @router.get(
     "/{intake_id}/journey", response_model=IntakeJourneyOut,
     openapi_extra={"x-requirement-ids": ["FR-UI-09", "FR-ID-07"]},

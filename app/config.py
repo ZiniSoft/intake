@@ -137,10 +137,10 @@ class Settings(BaseSettings):
         owner_password = self.project_owner_initial_password.strip()
         if secret_key.lower() in _KNOWN_SECRET_KEYS or len(secret_key) < 32 or len(set(secret_key)) < 8:
             errors.append("SECRET_KEY must be at least 32 characters, have sufficient character diversity, and not use a repository default")
-        if initial_password.lower() in _KNOWN_INITIAL_PASSWORDS or len(initial_password) < 12:
-            errors.append("CTO_INITIAL_PASSWORD must be at least 12 characters and must not use a repository default")
-        if owner_password and (owner_password.lower() in _KNOWN_INITIAL_PASSWORDS or len(owner_password) < 12):
-            errors.append("PROJECT_OWNER_INITIAL_PASSWORD must be at least 12 characters and must not use a repository default")
+        if initial_password.lower() in _KNOWN_INITIAL_PASSWORDS or len(initial_password) < 8:
+            errors.append("CTO_INITIAL_PASSWORD must be at least 8 characters and must not use a repository default")
+        if owner_password and (owner_password.lower() in _KNOWN_INITIAL_PASSWORDS or len(owner_password) < 8):
+            errors.append("PROJECT_OWNER_INITIAL_PASSWORD must be at least 8 characters and must not use a repository default")
         if not self.cookie_secure:
             errors.append("COOKIE_SECURE must be true outside local and test environments")
         if errors:

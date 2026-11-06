@@ -99,10 +99,10 @@ Mỗi smoke phải thực hiện Review trước Approve, trả external URL đ�
 ## 11A. Nối một dự án với GitHub của khách hàng
 
 1. Xin khách một fine-grained personal access token chỉ cho đúng repository, quyền Issues: Read and write và Metadata: Read.
-2. Chép `.env.github.example` thành `.env.github` (nếu chưa có) và thêm một dòng `GITHUB_TOKEN_<TÊN>=<token>`. Không đặt token này vào `.env`.
-3. `docker compose up -d integration-worker` để worker nhận biến mới.
+2. Cách ưu tiên: ở Cài đặt > Dự án, mục Token GitHub (CTO), đặt tên gợi nhớ và dán token; không cần khởi động lại worker. Cách dự phòng: chép `.env.github.example` thành `.env.github` và thêm dòng `GITHUB_TOKEN_<TÊN>=<token>` (không đặt vào `.env`).
+3. Chỉ với cách dự phòng: `docker compose up -d integration-worker` để worker nhận biến mới.
 4. Trong Cài đặt > Dự án, tạo hoặc sửa dự án loại Phần mềm, chọn "GitHub của khách hàng", chọn token theo tên, chọn repository và bấm "Kiểm tra kết nối".
-5. Khi khách thu hồi token, việc tạo và làm mới Issue của dự án đó báo `GITHUB_AUTH_FAILED`; thay giá trị trong `.env.github` rồi khởi động lại worker.
+5. Khi khách thu hồi token, việc tạo và làm mới Issue của dự án đó báo `GITHUB_AUTH_FAILED`; dán lại token cùng tên ở mục Token GitHub (hoặc thay giá trị trong `.env.github` rồi khởi động lại worker).
 
 ## 12. Ghi âm cuộc họp
 

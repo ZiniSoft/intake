@@ -288,6 +288,7 @@ export async function startRecording({ source, projectCode, kind }: { source: Ex
           const text = message.text?.trim()
           set({ lines: text ? [...state.lines, { text, at: state.partialAt ?? second() }] : state.lines, partial: '', partialAt: null })
         } else if (message.type === 'reconnecting') set({ notice: 'Mất kết nối tới dịch vụ chuyển chữ, đang nối lại. Bản ghi âm vẫn được lưu.' })
+        else if (message.type === 'no_live_text') set({ notice: 'Nhà cung cấp giọng nói này không có chữ trực tiếp: chữ sẽ hiện sau khi bạn kết thúc cuộc họp. Bản ghi âm vẫn được lưu.' })
         else if (message.type === 'ready') set({ notice: undefined })
         else if (message.type === 'health') set({ streamHealth: { backlogSeconds: message.backlog_seconds || 0, clientGapMs: message.client_gap_ms || 0, providerRttMs: message.provider_rtt_ms ?? null, dropped: message.dropped || 0 } })
         else if (message.type === 'limit') void rollover()

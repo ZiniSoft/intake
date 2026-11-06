@@ -71,7 +71,7 @@ async def housekeeping() -> None:
     while True:
         try:
             await asyncio.to_thread(meeting_service.fail_stale_recordings)
-            if get_settings().meeting_capture_enabled and get_settings().elevenlabs_api_key:
+            if get_settings().meeting_capture_enabled and speech_provider.resolve_stt() is not None:
                 while await asyncio.to_thread(transcribe_next):
                     pass
                 await asyncio.to_thread(delete_provider_copies)
@@ -99,12 +99,16 @@ app = FastAPI(title="Intake meeting gateway", docs_url=None, redoc_url=None, ope
 @app.get("/gateway-health")
 async def health() -> dict[str, object]:
     settings = get_settings()
-    return {"status": "ok", "provider_configured": bool(settings.elevenlabs_api_key), "enabled": settings.meeting_capture_enabled}
+    target = speech_provider.resolve_stt()
+    return {
+        "status": "ok", "provider_configured": target is not None, "live_text": bool(target and target.live_text),
+        "enabled": settings.meeting_capture_enabled,
+    }
 
 
-def provider_url(language: str, keyterms: list[str]) -> str:
+def provider_url(language: str, keyterms: list[str], base_url: str | None = None) -> str:
     settings = get_settings()
-    parts = urlsplit(settings.elevenlabs_base_url)
+    parts = urlsplit(base_url or settings.elevenlabs_base_url)
     scheme = "wss" if parts.scheme == "https" else "ws"
     query = [
         ("model_id", settings.elevenlabs_realtime_model), ("language_code", language),
@@ -218,7 +222,8 @@ async def stream(websocket: WebSocket, meeting_id: str) -> None:
         await websocket.close(code=4404)
         return
     await websocket.accept()
-    if not settings.elevenlabs_api_key:
+    target = speech_provider.resolve_stt()
+    if target is None:
         await websocket.send_json({"type": "error", "code": "PROVIDER_NOT_CONFIGURED"})
         await websocket.close(code=4503)
         return
@@ -245,11 +250,20 @@ async def stream(websocket: WebSocket, meeting_id: str) -> None:
         finally:
             await queue.put(None)
 
+    async def drain_audio() -> None:
+        # This provider has no live text: the audio is kept and the text appears after the meeting ends.
+        await websocket.send_json({"type": "no_live_text"})
+        while await queue.get() is not None:
+            pass
+
     async def relay_provider() -> None:
-        url = provider_url(context["language"], context["keyterms"])
+        if not target.live_text:
+            await drain_audio()
+            return
+        url = provider_url(context["language"], context["keyterms"], target.base_url)
         for attempt in range(PROVIDER_RECONNECT_LIMIT):
             try:
-                async with provider_connect(url, additional_headers={"xi-api-key": settings.elevenlabs_api_key}, max_size=2**20) as provider:
+                async with provider_connect(url, additional_headers={"xi-api-key": target.api_key}, max_size=2**20) as provider:
                     async def pump_audio() -> bool:
                         while True:
                             chunk = await queue.get()
