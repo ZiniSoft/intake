@@ -1343,6 +1343,32 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class GithubToken(Base):
+    """A GitHub token added on a screen, stored encrypted; it never comes back out (FR-INTG-21, ADR-0076)."""
+
+    __tablename__ = "github_tokens"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    token_enc: Mapped[str] = mapped_column(Text, nullable=False)
+    key_hint: Mapped[str] = mapped_column(String(8), default="", nullable=False)
+    updated_by: Mapped[str | None] = mapped_column(ID, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class ShowcaseEnabled(Base):
+    """A showcase catalogue item the CTO switched on (FR-SETUP-15): which project it created. Switching off only
+    archives that project, so this row is kept and switching on again restores the same project."""
+
+    __tablename__ = "showcase_enabled"
+
+    item_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ID, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    catalog_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    enabled_by: Mapped[str | None] = mapped_column(ID, ForeignKey("users.id"), nullable=True)
+    enabled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class AiProvider(Base):
     """One OpenAI-compatible LLM endpoint the CTO added on the AI settings tab (FR-AI-15, ADR-0070). The key is
     Fernet-encrypted and never leaves the API; `name` is what extractions record as their provider."""
@@ -1368,7 +1394,7 @@ class AiRoute(Base):
 
     __tablename__ = "ai_routes"
     __table_args__ = (
-        CheckConstraint("task IN ('default', 'normalize', 'report', 'meeting', 'vision', 'content')", name="ck_ai_routes_task"),
+        CheckConstraint("task IN ('default', 'normalize', 'report', 'meeting', 'vision', 'content', 'stt')", name="ck_ai_routes_task"),
     )
 
     task: Mapped[str] = mapped_column(String(16), primary_key=True)
@@ -1376,6 +1402,20 @@ class AiRoute(Base):
     model: Mapped[str] = mapped_column(String(128), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_by: Mapped[str | None] = mapped_column(ID, ForeignKey("users.id"), nullable=True)
+
+
+class AiModelCheck(Base):
+    """The last sample-picture or sample-sound check of one provider's model (FR-AI-21, ADR-0077)."""
+
+    __tablename__ = "ai_model_checks"
+    __table_args__ = (CheckConstraint("kind IN ('vision', 'stt')", name="ck_ai_model_checks_kind"),)
+
+    provider_id: Mapped[str] = mapped_column(ID, ForeignKey("ai_providers.id", ondelete="CASCADE"), primary_key=True)
+    model: Mapped[str] = mapped_column(String(128), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    error: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
 class WatchTopic(Base):

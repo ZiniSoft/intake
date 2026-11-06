@@ -49,7 +49,7 @@ cd intake
 
 ## 4. Cấu hình
 
-Chép `.env` và `.env.github` từ máy cũ sang thư mục `intake` trên server bằng `scp`. Không gửi qua chat hay email.
+Chép `.env` và `.env.github` từ máy cũ sang thư mục `intake` trên server bằng `scp`. Không gửi qua chat hay email. Token GitHub dán ở Cài đặt > Dự án nằm trong cơ sở dữ liệu, mã hóa bằng `SECRET_KEY` trong `.env`: giữ nguyên `SECRET_KEY` khi chuyển máy, nếu không phải dán lại các token đó.
 
 Giữ nguyên `SECRET_KEY` và `BACKUP_PASSPHRASE`. Sửa hoặc thêm trên server:
 

@@ -6,6 +6,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# ffmpeg cuts long meeting recordings into slices a speech-to-text provider accepts.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 10001 intake \
     && useradd --system --uid 10001 --gid intake --home-dir /app intake
 

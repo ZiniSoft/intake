@@ -6,7 +6,7 @@ import pytest
 
 from app.config import get_settings
 from app.db import get_session
-from app.models import AiProvider, AiRoute
+from app.models import AiModelCheck, AiProvider, AiRoute
 from app.modules.ai_config.routing import db_route, resolve_route
 from app.modules.ai_config.service import AiConfigError, ai_config_service, clean_base_url
 
@@ -17,6 +17,9 @@ SECRET = "fixture-ai-key-1234"  # gitleaks:allow - synthetic test credential
 def clean():
     def wipe():
         with get_session() as session:
+            for row in session.query(AiModelCheck).all():
+                session.delete(row)
+            session.flush()
             for row in session.query(AiRoute).all():
                 session.delete(row)
             session.flush()
@@ -142,7 +145,7 @@ def test_route_validation():
         ai_config_service.set_route(None, "report", provider["id"], "  ")
     with pytest.raises(AiConfigError):
         ai_config_service.set_route(None, "report", "00000000-0000-4000-8000-000000000000", "m")
-    assert [r["task"] for r in ai_config_service.list_routes()] == ["default", "normalize", "report", "meeting", "vision", "content"]
+    assert [r["task"] for r in ai_config_service.list_routes()] == ["default", "normalize", "report", "meeting", "vision", "content", "stt"]
 
 
 def run_test(handler):
@@ -183,3 +186,219 @@ def test_connection_timeout_and_network():
     assert run_test(timeout)[1]["error"] == "TIMEOUT"
     ai_config_service.delete_provider(ai_config_service.list_providers()[0]["id"])
     assert run_test(down)[1]["error"] == "NETWORK"
+
+
+def test_anthropic_model_list_sends_its_own_headers():
+    seen = {}
+
+    def handler(request):
+        seen.update(request.headers)
+        return httpx.Response(200, json={"data": [{"id": "claude-sonnet-5-5"}]})
+
+    provider = make("claude-try", base_url="https://api.anthropic.com/v1/")
+    ai_config_service.transport = httpx.MockTransport(handler)
+    result = asyncio.run(ai_config_service.test_provider(provider["id"]))
+    assert result["ok"] is True and result["models"] == ["claude-sonnet-5-5"]
+    assert seen["x-api-key"] == SECRET and seen["anthropic-version"] == "2023-06-01" and seen["authorization"] == f"Bearer {SECRET}"
+
+
+def test_stt_never_falls_back_to_the_default_route():
+    provider = make()
+    ai_config_service.set_route(None, "default", provider["id"], "chat-model")
+    assert resolve_route("stt") is None and db_route("stt") is None
+    ai_config_service.set_route(None, "stt", provider["id"], "whisper-large-v3")
+    assert resolve_route("stt").model == "whisper-large-v3"
+
+
+def test_stt_openai_compatible_adapter(monkeypatch):
+    from app.services import speech_provider
+
+    provider = make(base_url="https://api.groq.com/openai/v1")
+    ai_config_service.set_route(None, "stt", provider["id"], "whisper-large-v3")
+    target = speech_provider.resolve_stt()
+    assert target.kind == "openai_compatible" and not target.live_text
+    seen = {}
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        seen.update(url=url, auth=headers["Authorization"], model=data["model"], language=data.get("language"))
+        return httpx.Response(200, json={"text": " xin chào "})
+
+    monkeypatch.setattr(speech_provider.httpx, "post", fake_post)
+    result = speech_provider.transcribe(b"x", "audio/webm", language="vi", keyterms=["Intake"], max_speakers=2)
+    assert seen["url"] == "https://api.groq.com/openai/v1/audio/transcriptions" and seen["language"] == "vi"
+    assert result["turns"][0]["text"] == "xin chào" and result["transcription_id"] is None
+
+
+def test_stt_elevenlabs_route_has_live_text_and_fixed_models():
+    from app.services import speech_provider
+
+    provider = make(name="eleven", base_url="https://api.elevenlabs.io")
+    ai_config_service.set_route(None, "stt", provider["id"], "scribe_v2")
+    assert speech_provider.resolve_stt().live_text is True
+    ai_config_service.transport = httpx.MockTransport(lambda request: httpx.Response(200, json={}) if request.url.path == "/v1/user" else httpx.Response(404))
+    result = asyncio.run(ai_config_service.test_provider(provider["id"]))
+    assert result == {"ok": True, "error": None, "models": ["scribe_v2"]}
+
+
+def test_elevenlabs_key_limited_to_speech_to_text_is_accepted_but_a_bad_key_is_not():
+    provider = make(name="eleven2", base_url="https://api.elevenlabs.io")
+    scoped = {"detail": {"status": "missing_permissions", "message": "missing user_read"}}
+    ai_config_service.transport = httpx.MockTransport(lambda request: httpx.Response(401, json=scoped))
+    assert asyncio.run(ai_config_service.test_provider(provider["id"]))["ok"] is True
+    bad = {"detail": {"status": "invalid_api_key", "message": "bad"}}
+    ai_config_service.transport = httpx.MockTransport(lambda request: httpx.Response(401, json=bad))
+    assert asyncio.run(ai_config_service.test_provider(provider["id"]))["error"] == "AUTH"
+
+
+def test_stt_gemini_adapter_joins_pieces(monkeypatch):
+    from app.services import speech_provider
+
+    provider = make(name="gem", base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+    ai_config_service.set_route(None, "stt", provider["id"], "gemini-2.5-flash")
+    target = speech_provider.resolve_stt()
+    assert target.kind == "gemini" and not target.live_text
+    monkeypatch.setattr(speech_provider, "split_audio", lambda audio, ct, extension=None: [(b"a", "audio/ogg"), (b"b", "audio/ogg")])
+    replies = iter(["một", "hai"])
+    seen = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        seen.append((url, headers["x-goog-api-key"], json["contents"][0]["parts"][1]["inline_data"]["mime_type"]))
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": next(replies)}]}}]})
+
+    monkeypatch.setattr(speech_provider.httpx, "post", fake_post)
+    result = speech_provider.transcribe(b"x", "audio/webm", language="vi", keyterms=[], max_speakers=2)
+    assert seen[0][0] == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    assert seen[0][2] == "audio/ogg" and len(seen) == 2
+    assert result["turns"][0]["text"] == "một\n\nhai"
+
+
+def test_stt_long_audio_is_sliced_and_without_ffmpeg_is_refused(monkeypatch):
+    from app.services import speech_provider
+
+    big = b"x" * (speech_provider.MAX_PIECE_BYTES + 1)
+    assert speech_provider.split_audio(b"short", "audio/webm") == [(b"short", "audio/webm")]
+    monkeypatch.setattr(speech_provider.shutil, "which", lambda name: None)
+    try:
+        speech_provider.split_audio(big, "audio/webm")
+    except speech_provider.SpeechProviderError as error:
+        assert error.code == "AUDIO_TOO_LARGE" and not error.transient
+    else:
+        raise AssertionError("expected AUDIO_TOO_LARGE")
+
+
+def probe(provider, kind, model, handler=None):
+    if handler is not None:
+        ai_config_service.transport = httpx.MockTransport(handler)
+    return asyncio.run(ai_config_service.probe(provider["id"], kind, model))
+
+
+def vision_row():
+    return next(r for r in ai_config_service.list_routes() if r["task"] == "vision")
+
+
+def test_picture_probe_sends_a_sample_and_is_remembered():
+    from app.modules.ai_config.service import sample_picture
+
+    assert sample_picture()[1:4] == b"PNG"
+    provider = make()
+    ai_config_service.set_route(None, "default", provider["id"], "seeing-model")
+    assert vision_row()["check_ok"] is None
+    seen = {}
+
+    def handler(request):
+        body = __import__("json").loads(request.content)
+        seen["path"], seen["model"] = request.url.path, body["model"]
+        seen["image"] = body["messages"][0]["content"][1]["image_url"]["url"][:22]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "482"}}]})
+
+    result = probe(provider, "vision", "seeing-model", handler)
+    assert result["ok"] and result["error"] is None
+    assert seen == {"path": "/v1/chat/completions", "model": "seeing-model", "image": "data:image/png;base64,"}
+    row = vision_row()
+    assert row["source"] == "default" and row["check_ok"] is True
+
+
+@pytest.mark.parametrize(("response", "code"), [
+    (httpx.Response(400, json={"error": "image input not supported"}), "NOT_SUPPORTED"),
+    (httpx.Response(200, json={"choices": [{"message": {"content": "I cannot see images"}}]}), "NOT_READ"),
+    (httpx.Response(401), "AUTH"),
+    (httpx.Response(429, json={"error": {"status": "RESOURCE_EXHAUSTED"}}), "QUOTA"),
+    (httpx.Response(404, json=[{"error": {"code": 404, "status": "NOT_FOUND"}}]), "MODEL_NOT_FOUND"),
+    (httpx.Response(503), "PROVIDER_TRANSIENT"),
+])
+def test_picture_probe_failures_are_codes(response, code):
+    provider = make()
+    assert probe(provider, "vision", "text-model", lambda request: response)["error"] == code
+
+
+def test_failed_picture_check_stops_reading_through_the_default_route(monkeypatch):
+    monkeypatch.setattr(get_settings(), "umodelverse_api_key", "")
+    provider = make()
+    ai_config_service.set_route(None, "default", provider["id"], "text-model")
+    assert resolve_route("vision").model == "text-model"  # not tried yet: still used
+    probe(provider, "vision", "text-model", lambda request: httpx.Response(400))
+    assert resolve_route("vision") is None and resolve_route("normalize").model == "text-model"
+    row = vision_row()
+    assert row["source"] == "none" and row["check_ok"] is None
+    # Its own route is used even after a failed check: the CTO chose it on purpose.
+    ai_config_service.set_route(None, "vision", provider["id"], "text-model")
+    assert resolve_route("vision").source == "route"
+
+
+@pytest.mark.parametrize("status", [429, 401, 404, 503])
+def test_picture_check_that_failed_for_quota_or_key_keeps_the_default_route(monkeypatch, status):
+    monkeypatch.setattr(get_settings(), "umodelverse_api_key", "")
+    provider = make()
+    ai_config_service.set_route(None, "default", provider["id"], "text-model")
+    assert not probe(provider, "vision", "text-model", lambda request: httpx.Response(status))["ok"]
+    # Out of quota, a refused key, a retired model name or a busy provider says nothing about whether the model reads pictures.
+    assert resolve_route("vision").model == "text-model"
+
+
+def test_new_key_or_host_forgets_the_checks():
+    provider = make()
+    probe(provider, "vision", "text-model", lambda request: httpx.Response(400))
+    ai_config_service.update_provider(None, provider["id"], {"name": "trial-renamed"})
+    with get_session() as session:
+        assert session.query(AiModelCheck).count() == 1
+    ai_config_service.update_provider(None, provider["id"], {"api_key": "fixture-ai-key-other"})
+    with get_session() as session:
+        assert session.query(AiModelCheck).count() == 0
+    probe(provider, "vision", "text-model", lambda request: httpx.Response(400))
+    ai_config_service.delete_provider(provider["id"])
+    with get_session() as session:
+        assert session.query(AiModelCheck).count() == 0
+
+
+def test_sound_probe_sends_a_short_wav(monkeypatch):
+    from app.services import speech_provider
+
+    provider = make(base_url="https://api.groq.com/openai/v1")
+    ai_config_service.set_route(None, "stt", provider["id"], "whisper-large-v3")
+    seen = {}
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        seen.update(url=url, model=data["model"], type=files["file"][2], head=files["file"][1][:4])
+        return httpx.Response(200, json={"text": ""})
+
+    monkeypatch.setattr(speech_provider.httpx, "post", fake_post)
+    assert probe(provider, "stt", "whisper-large-v3")["ok"]
+    assert seen == {"url": "https://api.groq.com/openai/v1/audio/transcriptions", "model": "whisper-large-v3", "type": "audio/wav", "head": b"RIFF"}
+    row = next(r for r in ai_config_service.list_routes() if r["task"] == "stt")
+    assert row["check_ok"] is True
+    monkeypatch.setattr(speech_provider.httpx, "post", lambda *a, **k: httpx.Response(400))
+    assert probe(provider, "stt", "llama-3.3-70b-versatile")["error"] == "NOT_SUPPORTED"
+    # A name the provider does not know (or retired) is told apart from a model that cannot hear.
+    monkeypatch.setattr(speech_provider.httpx, "post", lambda *a, **k: httpx.Response(404))
+    assert probe(provider, "stt", "whisper-retired")["error"] == "MODEL_NOT_FOUND"
+
+
+def test_probe_validation():
+    provider = make()
+    for kind, model, code in (("text", "m", "AI_PROBE_KIND_INVALID"), ("vision", " ", "AI_MODEL_INVALID")):
+        try:
+            asyncio.run(ai_config_service.probe(provider["id"], kind, model))
+        except AiConfigError as error:
+            assert error.code == code
+        else:
+            raise AssertionError(code)

@@ -435,8 +435,8 @@ class IdentityService:
             session.commit()
 
     def complete_password_reset(self, token: str, new_password: str) -> None:
-        if len(new_password) < 12:
-            raise IdentityError("PASSWORD_TOO_SHORT", "Mật khẩu mới phải có ít nhất 12 ký tự")
+        if len(new_password) < 8:
+            raise IdentityError("PASSWORD_TOO_SHORT", "Mật khẩu mới phải có ít nhất 8 ký tự")
         now = datetime.now(timezone.utc)
         token_hash = self._reset_token_hash(token)
         with get_session() as session:
@@ -623,8 +623,8 @@ class IdentityService:
             return self._account(session, user), password
 
     def change_password(self, subject: str, current_password: str, new_password: str) -> None:
-        if len(new_password) < 12:
-            raise IdentityError("PASSWORD_TOO_SHORT", "The new password needs at least 12 characters")
+        if len(new_password) < 8:
+            raise IdentityError("PASSWORD_TOO_SHORT", "The new password needs at least 8 characters")
         if new_password == current_password:
             raise IdentityError("PASSWORD_UNCHANGED", "The new password must differ from the current one")
         if not self.verify_password(subject, current_password):

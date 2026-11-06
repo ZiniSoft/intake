@@ -40,6 +40,8 @@ from app.api.routes.content_plan import router as content_plan_router
 from app.api.routes.publish import router as publish_router
 from app.api.routes.ai_settings import router as ai_settings_router
 from app.api.routes.setup import router as setup_router
+from app.api.routes.showcase import router as showcase_router
+from app.api.routes.github_tokens import router as github_tokens_router
 from app.api.routes.connectors import router as connectors_router
 from app.api.routes.links import router as links_router
 from app.api.routes.topics import router as topics_router
@@ -206,6 +208,8 @@ app.include_router(drafts_router, prefix="/api/v1")
 app.include_router(content_plan_router, prefix="/api/v1")
 app.include_router(publish_router, prefix="/api/v1")
 app.include_router(setup_router, prefix="/api/v1")
+app.include_router(showcase_router, prefix="/api/v1")
+app.include_router(github_tokens_router, prefix="/api/v1")
 app.include_router(ai_settings_router, prefix="/api/v1")
 app.include_router(watch_router, prefix="/api/v1")
 app.include_router(watch_flow_router, prefix="/api/v1")

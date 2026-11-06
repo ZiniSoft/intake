@@ -16,7 +16,7 @@
 - AI worker: UModelVerse/OpenRouter key, không GitLab/GitHub token.
 - Integration worker: GitLab/GitHub token, không cần raw source decryption key.
 - IMAPS worker: IMAP credential, không SMTP credential. Email khôi phục mật khẩu chỉ đi từ API qua Mailgun HTTPS; API key Mailgun không cấp cho worker khác.
-- Token GitHub của khách hàng (ADR-0021): một biến `GITHUB_TOKEN_<TÊN>` cho mỗi repository, đặt trong `.env.github` mà chỉ `integration-worker` nạp; file không được commit. Token là fine-grained, giới hạn một repository, quyền Issues đọc/ghi và Metadata đọc. Không token nào được dùng chung giữa hai khách hàng.
+- Token GitHub của khách hàng (ADR-0021): một token `GITHUB_TOKEN_<TÊN>` cho mỗi repository, ưu tiên dán ở Cài đặt > Dự án (lưu mã hóa trong CSDL, ADR-0076, chỉ hiện 4 ký tự cuối); phương án dự phòng là biến trong `.env.github` mà chỉ `integration-worker` nạp, file không được commit. Cùng tên thì token trong CSDL được dùng trước. Token là fine-grained, giới hạn một repository, quyền Issues đọc/ghi và Metadata đọc. Không token nào được dùng chung giữa hai khách hàng.
 - Meeting gateway: `ELEVENLABS_API_KEY`; không có GitLab/GitHub token, mật khẩu hộp thư hay UModelVerse key. Mọi service khác nhận giá trị rỗng cho key này.
 - Khoảng trống đã biết: `UMODELVERSE_API_KEY` vẫn tới mọi container app trừ gateway vì các service dùng chung `env_file`.
 - API: chỉ secret cần cho auth/encryption và không có quyền provider rộng hơn cần thiết.

@@ -4,6 +4,8 @@ A private intake tool for engineering leads. Customer requests arrive from chat,
 
 > Status: pilot-grade, used by a small team. The core public walkthrough is available in English with `?lang=en`; other screens and the technical documentation under `docs/` are still primarily Vietnamese.
 
+**User guide**: every role, feature, page and button, in English and Vietnamese, at [zinisoft.github.io/intake](https://zinisoft.github.io/intake/?lang=en). The same guide is public at `/huong-dan` on any running instance. <!-- export-gate: allow (public Pages URL) -->
+
 ## How a request becomes work
 
 ![Intake turns a raw request into accepted work through six traceable steps](assets/intake-lifecycle.en.svg)

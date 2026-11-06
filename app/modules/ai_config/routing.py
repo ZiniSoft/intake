@@ -2,24 +2,37 @@
 
 Order: the task's own route, then the `default` route, then the old `.env` settings, then nothing. A route whose
 provider is switched off or whose key cannot be decrypted is skipped, so a half-set screen never breaks a worker.
+Reading pictures skips the `default` route when its model failed the sample-picture check (FR-AI-22, ADR-0077).
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.models import AiProvider, AiRoute
+from app.models import AiModelCheck, AiProvider, AiRoute
 from app.services import raw_crypto
 
 logger = logging.getLogger(__name__)
 
-TASKS = ("normalize", "report", "meeting", "vision", "content")
+TASKS = ("normalize", "report", "meeting", "vision", "content", "stt")
+# A chat model cannot hear audio, so these tasks never fall back to the `default` route or the chat settings in .env.
+OWN_ROUTE_ONLY = frozenset({"stt"})
 ROUTE_KEYS = ("default", *TASKS)
 ENV_PROVIDER_NAME = "UMODELVERSE"
+
+
+def is_elevenlabs(base_url: str) -> bool:
+    host = urlsplit(base_url).hostname or ""
+    return host == "elevenlabs.io" or host.endswith(".elevenlabs.io")
+
+
+def is_gemini(base_url: str) -> bool:
+    return (urlsplit(base_url).hostname or "") == "generativelanguage.googleapis.com"
 
 
 @dataclass(frozen=True)
@@ -35,10 +48,19 @@ class ResolvedRoute:
         return f"ResolvedRoute(provider={self.provider!r}, model={self.model!r}, source={self.source!r})"
 
 
+# Only these say the model cannot read pictures; quota, timeouts or a refused key say nothing about the model itself.
+PICTURE_CAPABILITY_FAILURES = frozenset({"NOT_SUPPORTED", "NOT_READ"})
+
+
+def _failed_picture_check(session, provider_id: str, model: str) -> bool:
+    check = session.get(AiModelCheck, (provider_id, model, "vision"))
+    return check is not None and not check.ok and check.error in PICTURE_CAPABILITY_FAILURES
+
+
 def _from_db(task: str) -> ResolvedRoute | None:
     try:
         with get_session() as session:
-            for key in (task, "default"):
+            for key in ((task,) if task in OWN_ROUTE_ONLY else (task, "default")):
                 route = session.get(AiRoute, key)
                 if route is None:
                     continue
@@ -52,6 +74,9 @@ def _from_db(task: str) -> ResolvedRoute | None:
                     continue
                 if not api_key:
                     continue
+                if task == "vision" and key == "default" and _failed_picture_check(session, provider.id, route.model):
+                    # The default chat model was shown a sample picture and could not read it (ADR-0077).
+                    continue
                 return ResolvedRoute(
                     provider.name, provider.base_url, api_key, route.model, provider.extra_body,
                     "route" if key == task else "default",
@@ -62,7 +87,7 @@ def _from_db(task: str) -> ResolvedRoute | None:
 
 
 def _from_env(task: str, settings: Settings) -> ResolvedRoute | None:
-    if not settings.umodelverse_api_key:
+    if task in OWN_ROUTE_ONLY or not settings.umodelverse_api_key:
         return None
     model = settings.umodelverse_vision_model if task == "vision" else settings.umodelverse_model
     return ResolvedRoute(ENV_PROVIDER_NAME, settings.umodelverse_base_url, settings.umodelverse_api_key, model, None, "env")

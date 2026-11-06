@@ -163,7 +163,7 @@ Item chưa có GitLab Issue phải hoàn tất triage/promote trước planning 
 
 ### UC-13A - Dự án giao việc trên GitHub của khách hàng
 
-1. CTO đặt token của khách vào `.env.github` trên máy chủ, rồi trong wizard chọn loại Phần mềm, nơi giao việc "GitHub của khách hàng", token theo tên và repository; kiểm tra kết nối xong mới lưu được.
+1. CTO dán token của khách ở Cài đặt > Dự án, mục Token GitHub (lưu mã hóa, FR-INTG-21; token đặt trong `.env.github` vẫn dùng được), rồi trong wizard chọn loại Phần mềm, nơi giao việc "GitHub của khách hàng", token theo tên và repository; kiểm tra kết nối xong mới lưu được.
 2. Khi duyệt một Intake của dự án, tuyến giao việc là GitHub; Sync tạo một Issue chỉ gồm tiêu đề và mô tả đã duyệt.
 3. Mỗi sáng Issue của repository được làm mới cùng lúc với GitLab; planner đề xuất việc từ các Issue đang mở được giao cho nhân sự đã gán người dùng GitHub.
 4. CTO duyệt kế hoạch; kế hoạch được lưu và xem trong Intake, không có gì được ghi lên repository của khách.

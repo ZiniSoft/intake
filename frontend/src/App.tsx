@@ -83,13 +83,14 @@ import {
   Timer,
   History,
   GripVertical,
+  Circle,
   X,
 } from 'lucide-react'
 import { api, ApiError, AUTH_EXPIRED_EVENT, formatError } from './api'
 import { clearCursorPagination, readCursorPagination, writeCursorPagination } from './list-url'
-import { ALL_HINTS, ALL_INTROS, HINT_PAGES, type HintKey, type PageIntroKey } from './hints'
-import { POST_HINT_PAGES } from './hints_posts'
+import { ALL_HINTS, ALL_INTROS, type HintKey, type PageIntroKey } from './hints'
 import { useLocale } from './i18n'
+import { GuideContent, PublicGuidePage } from './guide'
 import { movePlanningProject, orderPlanningProjects, type PlanningProjectOrder } from './planning-order'
 import { addDays, CHANNEL_NAMES, CHANNEL_ORDER, CHANNEL_SHORT, CHANNEL_VERSION_LABELS, dayOfStamp, FORMAT_LABELS, POST_COLUMNS, POST_STATUS_LABELS, POST_WORDS, postColumnOf, stampOf, timeOfStamp, type UiMode } from './words'
 import { dismissPendingSync, leaveRecording, resetRecording, resumePendingRecordings, rewriteRecording, startRecording, stopRecording, uploadRecording, usePendingSync, useRecording, type RecordingState } from './recording'
@@ -115,6 +116,7 @@ import type {
   OperationsStatus,
   AiProvider,
   AiProviderTest,
+  AiProbe,
   AiRoute,
   PipelineStatus,
   DailyCapacity,
@@ -210,6 +212,9 @@ import type {
   PlanningAddWorkResult,
   ProjectKind,
   SetupState,
+  GithubTokenRow,
+  ShowcaseCatalog,
+  ShowcaseItem,
   IntegrationProbe,
   GitLabUser,
   RemoteProject,
@@ -613,7 +618,7 @@ function LoginPage() {
   const confirmReset = async (event: FormEvent) => {
     event.preventDefault()
     setError(undefined)
-    if (newPassword.length < 12) { setError(new Error(text('Mật khẩu mới phải có ít nhất 12 ký tự.', 'The new password must contain at least 12 characters.'))); return }
+    if (newPassword.length < 8) { setError(new Error(text('Mật khẩu mới phải có ít nhất 8 ký tự.', 'The new password must contain at least 8 characters.'))); return }
     if (newPassword !== confirmPassword) { setError(new Error(text('Hai lần nhập mật khẩu chưa khớp.', 'The passwords do not match.'))); return }
     if (!resetToken) { setError(new Error(text('Link đặt lại mật khẩu không hợp lệ.', 'The password reset link is invalid.'))); return }
     setSubmitting(true)
@@ -644,7 +649,7 @@ function LoginPage() {
 
           <h1>{mode === 'login' ? text('Đăng nhập không gian làm việc', 'Sign in to your workspace') : mode === 'request' ? text('Quên mật khẩu', 'Forgot password') : text('Đặt mật khẩu mới', 'Set a new password')}</h1>
           {mode === 'request' && <p>{text('Nhập tài khoản hoặc email đã đăng ký. Nếu thông tin khớp, hệ thống sẽ gửi link đặt lại qua Mailgun.', 'Enter your account name or registered email. If it matches, the system will send a reset link through Mailgun.')}</p>}
-          {mode === 'reset' && <p>{text('Link chỉ dùng một lần. Mật khẩu mới phải có ít nhất 12 ký tự.', 'The link can be used once. Your new password must contain at least 12 characters.')}</p>}
+          {mode === 'reset' && <p>{text('Link chỉ dùng một lần. Mật khẩu mới phải có ít nhất 8 ký tự.', 'The link can be used once. Your new password must contain at least 8 characters.')}</p>}
           {resetDone && mode === 'login' && <div className="notice notice-success" role="status">{text('Đã đặt lại mật khẩu. Bạn có thể đăng nhập bằng mật khẩu mới.', 'Password reset complete. You can now sign in with the new password.')}</div>}
           {error != null && <ErrorNotice error={error} />}
           {mode === 'login' ? (
@@ -669,8 +674,8 @@ function LoginPage() {
             </>
           ) : (
             <>
-              <label>{text('Mật khẩu mới', 'New password')}<input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={12} required /></label>
-              <label>{text('Nhập lại mật khẩu', 'Confirm password')}<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={12} required /></label>
+              <label>{text('Mật khẩu mới', 'New password')}<input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={8} required /></label>
+              <label>{text('Nhập lại mật khẩu', 'Confirm password')}<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={8} required /></label>
               <button className="button button-primary button-wide" disabled={submitting || !resetToken}>{submitting ? text('Đang đặt lại…', 'Resetting…') : text('Đặt mật khẩu mới', 'Set new password')}</button>
               <button type="button" className="text-button login-recovery-link" onClick={backToLogin}>← {text('Quay lại đăng nhập', 'Back to sign in')}</button>
             </>
@@ -686,6 +691,9 @@ type RightPanel = { title: string; content: ReactNode; onClose: () => void }
 type ShellContext = { setRightPanel: (panel: RightPanel | null) => void }
 
 const NAV_COLLAPSED_KEY = 'intake.nav.collapsed'
+const NAV_MODE_KEY = 'intake.nav-mode'
+// What the basic menu keeps; everything else stays reachable by URL and Ctrl K (FR-SETUP-14).
+const BASIC_NAV = new Set(['/', '/projects', '/intakes', '/huong-dan'])
 
 // Where the sound of a recording is right now, in one short line; nothing when all is well.
 function syncLine(recording: RecordingState): { text: string; warn: boolean } | null {
@@ -1574,11 +1582,14 @@ function ProtectedLayout() {
   // Hooks stay above the early returns below; the private group's open state is one of them.
   const [privateOpen, setPrivateOpen] = useState(() => { try { return localStorage.getItem(PRIVATE_OPEN_KEY) === '1' } catch { return false } })
   const [commandsOpen, setCommandsOpen] = useState(false)
+  // 'basic' trims the menu on a fresh install (FR-SETUP-14); a per-browser convenience, so it lives in localStorage.
+  const [navMode, setNavMode] = useState<'basic' | 'all'>(() => { try { return localStorage.getItem(NAV_MODE_KEY) === 'all' ? 'all' : 'basic' } catch { return 'basic' } })
   // A fresh install sends the CTO to first-run setup once; a failed check never blocks the app.
   const setupState = useQuery({ queryKey: ['setup'], queryFn: () => api<SetupState>('/setup'), enabled: user?.role === 'CTO', retry: false })
 
   if (loading) return <LoadingBlock label={text('Đang xác minh phiên đăng nhập…', 'Checking your session…')} />
-  if (!user) return <Navigate to="/login" replace />
+  // The guide is public (FR-UI-18): a visitor without a session reads it instead of being sent to sign in.
+  if (!user) return location.pathname === '/huong-dan' ? <PublicGuidePage variant="app" /> : <Navigate to="/login" replace />
 
   const signOut = async () => {
     await logout()
@@ -1658,7 +1669,21 @@ function ProtectedLayout() {
     },
   ]
   // With the Beta flag off, the Beta areas leave the menu (their routes answer "not found").
-  const groups = groups0.map((group) => ({ ...group, links: group.links.filter((link) => betaOn || !isBetaPath(link.to)) }))
+  const basicMenu = !marketing && user.role === 'CTO' && setupState.data?.wizard === true && navMode === 'basic'
+  const canTrimMenu = !marketing && user.role === 'CTO' && setupState.data?.wizard === true
+  const basicExtras = [
+    { to: '/intakes/new', icon: <Plus size={17} />, label: text('Tạo Intake', 'Create Intake'), active: pathname === '/intakes/new', count: undefined },
+  ]
+  const groups1 = groups0.map((group) => ({ ...group, links: group.links.filter((link) => betaOn || !isBetaPath(link.to)) }))
+  const groups = basicMenu
+    ? [{ label: null, links: [
+      ...groups1.flatMap((group) => group.links).filter((link) => link.to === '/'),
+      ...basicExtras,
+      ...groups1.flatMap((group) => group.links).filter((link) => BASIC_NAV.has(link.to) && link.to !== '/'),
+      { to: '/settings', icon: <Settings size={17} />, label: text('Cài đặt', 'Settings'), active: pathname.startsWith('/settings'), count: undefined },
+    ] }]
+    : groups1
+  const toggleNavMode = () => { const next = navMode === 'basic' ? 'all' : 'basic'; try { localStorage.setItem(NAV_MODE_KEY, next) } catch { /* private window */ } setNavMode(next) }
   // The private space belongs to the CTO role (ADR-0031): one entry that opens its three pages.
   const privateLinks = user.role === 'CTO' && betaOn ? [
     { to: '/rieng', icon: <Lightbulb size={17} />, label: 'Kho ý tưởng', active: pathname === '/rieng' || pathname.startsWith('/rieng/y/') },
@@ -1689,7 +1714,7 @@ function ProtectedLayout() {
               ))}
             </div>
           ))}
-          {privateLinks.length > 0 && (
+          {privateLinks.length > 0 && !basicMenu && (
             <div className="nav-group nav-private">
               {!collapsed && (
                 <button type="button" className={`nav-toggle${inPrivate ? ' active' : ''}`} aria-expanded={showPrivate} onClick={togglePrivate}>
@@ -1703,6 +1728,7 @@ function ProtectedLayout() {
               ))}
             </div>
           )}
+          {canTrimMenu && !collapsed && <button type="button" className="nav-mode-toggle nav-text" onClick={toggleNavMode}>{basicMenu ? text('Hiện tất cả mục', 'Show all items') : text('Chỉ hiện mục cơ bản', 'Show basic items only')}</button>}
         </nav>
       </aside>
       <div className="app-content">
@@ -2238,6 +2264,38 @@ function ArchivedTaskRow({ task, onChanged }: { task: PersonalTask; onChanged: (
   )
 }
 
+const GETTING_STARTED_KEY = 'intake.getting-started.hidden'
+
+// Three first steps, ticked from real data; "Ẩn" is a per-browser convenience (FR-SETUP-13).
+function GettingStartedCard() {
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(GETTING_STARTED_KEY) === '1' } catch { return false } })
+  const setup = useQuery({ queryKey: ['setup'], queryFn: () => api<SetupState>('/setup'), retry: false })
+  const active = setup.data?.wizard === true && !hidden
+  const intakes = useQuery({ queryKey: ['intakes', 'getting-started'], queryFn: () => api<IntakePage>('/intakes?limit=20'), enabled: active })
+  const accounts = useQuery({ queryKey: ['accounts'], queryFn: () => api<Account[]>('/users'), enabled: active })
+  if (!active || !setup.data) return null
+  const tasks = [
+    { key: 'ai', label: 'Nối khóa AI', done: setup.data.ai_ready, to: '/settings/ai' },
+    // The demo project's own requests do not count as the person's first one.
+    { key: 'intake', label: 'Gửi một yêu cầu thử', done: (intakes.data?.items || []).some((item) => !item.public_id.startsWith('DEM-')), to: '/intakes/new' },
+    { key: 'invite', label: 'Mời một người', done: (accounts.data || []).some((account) => account.role !== 'CTO'), to: '/settings/users' },
+  ]
+  const hide = () => { try { localStorage.setItem(GETTING_STARTED_KEY, '1') } catch { /* private window */ } setHidden(true) }
+  return (
+    <section className="panel getting-started" aria-label="Bắt đầu">
+      <header><h2>Bắt đầu với Intake</h2><button type="button" className="button button-secondary button-small" onClick={hide}>Ẩn</button></header>
+      <ul>
+        {tasks.map((task) => (
+          <li key={task.key} className={task.done ? 'is-done' : undefined}>
+            {task.done ? <Check size={15} aria-label="Đã xong" /> : <Circle size={15} aria-hidden="true" />}
+            <Link to={task.to}>{task.label}</Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function TodayPage() {
   const { user } = useAuth()
   const isCto = user?.role === 'CTO'
@@ -2287,6 +2345,7 @@ function TodayPage() {
     <>
       <PageHeader title={user ? greeting(user) : 'Hôm nay'} />
       <AgentHint command={isCto ? 'board' : 'today'} />
+      {isCto && <GettingStartedCard />}
       {overview.error != null && <ErrorNotice error={overview.error} onRetry={() => { void overview.refetch() }} />}
       <PersonalTodayPanel day={today} />
       <section className="panel today" aria-label="Các dự án hôm nay">
@@ -2554,6 +2613,7 @@ function RecordingPanel() {
     queryKey: ['meeting-glossary', projectCode],
     queryFn: () => api<GlossaryTerm[]>(`/meetings/glossary${projectCode ? `?project_id=${projectCode}` : ''}`),
   })
+  const speech = useQuery({ queryKey: ['meeting-speech'], queryFn: () => api<{ configured: boolean; live_text: boolean }>('/meetings/speech'), retry: false })
   const addTerm = useMutation({
     mutationFn: () => api<GlossaryTerm>('/meetings/glossary', { method: 'POST', body: JSON.stringify({ term: term.trim(), project_id: projectCode || null }) }),
     onSuccess: () => { setTerm(''); setError(undefined); void queryClient.invalidateQueries({ queryKey: ['meeting-glossary'] }) },
@@ -2586,6 +2646,8 @@ function RecordingPanel() {
           </fieldset>
           {/* Only the chosen source keeps its instruction in view: missing "share audio" makes the recording fail. */}
           <p className="field-help option-current-hint" role="note">{recordingSources.find((item) => item.value === source)?.hint}</p>
+          {speech.data && !speech.data.configured && <AiMissingNotice vi="Chưa chọn nhà cung cấp chuyển giọng thành chữ nên cuộc họp chưa ra chữ được. Bản ghi âm vẫn được lưu." en="No speech-to-text provider is chosen, so meetings cannot be transcribed yet. The audio is still saved." />}
+          {speech.data?.configured && !speech.data.live_text && <p className="field-help" role="note">Nhà cung cấp giọng nói hiện tại chưa có chữ trực tiếp: chữ sẽ hiện sau khi bạn kết thúc cuộc họp.</p>}
           <div className="glossary">
             <span className="glossary-title">Thuật ngữ {projectCode ? 'chung và của dự án' : 'chung'}</span>
             <div className="glossary-terms">
@@ -2598,8 +2660,8 @@ function RecordingPanel() {
             </form>
           </div>
           <dl className="setting-facts">
-            <div><dt>Bản chữ</dt><dd>Hiện dần khi đang ghi</dd></div>
-            <div><dt>Tách người nói</dt><dd>Sau cuộc họp, ở trang Cuộc họp</dd></div>
+            <div><dt>Bản chữ</dt><dd>{speech.data && !speech.data.live_text ? 'Hiện sau khi kết thúc họp' : 'Hiện dần khi đang ghi'}</dd></div>
+            <div><dt>Tách người nói</dt><dd>{speech.data && !speech.data.live_text ? 'Nhà cung cấp này không tách người nói' : 'Sau cuộc họp, ở trang Cuộc họp'}</dd></div>
             <div><dt>Meeting note</dt><dd>AI tự tổng hợp sau cuộc họp</dd></div>
             <div><dt>Thời lượng tối đa</dt><dd>60 phút mỗi lần ghi</dd></div>
             <div><dt>Lưu audio</dt><dd>90 ngày, có mã hóa</dd></div>
@@ -2704,6 +2766,18 @@ function LiveRecording({ onUse }: { onUse: (text: string) => void }) {
 
 type ComposerPopover = 'menu' | 'date' | 'sender' | null
 
+/** True when the first-run wizard is on and no AI route works yet. Only the CTO can read /setup, so others never see the notice. */
+function useAiMissing(): boolean {
+  const { user } = useAuth()
+  const setup = useQuery({ queryKey: ['setup'], queryFn: () => api<SetupState>('/setup'), enabled: user?.role === 'CTO', retry: false })
+  return setup.data?.wizard === true && !setup.data.ai_ready
+}
+
+function AiMissingNotice({ vi, en, className }: { vi: string; en: string; className?: string }) {
+  const { text } = useLocale()
+  return <div className={className ? `composer-ai-notice ${className}` : 'composer-ai-notice'} role="status"><TriangleAlert size={16} aria-hidden="true" /><p>{text(vi, en)} <Link to="/settings/ai">{text('Nối khóa AI', 'Connect an AI key')}</Link></p></div>
+}
+
 function NewIntakePage() {
   const navigate = useNavigate()
   const { setRightPanel } = useShell()
@@ -2711,6 +2785,7 @@ function NewIntakePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
   const { user: composerUser } = useAuth()
+  const aiMissing = useAiMissing()
   const [hard, setHard] = useState(false)
   const [projectId, setProjectId] = useState('')
   const [channel, setChannel] = useState<Channel>('MANUAL')
@@ -2854,6 +2929,7 @@ function NewIntakePage() {
       </header>
       {projects.error && <ErrorNotice error={projects.error} onRetry={() => { void projects.refetch() }} />}
       {error != null && <ErrorNotice error={error} />}
+      {aiMissing && <AiMissingNotice vi="Chưa nối khóa AI nên Intake chưa tự chuẩn hóa được. Yêu cầu vẫn được lưu nguyên văn để bạn xử lý tay." en="No AI key is connected, so Intake cannot organize requests yet. Requests are still saved as written." />}
       {/* A meeting's transcript belongs to the recording panel; with the panel closed this page is a plain composer
           and the top bar carries the clock. A spoken request always shows here, it is this page's own. */}
       {(recordOpen || recording.kind !== 'MEETING') && <LiveRecording onUse={useSpoken} />}
@@ -2914,7 +2990,7 @@ function NewIntakePage() {
           {composerUser?.role === 'CTO' && <label className="chip-select hard-flag" title={text('Việc khó: nghiệm thu luôn về CTO, dù Project Owner đã xác nhận', 'High-risk work: acceptance always returns to the CTO, even after Project Owner review')}><input type="checkbox" checked={hard} onChange={(e) => setHard(e.target.checked)} /> {text('Việc khó', 'High-risk work')}</label>}
           <span className="composer-spacer" />
           <button type="button" className={dictating ? 'icon-button active is-recording' : 'icon-button'} aria-label={dictating ? text('Nói xong', 'Finish dictation') : text('Nói để nhập', 'Dictate request')} title={recordingBusy && !dictating ? text('Đang ghi cuộc họp; kết thúc ghi âm rồi mới nói để nhập được', 'Finish the meeting recording before starting dictation') : dictating ? text('Nói xong', 'Finish dictation') : text('Nói để nhập: bản chữ hiện ngay phía trên, nói xong chọn bản thô hoặc AI tóm tắt', 'Dictate the request, then choose the raw transcript or AI summary')} aria-pressed={dictating} disabled={recording.phase === 'starting' || recording.phase === 'stopping' || (recordingBusy && !dictating)} onClick={toggleDictation}><Mic size={18} /></button>
-          <button className="send-button" aria-label={text('Lưu & phân tích', 'Save and analyze')} disabled={busy}>{mutation.isPending ? <span className="spinner" /> : <><span>{text('Lưu & phân tích', 'Save and analyze')}</span><ArrowUp size={16} aria-hidden="true" /></>}</button>
+          <button className="send-button" aria-label={aiMissing ? text('Lưu', 'Save') : text('Lưu & phân tích', 'Save and analyze')} disabled={busy}>{mutation.isPending ? <span className="spinner" /> : <><span>{aiMissing ? text('Lưu', 'Save') : text('Lưu & phân tích', 'Save and analyze')}</span><ArrowUp size={16} aria-hidden="true" /></>}</button>
         </div>
         <input ref={fileRef} type="file" hidden multiple accept={ACCEPTED_FILE_TYPES.join(',')} onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
       </form>
@@ -3067,6 +3143,7 @@ function IntakeListPage() {
       {removing && <RemoveIntakeDialog intake={removing} onCancel={() => setRemoving(undefined)} onDone={() => { setRemoving(undefined); void queryClient.invalidateQueries({ queryKey: ['intakes'] }); void queryClient.invalidateQueries({ queryKey: ['approvals'] }); void queryClient.invalidateQueries({ queryKey: ['alert-intakes'] }) }} />}
       {/* The top bar already carries "Tạo Intake" on every page (44bab21); a second one here showed twice. */}
       <PageHeader title="Tất cả Intake" helper="Danh sách chỉ hiển thị dữ liệu đã chuẩn hóa; nội dung nguồn không xuất hiện ở đây." />
+      {project === 'demo' && <p className="notice notice-info" role="note">Đây là dữ liệu mẫu. Thêm khóa AI để Intake tự chuẩn hóa yêu cầu thật của bạn.</p>}
       {(projects.data?.length || 0) > 1 && <div className="summary-scope"><span>Thống kê theo</span><strong>{projectScopeLabel}</strong></div>}
       <section className="attention-grid" aria-label="Tổng quan ưu tiên">
         <button className={`attention-card attention-p0 ${priority === 'P0' ? 'active' : ''}`} onClick={() => setFilter('priority', priority === 'P0' ? null : 'P0')}><span>P0 cần xử lý</span><strong>{summary.p0_attention}</strong><small>Khẩn cấp, chưa hoàn tất Intake</small></button>
@@ -3174,7 +3251,31 @@ function AttachmentList({ intakeId, rows, onChanged }: { intakeId: string; rows:
   )
 }
 
+function GithubIssueLink({ intake, project }: { intake: Intake; project: Project | undefined }) {
+  const [shortened, setShortened] = useState(false)
+  const open = useMutation({
+    mutationFn: () => api<{ url: string; repository: string; shortened: boolean }>(`/intakes/${intake.id}/github-issue-link`),
+    onSuccess: (data) => {
+      setShortened(data.shortened)
+      window.open(data.url, '_blank', 'noopener,noreferrer')
+    },
+  })
+  // GitLab projects use their own flow; a request with no title or summary yet has nothing to fill in.
+  if (project?.delivery_system === 'GITLAB' || !intake.normalized_title || !intake.normalized_summary) return null
+  return (
+    <div className="github-link">
+      <button type="button" className="button button-secondary button-small" disabled={open.isPending} onClick={() => open.mutate()} title="Mở trang tạo Issue trên GitHub, đã điền sẵn tiêu đề và mô tả đã chuẩn hóa. Bạn xem lại rồi tự gửi bằng tài khoản GitHub của mình.">
+        <ArrowUpRight size={14} aria-hidden="true" /> Mở trang tạo Issue trên GitHub
+      </button>
+      <small>Chỉ mang tiêu đề, tóm tắt và chi tiết đã chuẩn hóa. Chữ gốc của khách không được gửi.</small>
+      {shortened && <small>Mô tả dài nên đã được rút gọn; kiểm lại trước khi gửi.</small>}
+      {open.error && <ErrorNotice error={open.error} onRetry={() => open.mutate()} />}
+    </div>
+  )
+}
+
 function IntakeDetailPage() {
+  const aiMissing = useAiMissing()
   const { locale, text } = useLocale()
   const { id = '' } = useParams()
   const location = useLocation()
@@ -3410,6 +3511,7 @@ function IntakeDetailPage() {
       </header>
       <IntakeJourney intakeId={intake.id} refreshKey={`${intake.status}-${intake.version}-${intake.sync_targets.length}`} humanWork={intake.agent_readiness?.band === 'HUMAN'} onChanged={refresh} />
       <ReadinessBox intake={intake} project={routeProject} />
+      <GithubIssueLink intake={intake} project={routeProject} />
       <div className="review-grid">
         <section className="panel source-panel">
           <div className="panel-heading"><div><h2>{text('Nội dung nguồn', 'Source request')}</h2></div><span className="restricted-tag">CTO only</span></div>
@@ -3448,6 +3550,7 @@ function IntakeDetailPage() {
             ) : (
               <button type="button" className="text-button details-add" onClick={() => { splitMutation.reset(); setSplitting(true) }}>Tách {splitItems.length} việc con thành yêu cầu riêng</button>
             ))}
+            {aiMissing && <AiMissingNotice vi="Chưa nối khóa AI nên nút phân tích lại chưa chạy được. Bạn vẫn sửa tay và lưu bình thường." en="No AI key is connected, so re-analysis cannot run. You can still edit and save by hand." />}
             <button className="button button-secondary" onClick={() => reviewMutation.mutate(intake)} disabled={reviewMutation.isPending || syncLocked || analysing || !normalizedTitle.trim() || !normalizedSummary.trim()} title={analysing ? text('Chờ AI phân tích xong rồi lưu, để kết quả AI không bị ghi đè', 'Wait for AI analysis to finish before saving.') : undefined}>{reviewMutation.isPending ? text('Đang lưu…', 'Saving…') : text('Lưu chỉnh sửa', 'Save edits')}</button>
           </div>
           <details className="run-history"><summary><span className="field-label">Lịch sử chạy AI · {(pipeline.data?.stages || []).length} lần · {pipeline.data?.overall_state || 'NOT_STARTED'}</span></summary>{pipeline.isLoading ? <LoadingBlock /> : pipeline.error ? <ErrorNotice error={pipeline.error} onRetry={() => { void pipeline.refetch() }} /> : (pipeline.data?.stages || []).length === 0 ? <p className="muted">Chưa có lần xử lý nào.</p> : pipeline.data?.stages.map((run) => <div className="run-row" key={run.run_id}><span className={`run-dot ${run.status === 'SUCCEEDED' ? 'success' : ''}`} /><div><strong>{run.stage}</strong><small>{run.status} · lần {run.attempt}{run.finished_at ? ` · ${formatDate(run.finished_at)}` : ''}{run.error_code ? ` · ${run.error_code}` : ''}</small></div></div>)}</details>
@@ -5917,6 +6020,7 @@ function MailboxScanControl({ onNewMail }: { onNewMail: () => void }) {
 }
 
 function ReportsPage() {
+  const aiMissing = useAiMissing()
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
@@ -6069,6 +6173,8 @@ Các task của báo cáo này sẽ bị gỡ khỏi Planning và không khôi p
                     <section className="panel">
                       <div className="panel-heading"><div><h2>Task đã trích</h2></div><span className="ai-tag">{current.parsed_by === 'AI' ? 'AI đọc' : 'Quy tắc'} · {current.items.length} task</span></div>
                       {current.unlinked_items > 0 && (
+                        <>
+                        {aiMissing && <AiMissingNotice vi="Chưa nối khóa AI nên Intake chưa tự gợi ý Issue cho báo cáo. Bạn vẫn gắn Issue tay được." en="No AI key is connected, so Intake cannot suggest Issues for reports. You can still link them by hand." />}
                         <div className="issue-bar">
                           <span><strong>{current.unlinked_items}</strong> việc chưa gắn Issue. {current.items.some((item) => item.issue_suggestions.some((hint) => hint.confidence >= 0.9) && !item.gitlab_issue && !item.no_issue_reason) ? 'Có gợi ý chắc, gắn một lần được.' : 'Bấm gợi ý dưới từng việc, hoặc đánh dấu không cần Issue.'}</span>
                           <span className="issue-bar-actions">
@@ -6076,6 +6182,7 @@ Các task của báo cáo này sẽ bị gỡ khỏi Planning và không khôi p
                             <button type="button" className="text-button" disabled={suggestAgain.isPending} title="Tìm lại theo kế hoạch, báo cáo trước và Issue đang mở; phần chưa rõ hỏi AI" onClick={() => suggestAgain.mutate()}>{suggestAgain.isPending ? 'Đang tìm…' : 'Gợi ý lại'}</button>
                           </span>
                         </div>
+                        </>
                       )}
                       {current.items.length === 0 ? <EmptyState icon={<CircleHelp size={20} />} title="Không có task nào" text={current.review_decision === 'REJECTED' ? 'Báo cáo đã bị loại nên các task không còn được dùng.' : 'Không trích được task nào từ thư này.'} /> : (
                         <ol className="report-items">
@@ -6110,7 +6217,7 @@ const workLabels: Record<string, string> = { NONE: 'Chưa có', PENDING: 'Đang 
 // Why a step failed, in words; the code stays in the tooltip for whoever reads the logs.
 const meetingErrorLabels: Record<string, string> = {
   PROVIDER_NOT_CONFIGURED: 'chưa cấu hình dịch vụ chuyển chữ', PROVIDER_UNAVAILABLE: 'dịch vụ chuyển chữ không phản hồi',
-  PROVIDER_TRANSIENT: 'dịch vụ chuyển chữ lỗi tạm thời', PROVIDER_REJECTED: 'dịch vụ chuyển chữ từ chối tệp này',
+  PROVIDER_TRANSIENT: 'dịch vụ chuyển chữ lỗi tạm thời', PROVIDER_QUOTA: 'dịch vụ chuyển chữ báo hết hạn mức', PROVIDER_REJECTED: 'dịch vụ chuyển chữ từ chối tệp này', PROVIDER_MODEL_NOT_FOUND: 'dịch vụ chuyển chữ không có model đã chọn, hãy chọn model khác trong Cài đặt AI',
   UPLOAD_STALLED: 'tải lên bị ngắt giữa chừng', NOT_CONFIGURED: 'chưa cấu hình AI', AI_UNAVAILABLE: 'AI không phản hồi',
 }
 const workLabel = (status: string, error: string | null) => `${workLabels[status] || status}${error ? ` (${meetingErrorLabels[error] || error})` : ''}`
@@ -6286,6 +6393,7 @@ function PartNote({ part, projects, onError, onUpdated }: { part: MeetingPart; p
 }
 
 function MeetingsPage() {
+  const aiMissing = useAiMissing()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [error, setError] = useState<unknown>()
@@ -6528,6 +6636,7 @@ function MeetingsPage() {
                 <div className="review-grid report-compare">
                   <section className="panel">
                     <div className="panel-heading"><div><h2>Meeting note</h2>{bulkNote && <small className="muted">{bulkNote}</small>}</div>{proposed.length > 0 && <button className="button button-primary button-small" type="button" disabled={asProposed.isPending || bulk.isPending} title="Việc cần làm, câu hỏi, rủi ro lên bảng Việc; yêu cầu và bug thành Intake để duyệt; quyết định chỉ ghi nhận. Đổi đích từng dòng trước khi bấm." onClick={() => asProposed.mutate()}><Plus size={14} /> {asProposed.isPending ? 'Đang tạo…' : meetingPostMode ? `Đưa tất cả vào lịch (${proposed.length})` : `Tạo theo đề xuất (${proposed.length})`}</button>}{picked.size > 0 && <button className="button button-secondary button-small" type="button" disabled={bulk.isPending} onClick={() => bulk.mutate()}><Plus size={14} /> {bulk.isPending ? 'Đang tạo…' : `Tạo Intake cho ${picked.size} mục`}</button>}<button className="button button-secondary button-small" type="button" disabled={regenerate.isPending || current.note_status === 'PENDING' || current.segments.length === 0} onClick={() => { if (window.confirm('Tạo lại meeting note? Các mục chưa thành Intake sẽ được thay bằng bản mới.')) regenerate.mutate() }}><RotateCcw size={14} /> Tạo lại</button></div>
+                    {aiMissing && current.note_status !== 'DONE' && <AiMissingNotice vi="Chưa nối khóa AI nên Intake chưa tự viết meeting note. Bản chữ vẫn được lưu để bạn đọc." en="No AI key is connected, so Intake cannot write the meeting note. The transcript is still saved." />}
                     {current.note_status === 'PENDING' || (current.note_status === 'NONE' && working) ? <LoadingBlock label="AI đang tổng hợp meeting note…" /> : current.note_status !== 'DONE' ? (
                       <EmptyState icon={<CircleHelp size={20} />} title={current.note_status === 'FAILED' ? 'AI chưa tạo được meeting note' : 'Chưa có meeting note'} text={current.note_status === 'FAILED' ? 'Bấm "Tạo lại" để thử lần nữa.' : 'Meeting note được tạo sau khi cuộc họp kết thúc và có bản chữ.'} />
                     ) : (
@@ -6601,7 +6710,7 @@ const probeErrors: Record<string, string> = {
   GITLAB_MAPPING_NOT_FOUND: 'Không tìm thấy dự án GitLab này, hoặc token không thấy nó.',
   GITHUB_MAPPING_NOT_FOUND: 'Không tìm thấy repository GitHub này, hoặc token không có quyền với nó.',
   GITHUB_AUTH_FAILED: 'Token GitHub không hợp lệ, đã hết hạn hoặc không đủ quyền.',
-  GITHUB_TOKEN_NOT_FOUND: 'Máy chủ chưa có token này. Thêm vào .env.github rồi khởi động lại integration-worker.',
+  GITHUB_TOKEN_NOT_FOUND: 'Chưa có token này. Thêm ở Dự án > Token GitHub (hoặc vào .env.github rồi khởi động lại integration-worker).',
   GITHUB_RATE_LIMITED: 'GitHub đang giới hạn số lần gọi. Thử lại sau ít phút.',
   PROBE_TIMEOUT: 'Chưa có phản hồi sau 30 giây. Kiểm tra integration worker rồi thử lại.',
 }
@@ -6671,7 +6780,7 @@ function LinkPicker({ system, required, value, onChange, initialToken }: { syste
                 {tokenRef && !(tokens.data || []).includes(tokenRef) && <option value={tokenRef}>{tokenRef}</option>}
                 {(tokens.data || []).map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
-              <small className="field-help">{tokens.error ? 'Chưa lấy được danh sách token từ integration worker.' : tokens.data && tokens.data.length === 0 ? 'Máy chủ chưa có token GitHub nào. Thêm một biến GITHUB_TOKEN_<TÊN> vào file .env.github rồi khởi động lại integration-worker.' : 'Chỉ tên biến được hiển thị; giá trị token nằm trong .env.github trên máy chủ và không bao giờ đi qua màn hình này.'}</small>
+              <small className="field-help">{tokens.error ? 'Chưa lấy được danh sách token từ integration worker.' : tokens.data && tokens.data.length === 0 ? 'Chưa có token GitHub nào. Thêm ở Dự án > Token GitHub (hoặc một biến GITHUB_TOKEN_<TÊN> trong .env.github).' : 'Chỉ tên biến được hiển thị; giá trị token được mã hóa hoặc nằm trong .env.github, không bao giờ hiện lại trên màn hình.'}</small>
             </label>
           )}
           <label>{system === 'GITLAB' ? 'Đường dẫn dự án GitLab' : 'Repository GitHub'}
@@ -7201,12 +7310,12 @@ function PasswordForm({ onChanged }: { onChanged?: () => void }) {
   return (
     <form className="password-form" onSubmit={(event) => { event.preventDefault(); change.mutate() }}>
       <label><span className="req-label">Mật khẩu hiện tại<Req /></span><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required /></label>
-      <label><span className="req-label">Mật khẩu mới<Req /></span><input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={12} required /><small className="field-help">Ít nhất 12 ký tự.</small></label>
+      <label><span className="req-label">Mật khẩu mới<Req /></span><input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} required /><small className="field-help">Ít nhất 8 ký tự.</small></label>
       <label><span className="req-label">Nhập lại mật khẩu mới<Req /></span><input type="password" value={repeat} onChange={(e) => setRepeat(e.target.value)} autoComplete="new-password" required /></label>
       {mismatch && <p className="notice notice-warn">Hai lần nhập mật khẩu mới chưa khớp.</p>}
       {error != null && <ErrorNotice error={error} />}
       {done && <p className="notice notice-success" role="status">Đã đổi mật khẩu.</p>}
-      <button className="button button-primary" type="submit" disabled={change.isPending || !current || next.length < 12 || next !== repeat}>{change.isPending ? 'Đang đổi…' : 'Đổi mật khẩu'}</button>
+      <button className="button button-primary" type="submit" disabled={change.isPending || !current || next.length < 8 || next !== repeat}>{change.isPending ? 'Đang đổi…' : 'Đổi mật khẩu'}</button>
     </form>
   )
 }
@@ -7810,6 +7919,7 @@ function DraftCard({ draft, intakeId, open, trackLabel, slot, adaptTo, onToggle,
 }
 
 function PostDrafts({ intakeId, ideaTrack, voices, masterDna, slot }: { intakeId: string; ideaTrack: DraftTrack; voices: Record<string, PrivateVoice>; masterDna: string; slot?: PlanSlot }) {
+  const aiMissing = useAiMissing()
   const queryClient = useQueryClient()
   // Opened from a slot of the week plan: the slot says which line, which channel and which pillar.
   const [track, setTrack] = useState<DraftTrack>(slot?.track || ideaTrack)
@@ -7862,6 +7972,7 @@ function PostDrafts({ intakeId, ideaTrack, voices, masterDna, slot }: { intakeId
 
   return (
     <section className="panel post-drafts" aria-label="Nháp bài đăng">
+      {aiMissing && <AiMissingNotice vi="Chưa nối khóa AI nên chưa soạn nháp được." en="No AI key is connected, so drafts cannot be written yet." />}
       <div className="panel-heading"><div><h2>Nháp bài đăng</h2></div>{list.length > 0 && <span className="muted">{list.filter((draft) => draft.status === 'DONE').length} nháp</span>}</div>
       {slot && <p className="draft-slot"><CalendarDays size={15} aria-hidden="true" /><span>Đang viết cho ô <strong>{slotLabel(slot)}</strong> · {channelName(slot.channel)}{slot.pillar ? ` · trụ ${slot.pillar}` : ''}. Duyệt một nháp để ô này có bài.</span></p>}
       <div className="draft-choices">
@@ -7903,7 +8014,7 @@ function PostDrafts({ intakeId, ideaTrack, voices, masterDna, slot }: { intakeId
           </div>
         )}
         <input value={angle} onChange={(event) => setAngle(event.target.value)} maxLength={500} placeholder="Câu hỏi trung tâm hoặc góc nhìn muốn nhấn (không bắt buộc)" aria-label="Câu hỏi trung tâm" />
-        <button type="button" className="button button-primary" disabled={ask.isPending || pending} onClick={() => ask.mutate({
+        <button type="button" className="button button-primary" disabled={ask.isPending || pending || aiMissing} onClick={() => ask.mutate({
           channel: form === 'SOCIAL' ? channel : form === 'OUTLINE' ? 'BLOG' : form, outline: form === 'OUTLINE',
           angle: angle.trim() || null, track, goal: goal || null, audience: audience || null, pillar: pillar || null,
           context: context || null, commercial: track === 'technical' && commercial ? commercial : null,
@@ -8120,6 +8231,7 @@ function VoicePromptPreview({ track, voice, masterDna, open, onClose }: { track:
 
 // Keywords of each pillar: what the scanning tool searches for. AI offers, the owner keeps.
 function PillarKeywordsPanel({ track, name, base = '/private-space/watch', byTrack = true }: { track: DraftTrack | 'content'; name: string; base?: string; byTrack?: boolean }) {
+  const aiMissing = useAiMissing()
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Record<string, string[]>>()
   const [typed, setTyped] = useState<Record<string, string>>({})
@@ -8178,8 +8290,9 @@ function PillarKeywordsPanel({ track, name, base = '/private-space/watch', byTra
       })}
       {data.request?.status === 'FAILED' && !thinking && <p className="plan-warning"><TriangleAlert size={14} aria-hidden="true" /> AI chưa gợi ý được lúc này{data.request.error ? ` (${data.request.error})` : ''}.</p>}
       {(suggest.error != null || save.error != null) && <ErrorNotice error={suggest.error ?? save.error} />}
+      {aiMissing && <AiMissingNotice vi="Chưa nối khóa AI nên chưa gợi ý từ khóa được." en="No AI key is connected, so keywords cannot be suggested yet." />}
       <div className="rhythm-actions">
-        <button type="button" className="button button-secondary" disabled={thinking} onClick={() => suggest.mutate()}>{thinking ? <><span className="spinner" aria-hidden="true" /> AI đang gợi ý…</> : <><Sparkles size={15} aria-hidden="true" /> AI gợi ý từ khóa</>}</button>
+        <button type="button" className="button button-secondary" disabled={thinking || aiMissing} onClick={() => suggest.mutate()}>{thinking ? <><span className="spinner" aria-hidden="true" /> AI đang gợi ý…</> : <><Sparkles size={15} aria-hidden="true" /> AI gợi ý từ khóa</>}</button>
         <button type="button" className="button button-primary" disabled={!dirty || save.isPending} onClick={() => save.mutate(list)}>{save.isPending ? 'Đang lưu…' : saved && !dirty ? 'Đã lưu' : 'Lưu từ khóa'}</button>
       </div>
     </div>
@@ -8459,6 +8572,7 @@ function unsavedParts(draft: PrivateVoice, stored: PrivateVoice | undefined): st
 
 // A short piece written now, in the voice as it stands on the screen: to hear it before saving. Nothing is kept.
 function VoiceTrialPanel({ track, voice, masterDna, onClose }: { track: DraftTrack; voice: PrivateVoice; masterDna: string; onClose: () => void }) {
+  const aiMissing = useAiMissing()
   const [idea, setIdea] = useState('')
   const [channel, setChannel] = useState<VoiceChannel>(draftChannels.some((item) => item.value === voice.default_channel) ? voice.default_channel as VoiceChannel : 'FACEBOOK')
   const trial = useMutation({
@@ -8468,10 +8582,11 @@ function VoiceTrialPanel({ track, voice, masterDna, onClose }: { track: DraftTra
     <section className="panel voice-form voice-trial" aria-label="Soạn thử">
       <div className="panel-heading"><div><h2>Soạn thử bằng giọng đang có trên màn hình</h2></div><button type="button" className="icon-button" aria-label="Đóng soạn thử" onClick={onClose}><X size={16} /></button></div>
       <p className="field-help">AI viết 80–120 chữ theo Master DNA, hướng {voice.name || trackDefaults[track]}, sổ ghi chú và bài mẫu như đang hiện, kể cả phần chưa lưu. Đoạn thử không được lưu; chỉ để nghe giọng, không phải nháp.</p>
+      {aiMissing && <AiMissingNotice vi="Chưa nối khóa AI nên chưa soạn thử được." en="No AI key is connected, so the trial cannot be written yet." />}
       <form className="voice-trial-form" onSubmit={(event) => { event.preventDefault(); trial.mutate() }}>
         <input value={idea} maxLength={500} onChange={(event) => setIdea(event.target.value)} placeholder="Một dòng ý để viết thử, ví dụ: khách hỏi vì sao báo giá có hai mức" aria-label="Ý để soạn thử" />
         <select aria-label="Kênh để soạn thử" value={channel} onChange={(event) => setChannel(event.target.value as VoiceChannel)}>{draftChannels.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-        <button className="button button-primary" disabled={trial.isPending}><Sparkles size={15} aria-hidden="true" /> {trial.isPending ? 'Đang viết…' : trial.data ? 'Viết lại' : 'Soạn thử'}</button>
+        <button className="button button-primary" disabled={trial.isPending || aiMissing}><Sparkles size={15} aria-hidden="true" /> {trial.isPending ? 'Đang viết…' : trial.data ? 'Viết lại' : 'Soạn thử'}</button>
       </form>
       {trial.error != null && <ErrorNotice error={trial.error} />}
       {trial.data && (
@@ -8703,7 +8818,7 @@ function WelcomePage() {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError(undefined)
-    if (cto.password.length < 12 || (withOwner && owner.password.length < 12)) { setError(new Error('Mật khẩu phải có ít nhất 12 ký tự.')); return }
+    if (cto.password.length < 8 || (withOwner && owner.password.length < 8)) { setError(new Error('Mật khẩu phải có ít nhất 8 ký tự.')); return }
     if (cto.password !== cto.confirm || (withOwner && owner.password !== owner.confirm)) { setError(new Error('Hai lần nhập mật khẩu chưa khớp.')); return }
     setSubmitting(true)
     try {
@@ -8722,8 +8837,8 @@ function WelcomePage() {
     <>
       <label>Email<input type="email" value={value.email} onChange={(event) => set({ ...value, email: event.target.value })} autoComplete={`${prefix} email`} required /></label>
       <label>Tên hiển thị<input value={value.display_name} onChange={(event) => set({ ...value, display_name: event.target.value })} required /></label>
-      <label>Mật khẩu (ít nhất 12 ký tự)<input type="password" value={value.password} onChange={(event) => set({ ...value, password: event.target.value })} autoComplete="new-password" minLength={12} required /></label>
-      <label>Nhập lại mật khẩu<input type="password" value={value.confirm} onChange={(event) => set({ ...value, confirm: event.target.value })} autoComplete="new-password" minLength={12} required /></label>
+      <label>Mật khẩu (ít nhất 8 ký tự)<input type="password" value={value.password} onChange={(event) => set({ ...value, password: event.target.value })} autoComplete="new-password" minLength={8} required /></label>
+      <label>Nhập lại mật khẩu<input type="password" value={value.confirm} onChange={(event) => set({ ...value, confirm: event.target.value })} autoComplete="new-password" minLength={8} required /></label>
     </>
   )
 
@@ -8749,7 +8864,101 @@ function WelcomePage() {
   )
 }
 
+// With the first-run flag on, setup is three steps with one decision each (FR-SETUP-13); with it off, the classic page.
 function SetupPage() {
+  const state = useQuery({ queryKey: ['setup'], queryFn: () => api<SetupState>('/setup') })
+  // Wait for the flag: rendering the classic page while it loads makes it flash before the wizard.
+  if (state.isPending) return <section className="page" aria-busy="true"><p className="field-help">Đang tải…</p></section>
+  if (state.data?.wizard) return <SetupWizard state={state.data} />
+  return <SetupPageClassic />
+}
+
+function SetupWizard({ state }: { state: SetupState }) {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  // Step 1 only offers the demo next to the key; with no demo to offer it would be a one-button screen, so it is skipped.
+  const hasStart = state.demo_available
+  const [step, setStep] = useState<1 | 2 | 3>(state.ai_ready || state.has_demo ? 3 : hasStart ? 1 : 2)
+  const [error, setError] = useState<unknown>()
+  const refresh = (next: SetupState) => { queryClient.setQueryData(['setup'], next); void queryClient.invalidateQueries({ queryKey: ['projects'] }) }
+  const demo = useMutation({ mutationFn: () => api<SetupState>('/setup/demo-project', { method: 'POST' }), onSuccess: (next) => { setError(undefined); refresh(next); setStep(3) }, onError: setError })
+  const finish = useMutation({ mutationFn: () => api<SetupState>('/setup/complete', { method: 'POST' }), onSuccess: (next) => { refresh(next); navigate('/') }, onError: setError })
+  const sample = useMutation({ mutationFn: () => api<SetupState>('/setup/private-sample', { method: 'POST' }), onSuccess: refresh, onError: setError })
+  const titles = ['Bắt đầu', 'Khóa AI', 'Xong']
+  return (
+    <>
+      <SectionHeader title="Thiết lập lần đầu" />
+      <section className="panel wizard-panel">
+        <ol className="setup-steps" aria-label="Các bước thiết lập">
+          {titles.map((title, index) => !hasStart && index === 0 ? null : (
+            <li key={title} className={step === index + 1 ? 'is-current' : step > index + 1 ? 'is-done' : undefined} aria-current={step === index + 1 ? 'step' : undefined}>
+              <button type="button" className="setup-step-button" onClick={() => setStep((index + 1) as 1 | 2 | 3)}>
+                <span className="setup-step-dot">{step > index + 1 ? <Check size={13} aria-hidden="true" /> : hasStart ? index + 1 : index}</span>{title}
+              </button>
+            </li>
+          ))}
+        </ol>
+        <div className="wizard-body">
+          {error != null && <ErrorNotice error={error} onRetry={() => setError(undefined)} />}
+          {step === 1 && (
+            <>
+              <h2>Bạn muốn bắt đầu thế nào?</h2>
+              <div className="setup-choices">
+                {state.demo_available && (
+                  <button type="button" className="setup-choice" disabled={demo.isPending} onClick={() => demo.mutate()}>
+                    <strong>{demo.isPending ? 'Đang nạp…' : state.has_demo ? 'Mở dự án mẫu' : 'Dùng thử với dự án mẫu'}</strong>
+                    <small>Bốn yêu cầu và một kế hoạch ngày hư cấu. Không cần khóa AI, không gửi gì ra ngoài.</small>
+                  </button>
+                )}
+                <button type="button" className="setup-choice" onClick={() => setStep(2)}>
+                  <strong>Nối khóa AI của tôi</strong>
+                  <small>Để Intake tự chuẩn hóa yêu cầu thật của bạn. Mất khoảng hai phút.</small>
+                </button>
+              </div>
+            </>
+          )}
+          {step === 2 && (
+            <>
+              <h2>Nối khóa AI {state.ai_ready && <Check size={15} aria-label="Đã xong" />}</h2>
+              <p>Chọn nhà cung cấp và nhập khóa API. Hệ thống tự kiểm tra kết nối, tải danh sách model và giúp bạn chọn model mặc định.</p>
+              <AiSettings setupMode />
+              <div className="setup-actions">
+                {hasStart && <button type="button" className="button button-secondary" onClick={() => setStep(1)}>Quay lại</button>}
+                {state.demo_available && !state.ai_ready && <button type="button" className="button button-secondary" disabled={demo.isPending} onClick={() => demo.mutate()}>Để sau, dùng thử dự án mẫu</button>}
+                <button type="button" className="button button-primary" disabled={!state.ai_ready} onClick={() => setStep(3)}>Tiếp tục</button>
+              </div>
+            </>
+          )}
+          {step === 3 && (
+            <>
+              <h2>Xong, vào làm việc</h2>
+              <ul className="setup-summary">
+                <li>{state.ai_ready ? 'Đã nối khóa AI.' : 'Chưa nối khóa AI: thêm sau trong Cài đặt > AI để Intake tự chuẩn hóa yêu cầu thật.'}</li>
+                {state.has_demo && <li>Dự án mẫu đã sẵn sàng; dữ liệu hư cấu, không gửi gì ra ngoài.</li>}
+              </ul>
+              <div className="setup-actions">
+                <button type="button" className="button button-primary" disabled={finish.isPending} onClick={() => finish.mutate()}>{finish.isPending ? 'Đang lưu…' : 'Vào trang Hôm nay'}</button>
+                <button type="button" className="button button-secondary" onClick={() => setStep(2)}>Quay lại chỉnh khóa AI</button>
+                {state.has_demo && <Link className="button button-secondary" to="/intakes?project=demo">Mở dự án mẫu</Link>}
+              </div>
+              <details className="setup-optional">
+                <summary>Tùy chọn: dự án mẫu và open source để thử</summary>
+                <ShowcaseList />
+              </details>
+              <details className="setup-optional">
+                <summary>Tùy chọn: nạp giọng viết mẫu</summary>
+                <p>Nạp một bộ DNA thương hiệu hư cấu (Nova Labs) vào Không gian riêng để thử viết bài (tính năng Beta). Thay bằng thương hiệu của bạn sau.</p>
+                <p><button type="button" className="button button-secondary" disabled={!state.sample_available || sample.isPending} onClick={() => sample.mutate()}>{sample.isPending ? 'Đang nạp…' : state.has_private_space ? 'Đã nạp' : 'Nạp giọng viết mẫu'}</button></p>
+              </details>
+            </>
+          )}
+        </div>
+      </section>
+    </>
+  )
+}
+
+function SetupPageClassic() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [error, setError] = useState<unknown>()
@@ -8757,6 +8966,7 @@ function SetupPage() {
   const refresh = (next: SetupState) => { queryClient.setQueryData(['setup'], next); void queryClient.invalidateQueries({ queryKey: ['projects'] }) }
   const sample = useMutation({ mutationFn: () => api<SetupState>('/setup/private-sample', { method: 'POST' }), onSuccess: refresh, onError: setError })
   const finish = useMutation({ mutationFn: () => api<SetupState>('/setup/complete', { method: 'POST' }), onSuccess: (next) => { refresh(next); navigate('/') }, onError: setError })
+  const demo = useMutation({ mutationFn: () => api<SetupState>('/setup/demo-project', { method: 'POST' }), onSuccess: (next) => { refresh(next); navigate('/intakes?project=demo') }, onError: setError })
   const data = state.data
   return (
     <>
@@ -8769,6 +8979,12 @@ function SetupPage() {
           <h3>1. Dự án đầu tiên {data?.has_project && <Check size={15} aria-label="Đã xong" />}</h3>
           <p>Kết nối repo GitLab hoặc GitHub của bạn, hoặc tạo một dự án trống (loại Ý tưởng) để làm quen trước.</p>
           <p><Link className="button button-primary" to="/settings/projects/new">Tạo dự án</Link></p>
+          {data?.wizard && data.demo_available && (
+            <p>
+              <button className="button button-secondary" disabled={demo.isPending} onClick={() => demo.mutate()}>{demo.isPending ? 'Đang nạp…' : data.has_demo ? 'Mở dự án mẫu' : 'Dùng thử với dự án mẫu'}</button>
+              <span className="field-help"> Bốn yêu cầu và một kế hoạch ngày hư cấu, không cần khóa AI, không gửi gì ra ngoài.</span>
+            </p>
+          )}
           {data?.wizard ? (
             <>
               <h3>2. Khóa AI (bắt buộc) {data.ai_ready && <Check size={15} aria-label="Đã xong" />}</h3>
@@ -8785,7 +9001,7 @@ function SetupPage() {
           <h3>3. Giọng viết mẫu (không bắt buộc) {data?.has_private_space && <Check size={15} aria-label="Đã xong" />}</h3>
           <p>Nạp một bộ DNA thương hiệu hư cấu (Nova Labs) vào Không gian riêng để thử viết bài. Thay bằng thương hiệu của bạn sau.</p>
           <p><button className="button button-secondary" disabled={!data?.sample_available || sample.isPending} onClick={() => sample.mutate()}>{sample.isPending ? 'Đang nạp…' : 'Nạp giọng viết mẫu'}</button></p>
-          <p><button className="button button-primary" disabled={finish.isPending || (data?.wizard === true && !data.ai_ready)} onClick={() => finish.mutate()}>Hoàn tất thiết lập</button>{data?.wizard && !data.ai_ready && <span className="field-help"> Cần thêm khóa AI trước.</span>}</p>
+          <p><button className="button button-primary" disabled={finish.isPending || (data?.wizard === true && !data.ai_ready && !data.has_demo)} onClick={() => finish.mutate()}>Hoàn tất thiết lập</button>{data?.wizard && !data.ai_ready && !data.has_demo && <span className="field-help"> Cần thêm khóa AI trước, hoặc dùng thử dự án mẫu.</span>}</p>
         </div>
       </section>
     </>
@@ -9227,13 +9443,35 @@ function TelegramPanel() {
   )
 }
 
-const aiPresets: { label: string; name: string; base_url: string; extra_body: Record<string, unknown> | null; models: string[] }[] = [
-  { label: 'UModelVerse', name: 'umodelverse', base_url: 'https://api-sg.umodelverse.ai/v1', extra_body: null, models: [] },
-  { label: 'OpenRouter (không lưu dữ liệu)', name: 'openrouter', base_url: 'https://openrouter.ai/api/v1', extra_body: { provider: { zdr: true, data_collection: 'deny', allow_fallbacks: false } }, models: [] },
-  { label: 'OpenAI', name: 'openai', base_url: 'https://api.openai.com/v1', extra_body: null, models: ['gpt-4o-mini', 'gpt-4o'] },
-  { label: 'DeepSeek', name: 'deepseek', base_url: 'https://api.deepseek.com/v1', extra_body: null, models: ['deepseek-chat'] },
-  { label: 'Ollama trên máy chủ', name: 'ollama', base_url: 'http://host.docker.internal:11434/v1', extra_body: null, models: [] },
-  { label: 'Tùy chỉnh', name: '', base_url: '', extra_body: null, models: [] },
+interface AiCard { pick: string[]; blurb: string; key_url: string; free: boolean; note?: string }
+type AiCap = 'text' | 'vision' | 'stt'
+// caps: what the provider can do for Intake; stt_pick: the speech model filled in when the Giọng nói group is empty.
+interface AiPreset { label: string; name: string; caps: AiCap[]; stt_pick?: string; base_url: string; extra_body: Record<string, unknown> | null; models: string[]; card?: AiCard }
+
+// Where to get a key for a preset that has no first-run card, and whether the first try can be free.
+const aiKeyLinks: Record<string, { url: string; free: boolean; note: string }> = {
+  elevenlabs: { url: 'https://elevenlabs.io/app/settings/api-keys', free: true, note: 'Có gói miễn phí với hạn mức giờ nói hằng tháng; hạn mức thay đổi theo thời gian.' },
+  openrouter: { url: 'https://openrouter.ai/keys', free: false, note: 'Trả phí theo lượng dùng. Muốn thử miễn phí thì chọn loại "OpenRouter (chỉ để thử)".' },
+  deepseek: { url: 'https://platform.deepseek.com/api_keys', free: false, note: 'Trả phí theo lượng dùng, nạp trước một khoản nhỏ.' },
+}
+const aiKeyInfo = (item: AiPreset): { url: string; free: boolean; note: string } | undefined =>
+  item.card ? { url: item.card.key_url, free: item.card.free, note: item.card.blurb } : aiKeyLinks[item.name]
+
+const aiFreeWarning = 'Gói miễn phí của một số nhà cung cấp có thể dùng nội dung gửi đi để cải thiện sản phẩm. Chỉ thử bằng dữ liệu mẫu.'
+
+// Model names and free tiers change over time; card.pick is only a first guess matched against the downloaded list.
+const aiPresets: AiPreset[] = [
+  { label: 'Gemini', name: 'gemini', caps: ['text', 'vision', 'stt'], stt_pick: 'gemini-3.5-flash', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/', extra_body: null, models: [], card: { pick: ['gemini-3.5-flash', 'gemini-3.1-flash-lite'], blurb: 'Google AI Studio, có gói miễn phí.', key_url: 'https://aistudio.google.com/apikey', free: true } },
+  { label: 'Groq', name: 'groq', caps: ['text', 'stt'], stt_pick: 'whisper-large-v3-turbo', base_url: 'https://api.groq.com/openai/v1', extra_body: null, models: [], card: { pick: ['llama-3.3-70b-versatile'], blurb: 'Chạy nhanh, có gói miễn phí.', key_url: 'https://console.groq.com/keys', free: true } },
+  { label: 'OpenRouter (chỉ để thử)', name: 'openrouter-free', caps: ['text'], base_url: 'https://openrouter.ai/api/v1', extra_body: null, models: [], card: { pick: ['meta-llama/llama-3.3-70b-instruct:free'], blurb: 'Một khóa, nhiều model miễn phí. Nhà cung cấp có thể lưu dữ liệu gửi đi: đừng dùng dữ liệu khách.', key_url: 'https://openrouter.ai/keys', free: true, note: 'Các model miễn phí của OpenRouter bắt buộc cho phép thu thập dữ liệu gửi đi, nên không áp dụng chế độ không lưu dữ liệu.' } },
+  { label: 'OpenAI', name: 'openai', caps: ['text', 'vision', 'stt'], stt_pick: 'gpt-4o-mini-transcribe', base_url: 'https://api.openai.com/v1', extra_body: null, models: ['gpt-4o-mini', 'gpt-4o'], card: { pick: ['gpt-4o-mini'], blurb: 'Trả phí theo lượng dùng.', key_url: 'https://platform.openai.com/api-keys', free: false } },
+  { label: 'Claude (Anthropic)', name: 'anthropic', caps: ['text', 'vision'], base_url: 'https://api.anthropic.com/v1/', extra_body: null, models: ['claude-sonnet-5-5', 'claude-haiku-5-5'], card: { pick: ['claude-sonnet-5-5', 'claude-haiku-5-5'], blurb: 'Trả phí theo lượng dùng, qua lớp tương thích OpenAI của Anthropic.', key_url: 'https://console.anthropic.com/settings/keys', free: false, note: 'Lớp tương thích dành cho thử nghiệm và so sánh model. Nếu không tải được danh sách model, chọn model claude-sonnet-5-5 thủ công ở nhóm Chữ.' } },
+  { label: 'UModelVerse', name: 'umodelverse', caps: ['text'], base_url: 'https://api-sg.umodelverse.ai/v1', extra_body: null, models: [] },
+  { label: 'OpenRouter (không lưu dữ liệu)', name: 'openrouter', caps: ['text'], base_url: 'https://openrouter.ai/api/v1', extra_body: { provider: { zdr: true, data_collection: 'deny', allow_fallbacks: false } }, models: [] },
+  { label: 'ElevenLabs (giọng thành chữ)', name: 'elevenlabs', caps: ['stt'], stt_pick: 'scribe_v2', base_url: 'https://api.elevenlabs.io', extra_body: null, models: ['scribe_v2'] },
+  { label: 'DeepSeek', name: 'deepseek', caps: ['text'], base_url: 'https://api.deepseek.com/v1', extra_body: null, models: ['deepseek-chat'] },
+  { label: 'Ollama trên máy chủ', name: 'ollama', caps: ['text'], base_url: 'http://host.docker.internal:11434/v1', extra_body: null, models: [] },
+  { label: 'Tùy chỉnh', name: '', caps: [], base_url: '', extra_body: null, models: [] },
 ]
 
 const aiTaskLabels: Record<string, string> = {
@@ -9243,6 +9481,7 @@ const aiTaskLabels: Record<string, string> = {
   meeting: 'Biên bản họp',
   vision: 'Đọc ảnh đính kèm',
   content: 'Bài viết và nội dung',
+  stt: 'Chuyển giọng thành chữ',
 }
 
 const aiTaskHelp: Record<string, string> = {
@@ -9252,6 +9491,7 @@ const aiTaskHelp: Record<string, string> = {
   meeting: 'Tạo biên bản, quyết định và việc cần làm từ nội dung cuộc họp.',
   vision: 'Đọc chữ và nội dung trong ảnh đính kèm.',
   content: 'Soạn bài viết và nội dung theo giọng thương hiệu.',
+  stt: 'Nghe ghi âm cuộc họp và chuyển thành chữ. Cần nhà cung cấp có model nghe giọng nói (OpenAI, Groq, ElevenLabs); model chat thường không dùng được. Chỉ ElevenLabs hiện chữ ngay khi đang họp, các nhà khác ra chữ sau khi họp kết thúc.',
 }
 
 const aiSourceLabels: Record<string, string> = { route: 'đặt riêng', default: 'theo Mặc định', env: 'theo .env', none: 'chưa cấu hình' }
@@ -9262,6 +9502,137 @@ const aiTestErrors: Record<string, string> = {
   NETWORK: 'không kết nối được tới địa chỉ này',
   KEY_UNREADABLE: 'không đọc được khóa đã lưu, hãy nhập lại',
 }
+
+const aiCapLabels: Record<AiCap, string> = { text: 'Chữ', vision: 'Ảnh', stt: 'Giọng nói' }
+
+// The three groups are a view over the existing routes: default = Chữ, vision = Ảnh, stt = Giọng nói (ADR-0077).
+interface AiGroup { key: AiCap; task: string; title: string; use: string; flows: string[]; skip: string; required?: boolean }
+const aiGroups: AiGroup[] = [
+  {
+    key: 'text', task: 'default', title: 'Chữ: hiểu và viết', required: true,
+    use: 'Model đọc chữ rồi viết lại cho gọn. Mọi luồng của Intake đều kết thúc ở nhóm này.',
+    flows: ['Tin nhắn Zalo, email, form → yêu cầu rõ ràng để CTO duyệt', 'Báo cáo cuối ngày → tiến độ từng việc', 'Chữ chép từ ghi âm họp → biên bản, quyết định, việc cần làm', 'Ý tưởng, chủ đề nóng → bài viết marketing'],
+    skip: 'Bắt buộc. Thiếu nhóm này thì Intake không chuẩn hóa được yêu cầu nào.',
+  },
+  {
+    key: 'vision', task: 'vision', title: 'Ảnh: đọc ảnh và PDF',
+    use: 'Khách hay gửi ảnh chụp màn hình lỗi hoặc file PDF. Model đọc nội dung trong ảnh thành chữ, rồi nhóm Chữ hiểu và viết thành yêu cầu.',
+    flows: ['Ảnh chụp lỗi gửi qua Zalo, Telegram, web → chữ → yêu cầu', 'PDF đặc tả, báo giá đính kèm → chữ → yêu cầu'],
+    skip: 'ảnh và PDF vẫn được lưu kèm yêu cầu, nhưng AI không biết bên trong viết gì.',
+  },
+  {
+    key: 'stt', task: 'stt', title: 'Giọng nói: chuyển thành chữ',
+    use: 'Muốn có biên bản họp thì phải ghi âm, rồi chuyển giọng nói thành chữ; sau đó nhóm Chữ mới viết được biên bản. Model chat thường không nghe được âm thanh.',
+    flows: ['Ghi âm cuộc họp → chữ chép lại → biên bản, quyết định, việc cần làm'],
+    skip: 'không ghi âm họp được; vẫn dán ghi chú họp bằng tay để nhóm Chữ viết biên bản.',
+  },
+]
+
+const aiFeatures: { label: string; needs: AiCap[] }[] = [
+  { label: 'Chuẩn hóa yêu cầu từ tin nhắn, email, form', needs: ['text'] },
+  { label: 'Đọc ảnh chụp và PDF khách gửi kèm', needs: ['vision', 'text'] },
+  { label: 'Ghi âm họp và viết biên bản', needs: ['stt', 'text'] },
+  { label: 'Tổng hợp báo cáo cuối ngày', needs: ['text'] },
+  { label: 'Soạn bài viết marketing', needs: ['text'] },
+]
+
+const aiProbeErrors: Record<string, string> = {
+  NOT_SUPPORTED: 'model này không nhận loại dữ liệu này',
+  NOT_READ: 'model trả lời nhưng không đọc đúng số in trong ảnh mẫu',
+  MODEL_NOT_FOUND: 'nhà cung cấp không có model này cho khóa đã lưu (sai tên, hoặc model đã ngừng cho khóa mới, ví dụ Gemini 2.5)',
+  AUTH: 'khóa bị từ chối',
+  TIMEOUT: 'quá thời gian chờ',
+  NETWORK: 'không kết nối được tới nhà cung cấp',
+  KEY_UNREADABLE: 'không đọc được khóa đã lưu, hãy nhập lại',
+  PROVIDER_TRANSIENT: 'nhà cung cấp đang bận, thử lại sau ít phút',
+  QUOTA: 'hết hạn mức, hoặc model này không có trong gói của khóa (gói miễn phí thường không gồm model tạo ảnh hay bản preview)',
+}
+
+// Names that usually mean a model can see pictures or hear audio. Only an ordering hint: other models stay selectable.
+const aiVisionLikely = /vision|vl\b|-vl|gpt-4o|gpt-4\.1|gpt-5|o3|o4|gemini|claude|llava|pixtral|llama-4|gemma-3|qwen.*vl|glm-4v|grok.*vision/i
+const aiSttLikely = /whisper|transcribe|scribe|stt|gemini/i
+// Speech-to-text models; "tts" in aiOtherJob would otherwise catch names like gpt-4o-mini-transcribe-tts.
+const aiSttOnly = /whisper|transcribe|scribe|stt/i
+// Models made for another job (drawing pictures, reading text aloud, embeddings, video, music) even when the family
+// name looks right, e.g. gemini-2.5-flash-image draws pictures and cannot be used to read one.
+const aiOtherJob = /image|imagen|tts|embed|veo|lyria|dall-e/i
+const aiIsLikely = (name: string, likely: RegExp) => likely.test(name) && !aiOtherJob.test(name)
+const aiLikelyFirst = (names: string[], likely: RegExp) => [
+  ...names.filter((name) => aiIsLikely(name, likely)),
+  ...names.filter((name) => !aiIsLikely(name, likely) && !aiOtherJob.test(name)),
+  ...names.filter((name) => aiOtherJob.test(name)),
+]
+const AI_CUSTOM_MODEL = '__custom__'
+
+// A real list once models are loaded: an <input list> only suggests names matching what is typed, so a filled field
+// hid every other model. Typing a code by hand stays possible through "Nhập mã model khác".
+function AiModelField({ value, options, disabled, ariaLabel, placeholder, kind, onChange }: {
+  value: string
+  options: string[]
+  disabled: boolean
+  ariaLabel: string
+  placeholder: string
+  kind?: 'vision' | 'stt'
+  onChange: (model: string) => void
+}) {
+  const [typing, setTyping] = useState(false)
+  const known = value === '' || options.includes(value)
+  if (disabled || options.length === 0 || typing || !known) {
+    return (
+      <span className="ai-model-field">
+        <input aria-label={ariaLabel} value={value} maxLength={128} placeholder={placeholder} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+        {!disabled && options.length > 0 && (
+          <button type="button" className="text-button ai-model-back" onClick={() => { setTyping(false); if (!options.includes(value)) onChange('') }}>Danh sách ({options.length})</button>
+        )}
+      </span>
+    )
+  }
+  const item = (name: string) => <option key={name} value={name}>{name.replace(/^models\//, '')}</option>
+  const select = (body: ReactNode) => (
+    <select aria-label={ariaLabel} value={value} onChange={(event) => {
+      if (event.target.value === AI_CUSTOM_MODEL) { setTyping(true); return }
+      onChange(event.target.value)
+    }}>
+      <option value="">Chọn model</option>
+      {body}
+      <option value={AI_CUSTOM_MODEL}>Nhập mã model khác...</option>
+    </select>
+  )
+  if (!kind) return select(options.map(item))
+  // Grouped by what the name says the model does; only the sample check proves it.
+  const likely = kind === 'vision' ? aiVisionLikely : aiSttLikely
+  const good = options.filter((name) => aiIsLikely(name, likely) || (kind === 'stt' && aiSttOnly.test(name)))
+  const other = options.filter((name) => !good.includes(name) && aiOtherJob.test(name))
+  const unsure = options.filter((name) => !good.includes(name) && !other.includes(name))
+  const groups: [string, string[]][] = [
+    [kind === 'vision' ? 'Thường đọc được ảnh' : 'Thường nghe được âm thanh', good],
+    ['Chưa rõ: lưu rồi bấm thử mẫu', unsure],
+    ['Làm việc khác (tạo ảnh, đọc thành tiếng, embedding)', other],
+  ]
+  return select(groups.filter(([, names]) => names.length > 0).map(([label, names]) => <optgroup key={label} label={label}>{names.map(item)}</optgroup>))
+}
+
+// The model to suggest when a provider is picked for a group: the preset's speech pick, or its first text pick
+// when the provider reads pictures.
+const aiRecommended = (base_url: string, kind: 'vision' | 'stt'): string | undefined => {
+  const preset = aiPresets.find((item) => item.name && item.base_url.replace(/\/+$/, '') === base_url.replace(/\/+$/, ''))
+  if (!preset || !preset.caps.includes(kind)) return undefined
+  return kind === 'stt' ? preset.stt_pick : preset.card?.pick[0] || preset.models[0]
+}
+const aiProvidersFor = (kind: AiCap) => aiPresets.filter((item) => item.name && item.caps.includes(kind) && !item.name.startsWith('openrouter')).map((item) => item.label.replace(/ \(.*\)$/, ''))
+const aiHost = (url: string) => { try { return new URL(url).hostname } catch { return '' } }
+const aiPresetFor = (url: string) => aiPresets.find((item) => item.name && item.base_url.replace(/\/+$/, '') === url.replace(/\/+$/, ''))
+const aiCapsFor = (url: string): AiCap[] => aiPresetFor(url)?.caps || (aiHost(url).endsWith('elevenlabs.io') ? ['stt'] : ['text'])
+
+type AiGroupState = 'ok' | 'warn' | 'off'
+
+function AiCaps({ caps }: { caps: AiCap[] }) {
+  if (caps.length === 0) return null
+  return <span className="ai-caps" aria-label={`Dùng được cho: ${caps.map((cap) => aiCapLabels[cap]).join(', ')}`}>{caps.map((cap) => <em key={cap} className={`ai-cap ai-cap-${cap}`}>{aiCapLabels[cap]}</em>)}</span>
+}
+
+const aiLaterKey = 'intake.ai.later'
+const readAiLater = (): Record<string, boolean> => { try { return JSON.parse(window.localStorage.getItem(aiLaterKey) || '{}') } catch { return {} } }
 
 function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
   const queryClient = useQueryClient()
@@ -9283,17 +9654,84 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
     setPreset(index)
     setForm({ name: aiPresets[index].name, base_url: aiPresets[index].base_url, api_key: '' })
   }
+  const [later, setLater] = useState<Record<string, boolean>>(readAiLater)
+  const setLaterFor = (key: AiCap, value: boolean) => {
+    const next = { ...later, [key]: value }
+    setLater(next)
+    try { window.localStorage.setItem(aiLaterKey, JSON.stringify(next)) } catch { /* the choice only lasts for this page */ }
+  }
+  const [probeNotes, setProbeNotes] = useState<Record<string, { ok: boolean | null; text: string }>>({})
+  const probeText = (result: AiProbe) => result.ok
+    ? (result.kind === 'vision' ? `Đạt: ${result.model} đọc đúng số trong ảnh mẫu. Ảnh và PDF sẽ được đọc.` : `Đạt: ${result.model} nhận âm thanh mẫu. Ghi âm họp sẽ được chuyển thành chữ.`)
+    : `Chưa đạt: ${aiProbeErrors[result.error || ''] || (result.error?.startsWith('HTTP_') ? `nhà cung cấp trả lỗi ${result.error.slice(5)}` : result.error)}. Chọn model khác rồi thử lại.`
+  const probe = useMutation({
+    mutationFn: ({ providerId, kind, model }: { providerId: string; kind: 'vision' | 'stt'; model: string }) =>
+      api<AiProbe>(`/ai/providers/${providerId}/probe`, { method: 'POST', body: JSON.stringify({ kind, model }) }),
+    onMutate: ({ kind }) => setProbeNotes((current) => ({ ...current, [kind]: { ok: null, text: kind === 'vision' ? 'Đang gửi ảnh mẫu có số 482…' : 'Đang gửi một đoạn âm thanh mẫu…' } })),
+    onSuccess: (result) => { setProbeNotes((current) => ({ ...current, [result.kind]: { ok: result.ok, text: probeText(result) } })); refresh() },
+    onError: (err, { kind }) => { setProbeNotes((current) => { const { [kind]: _gone, ...rest } = current; return rest }); setError(err) },
+  })
+  // Creates the provider, tests the key, then fills every empty group the provider can serve.
+  const linkProvider = async (chosen: AiPreset, body: typeof form) => {
+    const provider = await api<AiProvider>('/ai/providers', { method: 'POST', body: JSON.stringify({ ...body, extra_body: chosen.extra_body }) })
+    const result = await api<AiProviderTest>(`/ai/providers/${provider.id}/test`, { method: 'POST' })
+    const caps = chosen.caps.length > 0 ? chosen.caps : aiCapsFor(provider.base_url)
+    if (!result.ok) return { provider, result, caps, model: '', keepsDefault: false, stt: '' }
+    // Some providers list ids with a "models/" prefix; chat accepts the id exactly as listed.
+    const model = caps.includes('text') ? (chosen.card?.pick || []).map((guess) => result.models.find((listed) => listed.replace(/^models\//, '') === guess)).find(Boolean) || '' : ''
+    // A second provider is added beside the first: the default only moves when the person asks.
+    const keepsDefault = defaultRoute?.source !== undefined && defaultRoute.source !== 'none'
+    if (model && !keepsDefault) await api<AiRoute[]>('/ai/routes/default', { method: 'PUT', body: JSON.stringify({ provider_id: provider.id, model }) })
+    const sttRoute = routeRows.find((route) => route.task === 'stt')
+    const stt = chosen.stt_pick && caps.includes('stt') && (!sttRoute || sttRoute.source === 'none') ? chosen.stt_pick : ''
+    if (stt) await api<AiRoute[]>('/ai/routes/stt', { method: 'PUT', body: JSON.stringify({ provider_id: provider.id, model: stt }) })
+    return { provider, result, caps, model, keepsDefault, stt }
+  }
+  type Linked = Awaited<ReturnType<typeof linkProvider>>
+  const linkedNote = ({ provider, result, caps, model, keepsDefault, stt }: Linked) => {
+    if (!result.ok) return `Không kết nối được: ${aiTestErrors[result.error || ''] || result.error}. Kiểm tra lại khóa rồi thử lại hoặc xóa nhà cung cấp vừa tạo.`
+    const parts = [`Đã kết nối ${provider.name}.`]
+    if (model && keepsDefault) parts.push(`Nhóm Chữ vẫn dùng ${defaultRoute?.effective_provider}; bấm “Dùng làm mặc định” ở dòng ${provider.name} nếu muốn chuyển.`)
+    else if (model) parts.push(`Nhóm Chữ dùng ${model.replace(/^models\//, '')}.`)
+    else if (caps.includes('text') && !keepsDefault) parts.push('Chưa tự chọn được model cho nhóm Chữ; chọn ở nhóm Chữ bên dưới.')
+    if (stt) parts.push(`Nhóm Giọng nói dùng ${stt}.`)
+    if (model && !keepsDefault && caps.includes('vision')) parts.push('Đang thử nhóm Ảnh bằng ảnh mẫu.')
+    return parts.join(' ')
+  }
+  const afterLink = (out: Linked) => {
+    setModels((current) => ({ ...current, [out.provider.id]: out.result.models }))
+    if (out.model && !out.keepsDefault && out.caps.includes('vision')) probe.mutate({ providerId: out.provider.id, kind: 'vision', model: out.model })
+    if (out.result.ok && !out.model && !out.keepsDefault && out.caps.includes('text')) setDraft((current) => ({ ...current, default: { provider_id: out.provider.id, model: '' } }))
+    refresh()
+  }
   const add = useMutation({
-    mutationFn: () => api<AiProvider>('/ai/providers', { method: 'POST', body: JSON.stringify({ ...form, extra_body: aiPresets[preset].extra_body }) }),
-    onSuccess: (provider) => {
+    mutationFn: () => linkProvider(aiPresets[preset], form),
+    onSuccess: (out) => {
       setForm({ ...form, api_key: '' })
       setError(undefined)
-      setNotes((current) => ({ ...current, [provider.id]: 'Đang kiểm tra kết nối và tải danh sách model…' }))
-      setDraft((current) => ({ ...current, default: { provider_id: provider.id, model: '' } }))
-      refresh()
-      test.mutate(provider.id)
+      setNotes((current) => ({ ...current, [out.provider.id]: linkedNote(out) }))
+      afterLink(out)
     },
-    onError: setError,
+    onError: (err) => { setError(err); refresh() },
+  })
+  const cards = aiPresets.map((item, index) => ({ item, index })).filter((entry) => entry.item.card)
+  const selectedCard = aiPresets[preset].card ? aiPresets[preset] : undefined
+  const [advanced, setAdvanced] = useState(false)
+  const [connectNote, setConnectNote] = useState('')
+  const [addingMore, setAddingMore] = useState(false)
+  const [editingTask, setEditingTask] = useState<Record<string, boolean>>({})
+  const sameUrl = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
+  const connectedRow = (url: string) => (providers.data || []).find((row) => sameUrl(row.base_url, url))
+  const pickModel = (url: string, listed: string[]) => (aiPresets.find((item) => sameUrl(item.base_url, url))?.card?.pick || []).map((guess) => listed.find((name) => name.replace(/^models\//, '') === guess)).find(Boolean) || ''
+  const connect = useMutation({
+    mutationFn: () => linkProvider(aiPresets[preset], form),
+    onSuccess: (out) => {
+      setForm((current) => ({ ...current, api_key: '' }))
+      setError(undefined)
+      setConnectNote(linkedNote(out))
+      afterLink(out)
+    },
+    onError: (err) => { setError(err); refresh() },
   })
   const patch = useMutation({
     mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api<AiProvider>(`/ai/providers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -9302,14 +9740,31 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
   })
   const remove = useMutation({
     mutationFn: (id: string) => api<unknown>(`/ai/providers/${id}`, { method: 'DELETE' }),
-    onSuccess: () => { setError(undefined); refresh() },
-    onError: setError,
+    onSuccess: (_data, id) => { setError(undefined); setNotes((current) => { const { [id]: _gone, ...rest } = current; return rest }); refresh() },
+    onError: (err, id) => {
+      if (err instanceof ApiError && err.code === 'PROVIDER_IN_USE') setNotes((current) => ({ ...current, [id]: 'Không xóa được: nhà cung cấp này đang được dùng làm model mặc định hoặc cho một tác vụ. Bấm “Dùng làm mặc định” ở nhà cung cấp khác (hoặc đổi model ở các nhóm bên dưới) rồi xóa lại.' }))
+      else setError(err)
+    },
   })
   const test = useMutation({
     mutationFn: (id: string) => api<AiProviderTest>(`/ai/providers/${id}/test`, { method: 'POST' }).then((result) => ({ id, result })),
     onSuccess: ({ id, result }) => {
       setModels((current) => ({ ...current, [id]: result.models }))
       setNotes((current) => ({ ...current, [id]: result.ok ? (result.models.length > 0 ? `Kết nối thành công. Đã tải ${result.models.length} model để bạn chọn.` : 'Kết nối thành công nhưng nhà cung cấp không trả danh sách model. Hãy nhập đúng mã model bên dưới.') : `Không kết nối được: ${aiTestErrors[result.error || ''] || result.error}` }))
+      refresh()
+    },
+    onError: setError,
+  })
+  const makeDefault = useMutation({
+    mutationFn: async (row: AiProvider) => {
+      const result = await api<AiProviderTest>(`/ai/providers/${row.id}/test`, { method: 'POST' })
+      const model = result.ok ? pickModel(row.base_url, result.models) : ''
+      if (model) await api<AiRoute[]>('/ai/routes/default', { method: 'PUT', body: JSON.stringify({ provider_id: row.id, model }) })
+      return { row, model }
+    },
+    onSuccess: ({ row, model }) => {
+      setNotes((current) => ({ ...current, [row.id]: model ? `Nhóm Chữ dùng ${model.replace(/^models\//, '')}.` : 'Chưa tự chọn được model. Chọn model ở nhóm Chữ bên dưới.' }))
+      if (model && aiCapsFor(row.base_url).includes('vision')) probe.mutate({ providerId: row.id, kind: 'vision', model })
       refresh()
     },
     onError: setError,
@@ -9325,48 +9780,234 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
     onError: setError,
   })
   const rows = providers.data || []
+  // The model list is not stored, so a provider chosen after a page load has none until it is fetched once.
+  const asked = useRef<Set<string>>(new Set())
+  const loadModels = (id: string) => {
+    if (!id || asked.current.has(id) || models[id]) return
+    asked.current.add(id)
+    api<AiProviderTest>(`/ai/providers/${id}/test`, { method: 'POST' })
+      .then((result) => setModels((current) => ({ ...current, [id]: result.models })))
+      .catch(() => asked.current.delete(id))
+  }
   const suggestions = (providerId: string): string[] => {
     const row = rows.find((item) => item.id === providerId)
     const known = aiPresets.find((item) => row && item.base_url === row.base_url)?.models || []
     return Array.from(new Set([...(models[providerId] || []), ...known]))
   }
+  // Provider model lists mix chat and speech models, so the speech row suggests only models that can hear audio.
+  const sttSuggestions = (providerId: string): string[] => {
+    const host = (() => { try { return new URL(rows.find((item) => item.id === providerId)?.base_url || '').hostname } catch { return '' } })()
+    if (host.endsWith('elevenlabs.io')) return ['scribe_v2']
+    if (host === 'api.groq.com') return ['whisper-large-v3', 'whisper-large-v3-turbo']
+    if (host === 'generativelanguage.googleapis.com') return ['gemini-3.5-flash', 'gemini-3.1-flash-lite']
+    if (host === 'api.openai.com') return ['gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'whisper-1']
+    return suggestions(providerId).filter((name) => /whisper|transcribe|scribe|stt/i.test(name))
+  }
   const renderRoute = (route: AiRoute) => {
     const value = draft[route.task] || { provider_id: route.provider_id || '', model: route.model || '' }
     const dirty = value.provider_id !== (route.provider_id || '') || value.model !== (route.model || '')
-    const listId = `ai-models-${route.task}`
-    const modelSuggestions = suggestions(value.provider_id)
+    const isStt = route.task === 'stt'
+    const modelSuggestions = isStt ? sttSuggestions(value.provider_id) : suggestions(value.provider_id)
     const isDefault = route.task === 'default'
+    const folded = !isDefault && !isStt && route.source === 'default' && !editingTask[route.task] && !dirty
     return (
-      <div className={`ai-route ${isDefault ? 'ai-route-default' : ''}`} key={route.task}>
+      <div className={`ai-route ${isDefault ? 'ai-route-default' : ''}${folded ? ' ai-route-folded' : ''}`} key={route.task}>
         <div className="ai-route-summary">
-          <strong>{aiTaskLabels[route.task] || route.task}</strong>
-          <p>{aiTaskHelp[route.task]}</p>
-          <div className="field-help">Đang dùng: {route.effective_provider ? `${route.effective_provider} · ${route.effective_model}` : 'chưa có'} ({aiSourceLabels[route.source] || route.source})</div>
+          <strong>{aiTaskLabels[route.task] || route.task}{aiTaskHelp[route.task] && <> <InfoTip label={`Giải thích: ${aiTaskLabels[route.task]}`} text={aiTaskHelp[route.task]} /></>}</strong>
+          {route.effective_provider
+            ? <span className={`status-pill ${route.source === 'default' ? 'status-pill-muted' : 'status-pill-ok'}`}>{route.source === 'default' ? 'Theo mặc định' : <><Check size={12} aria-hidden="true" /> {aiSourceLabels[route.source] === 'đặt riêng' ? 'Đặt riêng' : 'Đang chạy'}</>} · {route.effective_provider} · {(route.effective_model || '').replace(/^models\//, '')}</span>
+            : <span className="status-pill status-pill-error">{isStt ? 'Chưa chọn nhà cung cấp giọng nói' : 'Chưa có model'}</span>}
         </div>
-        <div className="ai-route-controls">
-          <label>Nhà cung cấp
-            <select aria-label={`Nhà cung cấp cho ${aiTaskLabels[route.task]}`} value={value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { provider_id: event.target.value, model: '' } })}>
-              <option value="">{isDefault ? 'Chọn nhà cung cấp' : 'Dùng model mặc định'}</option>
+        {folded ? <button type="button" className="button button-secondary" onClick={() => setEditingTask({ ...editingTask, [route.task]: true })}>Đổi riêng</button> : <div className="ai-route-controls">
+          <label><span className="ai-label-text">Nhà cung cấp {value.provider_id && <InfoTip label="Cách nhập model" text={modelSuggestions.length > 0 ? 'Gõ để tìm trong danh sách model đã tải, hoặc nhập đúng mã model khác.' : 'Chưa tải được danh sách. Bạn có thể nhập đúng mã model, hoặc bấm “Kiểm tra và tải model” ở nhà cung cấp.'} />}</span>
+            <select aria-label={`Nhà cung cấp cho ${aiTaskLabels[route.task]}`} value={value.provider_id} onChange={(event) => { loadModels(event.target.value); setDraft({ ...draft, [route.task]: { provider_id: event.target.value, model: '' } }) }}>
+              <option value="">{isDefault || isStt ? 'Chọn nhà cung cấp' : 'Dùng model mặc định'}</option>
               {rows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
             </select>
           </label>
           <label>Model
-            <input aria-label={`Model cho ${aiTaskLabels[route.task]}`} list={listId} value={value.model} maxLength={128} placeholder={value.provider_id ? 'Chọn hoặc nhập mã model' : 'Chọn nhà cung cấp trước'} disabled={!value.provider_id} onChange={(event) => setDraft({ ...draft, [route.task]: { ...value, model: event.target.value } })} />
-            <datalist id={listId}>{modelSuggestions.map((name) => <option key={name} value={name} />)}</datalist>
+            <AiModelField key={`${route.task}-${value.provider_id}`} ariaLabel={`Model cho ${aiTaskLabels[route.task]}`} value={value.model} options={modelSuggestions} placeholder={value.provider_id ? 'Nhập mã model' : 'Chọn nhà cung cấp trước'} disabled={!value.provider_id} onChange={(model) => setDraft({ ...draft, [route.task]: { ...value, model } })} />
           </label>
           <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !value.model.trim())} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? value.model.trim() : null })}>Lưu</button>
-          {value.provider_id && <p className="ai-model-help">{modelSuggestions.length > 0 ? 'Gõ để tìm trong danh sách model đã tải, hoặc nhập đúng mã model khác.' : 'Chưa tải được danh sách. Bạn có thể nhập đúng mã model, hoặc bấm “Kiểm tra và tải model” ở nhà cung cấp.'}</p>}
-        </div>
+        </div>}
       </div>
     )
   }
   const routeRows = routes.data || []
+  useEffect(() => { routeRows.forEach((route) => { if (route.provider_id) loadModels(route.provider_id) }) }, [routes.data, providers.data])
   const defaultRoute = routeRows.find((route) => route.task === 'default')
-  const taskRoutes = routeRows.filter((route) => route.task !== 'default')
+  const textTaskRoutes = ['normalize', 'report', 'meeting', 'content'].map((task) => routeRows.find((route) => route.task === task)).filter((route): route is AiRoute => Boolean(route))
+  const ready = rows.some((row) => row.enabled && row.last_test_ok) && defaultRoute !== undefined && defaultRoute.source !== 'none'
+  const showCards = !ready || addingMore || advanced
+  const routeOf = (task: string) => routeRows.find((route) => route.task === task)
+  const shortModel = (name: string | null | undefined) => (name || '').replace(/^models\//, '')
+  // The provider and model a group really calls, so the sample check tests what will run.
+  const servedBy = (group: AiGroup): { id: string; model: string } | undefined => {
+    const route = routeOf(group.task)
+    if (route?.provider_id && route.model) return { id: route.provider_id, model: route.model }
+    if (group.key === 'vision' && defaultRoute?.provider_id && defaultRoute.model) return { id: defaultRoute.provider_id, model: defaultRoute.model }
+    return undefined
+  }
+  const groupState = (key: AiCap): AiGroupState => {
+    if (key === 'text') return defaultRoute && defaultRoute.source !== 'none' ? 'ok' : 'off'
+    const route = routeOf(key === 'vision' ? 'vision' : 'stt')
+    if (!route?.effective_provider) return 'off'
+    if (route.check_ok === false) return 'warn'
+    if (key === 'vision' && route.check_ok === null && route.source !== 'env') return 'warn'
+    return 'ok'
+  }
+  const states: Record<AiCap, AiGroupState> = { text: groupState('text'), vision: groupState('vision'), stt: groupState('stt') }
+  const stateLabel = (group: AiGroup): string => {
+    const route = routeOf(group.task)
+    const state = states[group.key]
+    const using = route?.effective_provider ? `${route.effective_provider} · ${shortModel(route.effective_model)}` : ''
+    if (state === 'off') return later[group.key] && !group.required ? 'Để sau' : 'Chưa có model'
+    if (state === 'warn') return route?.check_ok === false ? `Chưa đạt thử mẫu · ${using}` : `Chưa thử với ảnh mẫu · ${using}`
+    if (group.key === 'vision' && route?.source === 'default') return `Dùng model nhóm Chữ · ${using}`
+    return `Đang dùng ${using}`
+  }
+  const rowCaps = (row: AiProvider) => aiCapsFor(row.base_url)
+  // "gemini (Chữ, Ảnh, Giọng nói)" so the list itself says which provider can do the group's job.
+  const providerOption = (row: AiProvider, key: AiCap) => {
+    if (!aiPresetFor(row.base_url) && !aiHost(row.base_url).endsWith('elevenlabs.io')) return key === 'text' ? row.name : `${row.name} (chưa rõ, bấm thử mẫu)`
+    const caps = rowCaps(row)
+    const can = `${row.name} (${caps.map((cap) => aiCapLabels[cap]).join(', ')})`
+    return caps.includes(key) || key === 'text' ? can : `${can} - không ${key === 'vision' ? 'đọc ảnh' : 'nghe âm thanh'}`
+  }
+  const renderGroupPicker = (group: AiGroup, route: AiRoute) => {
+    const value = draft[route.task] || { provider_id: route.provider_id || '', model: route.model || '' }
+    const dirty = value.provider_id !== (route.provider_id || '') || value.model !== (route.model || '')
+    const listed = group.key === 'stt'
+      ? Array.from(new Set([...sttSuggestions(value.provider_id), ...aiLikelyFirst(suggestions(value.provider_id), aiSttLikely)]))
+      : group.key === 'vision' ? aiLikelyFirst(suggestions(value.provider_id), aiVisionLikely) : suggestions(value.provider_id)
+    // Likely providers first; the others stay selectable because names and offers change.
+    const ordered = [...rows.filter((row) => rowCaps(row).includes(group.key)), ...rows.filter((row) => !rowCaps(row).includes(group.key))]
+    const likely = group.key === 'vision' ? aiVisionLikely : group.key === 'stt' ? aiSttLikely : undefined
+    const model = value.model.trim()
+    const checkedOk = route.check_ok === true && !dirty
+    const otherJob = Boolean(likely && model && aiOtherJob.test(model) && !checkedOk)
+    const unlikely = Boolean(likely && model && !otherJob && !likely.test(model) && !checkedOk)
+    const kind = group.key === 'text' ? undefined : group.key
+    const doing = group.key === 'vision' ? 'đọc ảnh' : 'nghe âm thanh'
+    const picked = rows.find((row) => row.id === value.provider_id)
+    const pickedCan = picked ? rowCaps(picked).includes(group.key) : false
+    const pickedKnown = picked ? Boolean(aiPresetFor(picked.base_url)) : false
+    const rec = picked && kind ? aiRecommended(picked.base_url, kind) : undefined
+    // Gemini lists names with a models/ prefix; match the loaded name so the list shows it selected.
+    const recommended = rec ? listed.find((name) => name === rec || name.endsWith(`/${rec}`)) || rec : undefined
+    const capable = kind ? aiProvidersFor(kind).join(', ') : ''
+    const capHint = !kind ? null
+      : !picked
+        ? (group.key === 'vision'
+          ? <p className="ai-cap-hint">Đang dùng model của nhóm Chữ. Nhà cung cấp đọc được ảnh: {capable}.</p>
+          : <p className="ai-cap-hint">Nhà cung cấp nghe được âm thanh: {capable}. Model chat thường không nghe được.</p>)
+        : pickedKnown && !pickedCan
+          ? <p className="ai-model-warn">{picked.name} không {doing}. Chọn một trong: {capable}.</p>
+          : recommended && model !== recommended
+            ? <p className="ai-cap-hint">Gợi ý cho {picked.name}: <strong>{recommended.replace(/^models\//, '')}</strong> <button type="button" className="text-button" onClick={() => setDraft({ ...draft, [route.task]: { ...value, model: recommended } })}>Dùng model này</button></p>
+            : null
+    return (
+      <div className="ai-group-picker">
+        <label>Nhà cung cấp
+          <select aria-label={`Nhà cung cấp cho nhóm ${aiCapLabels[group.key]}`} value={value.provider_id} onChange={(event) => { loadModels(event.target.value); setDraft({ ...draft, [route.task]: { provider_id: event.target.value, model: '' } }) }}>
+            <option value="">{group.key === 'vision' ? 'Dùng model của nhóm Chữ' : 'Chọn nhà cung cấp'}</option>
+            {ordered.map((row) => <option key={row.id} value={row.id}>{providerOption(row, group.key)}</option>)}
+          </select>
+        </label>
+        <label>Model
+          <AiModelField key={`${group.key}-${value.provider_id}`} ariaLabel={`Model cho nhóm ${aiCapLabels[group.key]}`} value={value.model} options={listed} kind={kind} placeholder={value.provider_id ? 'Nhập mã model' : group.key === 'vision' ? 'Theo nhóm Chữ' : 'Chọn nhà cung cấp trước'} disabled={!value.provider_id} onChange={(model) => setDraft({ ...draft, [route.task]: { ...value, model } })} />
+        </label>
+        <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !model)} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? model : null })}>Lưu</button>
+        {capHint}
+        {otherJob && <p className="ai-model-warn">Model này làm việc khác (tạo ảnh, đọc thành tiếng hoặc embedding), không {group.key === 'vision' ? 'đọc ảnh' : 'nghe âm thanh'}. Nên chọn model chat thường của cùng nhà cung cấp{recommended ? `, ví dụ ${recommended.replace(/^models\//, '')}` : ''}.</p>}
+        {unlikely && <p className="ai-model-warn">Tên model này thường không {group.key === 'vision' ? 'đọc được ảnh' : 'nghe được âm thanh'}. Vẫn chọn được; bấm “{group.key === 'vision' ? 'Thử với ảnh mẫu' : 'Thử với âm thanh mẫu'}” sau khi lưu để chắc chắn.</p>}
+      </div>
+    )
+  }
+  const renderProbe = (group: AiGroup, route: AiRoute) => {
+    if (group.key === 'text') return null
+    const kind = group.key
+    const served = servedBy(group)
+    const dirty = Boolean(draft[route.task])
+    const note = probeNotes[kind]
+    const running = probe.isPending && probe.variables?.kind === kind
+    const lastCheck = route.checked_at && route.check_ok !== null
+      ? `Lần thử gần nhất ${new Date(route.checked_at).toLocaleString('vi-VN')}: ${route.check_ok ? 'đạt' : `chưa đạt (${aiProbeErrors[route.check_error || ''] || route.check_error})`}.`
+      : ''
+    return (
+      <div className="ai-group-probe">
+        <button type="button" className="button button-secondary" disabled={!served || dirty || running} title={!served ? (route.source === 'env' ? 'Khóa trong .env chưa thử được ở đây' : 'Chọn nhà cung cấp và model trước') : dirty ? 'Bấm Lưu trước rồi thử' : undefined} onClick={() => served && probe.mutate({ providerId: served.id, kind, model: served.model })}>
+          {running ? 'Đang thử…' : kind === 'vision' ? 'Thử với ảnh mẫu' : 'Thử với âm thanh mẫu'}
+        </button>
+        <span className="field-help">{kind === 'vision' ? 'Gửi một ảnh mẫu có số 482; đạt khi model đọc đúng số.' : 'Gửi 1,5 giây âm thanh mẫu; đạt khi nhà cung cấp nhận và trả về chữ.'}</span>
+        {note ? <p className={`status-note ${note.ok === false ? 'status-note-error' : 'status-note-ok'}`} role="status">{note.text}</p> : lastCheck && <p className="field-help">{lastCheck}</p>}
+      </div>
+    )
+  }
+  const renderGroup = (group: AiGroup) => {
+    const route = routeOf(group.task)
+    const state = states[group.key]
+    const parked = !group.required && state === 'off' && later[group.key]
+    const visionBlocked = group.key === 'vision' && state === 'off' && defaultRoute?.source !== 'none' && defaultRoute?.check_ok === false
+    const pill = state === 'ok' ? 'status-pill-ok' : state === 'warn' ? 'status-pill-warn' : parked ? 'status-pill-muted' : 'status-pill-error'
+    return (
+      <article className={`ai-group ai-group-${group.key} ai-group-${state}${parked ? ' ai-group-parked' : ''}`} key={group.key} aria-labelledby={`ai-group-${group.key}`}>
+        <header className="ai-group-head">
+          <h3 id={`ai-group-${group.key}`}><em className={`ai-cap ai-cap-${group.key}`}>{aiCapLabels[group.key]}</em> {group.title}</h3>
+          <span className={`status-pill ${pill}`}>{state === 'ok' && <Check size={12} aria-hidden="true" />} {stateLabel(group)}</span>
+        </header>
+        {parked ? (
+          <div className="ai-group-later">
+            <p className="field-help">Nếu bỏ qua: {group.skip}</p>
+            <button type="button" className="button button-secondary" onClick={() => setLaterFor(group.key, false)}>Thiết lập ngay</button>
+          </div>
+        ) : (
+          <>
+            <p className="ai-group-use">{group.use}</p>
+            <ul className="ai-group-flows">{group.flows.map((flow) => <li key={flow}>{flow}</li>)}</ul>
+            <p className="field-help">{group.required ? group.skip : `Nếu bỏ qua: ${group.skip}`}</p>
+            {visionBlocked && <p className="status-note status-note-error" role="status">Model nhóm Chữ ({shortModel(defaultRoute?.effective_model)}) không đọc được ảnh mẫu. Chọn nhà cung cấp và model khác cho nhóm Ảnh.</p>}
+            {group.key === 'stt' && state !== 'off' && !aiHost(rows.find((row) => row.name === route?.effective_provider)?.base_url || '').endsWith('elevenlabs.io') && <p className="field-help">Nhà cung cấp này ra chữ sau khi họp xong. Chỉ ElevenLabs hiện chữ ngay trong lúc họp.</p>}
+            {route ? renderGroupPicker(group, route) : <LoadingBlock />}
+            {route && renderProbe(group, route)}
+            {group.key === 'text' && textTaskRoutes.length > 0 && (
+              <details className="ai-group-advanced" open={textTaskRoutes.some((item) => item.source === 'route')}>
+                <summary>Nâng cao: model riêng cho từng việc <InfoTip label="Khi nào cần" text="Không bắt buộc. Việc chưa đặt riêng dùng model của nhóm Chữ. Việc đã đặt riêng chỉ gọi một model, không tự chuyển sang model khác khi lỗi." /></summary>
+                <div className="ai-list">{textTaskRoutes.map(renderRoute)}</div>
+              </details>
+            )}
+            {!group.required && state === 'off' && <p><button type="button" className="button button-secondary" onClick={() => setLaterFor(group.key, true)}>Để sau</button></p>}
+          </>
+        )}
+      </article>
+    )
+  }
+  const featureState = (needs: AiCap[]): { mark: string; tone: AiGroupState; text: string } => {
+    const off = needs.filter((key) => states[key] === 'off')
+    if (off.length > 0) return { mark: '✗', tone: 'off', text: `Thiếu nhóm ${off.map((key) => aiCapLabels[key]).join(', ')}` }
+    const warn = needs.filter((key) => states[key] === 'warn')
+    if (warn.length > 0) return { mark: '⚠', tone: 'warn', text: `Nên thử lại nhóm ${warn.map((key) => aiCapLabels[key]).join(', ')}` }
+    return { mark: '✓', tone: 'ok', text: 'Sẵn sàng' }
+  }
   return (
     <>
-      <SectionHeader title="AI" helper="Chọn nhà cung cấp, nhập khóa API rồi chọn model mặc định. Chỉ nhận API tương thích OpenAI. Khóa được mã hóa và không hiển thị lại." />
+      {!setupMode && <SectionHeader title="AI" helper="Nối nhà cung cấp rồi chọn model cho ba nhóm: Chữ, Ảnh, Giọng nói. Chỉ nhận API tương thích OpenAI. Khóa được mã hóa và không hiển thị lại." />}
       {error != null && <ErrorNotice error={error} onRetry={() => setError(undefined)} />}
+      <section className="panel ai-panel">
+        <div className="panel-heading"><div><h2>AI làm gì trong Intake</h2></div></div>
+        <div className="ai-flow" role="img" aria-label="Ảnh và PDF qua nhóm Ảnh, ghi âm họp qua nhóm Giọng nói, tin nhắn và email đi thẳng; tất cả về nhóm Chữ để thành yêu cầu, báo cáo, biên bản, bài viết.">
+          <div className="ai-flow-inputs">
+            <div className="ai-flow-row"><span className="ai-flow-src">Ảnh chụp, PDF</span><span className="ai-flow-arrow" aria-hidden="true">→</span><span className={`ai-flow-step ai-flow-${states.vision}`}>Ảnh</span></div>
+            <div className="ai-flow-row"><span className="ai-flow-src">Ghi âm họp</span><span className="ai-flow-arrow" aria-hidden="true">→</span><span className={`ai-flow-step ai-flow-${states.stt}`}>Giọng nói</span></div>
+            <div className="ai-flow-row"><span className="ai-flow-src">Tin nhắn, email, báo cáo</span><span className="ai-flow-arrow" aria-hidden="true">→</span><span className="ai-flow-direct">đi thẳng</span></div>
+          </div>
+          <span className="ai-flow-arrow ai-flow-join" aria-hidden="true">→</span>
+          <span className={`ai-flow-step ai-flow-main ai-flow-${states.text}`}>Chữ</span>
+          <span className="ai-flow-arrow ai-flow-join" aria-hidden="true">→</span>
+          <ul className="ai-flow-out"><li>Yêu cầu chuẩn hóa</li><li>Báo cáo ngày</li><li>Biên bản họp</li><li>Bài viết</li></ul>
+        </div>
+        <p className="field-help">Mọi thứ khách gửi đều về nhóm Chữ. Nhóm Ảnh và nhóm Giọng nói chỉ đổi ảnh và âm thanh thành chữ trước. Chỉ nhóm Chữ là bắt buộc; một nhà cung cấp như Gemini hay OpenAI lo được cả ba nhóm.</p>
+      </section>
       <section className="panel ai-panel">
         <div className="panel-heading"><div><h2>Nhà cung cấp</h2></div></div>
         {providers.isLoading ? <LoadingBlock /> : providers.error ? <ErrorNotice error={providers.error} onRetry={() => { void providers.refetch() }} /> : (
@@ -9375,15 +10016,16 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
             {rows.map((row) => (
               <div className="ai-provider" key={row.id}>
                 <div>
-                  <strong>{row.name}</strong> <span className="field-help">{row.base_url}</span>
+                  <strong>{row.name}</strong> <AiCaps caps={rowCaps(row)} /> {row.enabled && row.last_test_ok && <span className="status-pill status-pill-ok"><Check size={12} aria-hidden="true" /> Đã kết nối</span>} {defaultRoute?.provider_id === row.id && defaultRoute.source !== 'none' && <span className="status-pill status-pill-ok">Đang dùng mặc định{defaultRoute.effective_model ? ` · ${defaultRoute.effective_model}` : ''}</span>} <span className="field-help">{row.base_url}</span>
                   <div className="field-help">
                     {row.key_ok ? `Khóa …${row.key_hint}` : 'Không đọc được khóa đã lưu, hãy nhập lại'}
                     {row.last_test_at && ` · lần thử gần nhất: ${row.last_test_ok ? 'đạt' : aiTestErrors[row.last_test_error || ''] || row.last_test_error}`}
                     {!row.enabled && ' · đang tắt'}
                   </div>
-                  {notes[row.id] && <div className="field-help" role="status">{notes[row.id]}</div>}
+                  {notes[row.id] && <div className={`status-note ${notes[row.id].startsWith('Không') ? 'status-note-error' : 'status-note-ok'}`} role="status">{notes[row.id]}</div>}
                 </div>
                 <div className="ai-actions">
+                  {setupMode && ready && row.enabled && row.last_test_ok && defaultRoute?.provider_id !== row.id && <button className="button button-primary" disabled={makeDefault.isPending} onClick={() => makeDefault.mutate(row)}>Dùng làm mặc định</button>}
                   <button className="button button-secondary" disabled={test.isPending} onClick={() => test.mutate(row.id)}>Kiểm tra và tải model</button>
                   <button className="button button-secondary" onClick={() => patch.mutate({ id: row.id, body: { enabled: !row.enabled } })}>{row.enabled ? 'Tắt' : 'Bật'}</button>
                   <button className="button button-secondary" onClick={() => { const key = window.prompt('Nhập khóa mới'); if (key) patch.mutate({ id: row.id, body: { api_key: key } }) }}>Đổi khóa</button>
@@ -9394,39 +10036,99 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
           </div>
         )}
         <h3>Thêm nhà cung cấp</h3>
-        <div className="form-grid two-col">
-          <label>Loại
-            <select value={preset} onChange={(event) => choose(Number(event.target.value))}>
-              {aiPresets.map((item, index) => <option key={item.label} value={index}>{item.label}</option>)}
-            </select>
-          </label>
-          <label>Tên (tối đa 32 ký tự)
-            <input value={form.name} maxLength={32} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          </label>
-          <label>Địa chỉ API (base URL)
-            <input value={form.base_url} placeholder="https://…/v1" onChange={(event) => setForm({ ...form, base_url: event.target.value })} />
-          </label>
-          <label>Khóa API
-            <input type="password" autoComplete="off" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} />
-          </label>
-        </div>
-        <p><button className="button button-primary" disabled={add.isPending || !form.name.trim() || !form.base_url.trim() || !form.api_key.trim()} onClick={() => add.mutate()}>{add.isPending ? 'Đang thêm…' : 'Thêm và tải model'}</button></p>
-      </section>
-      <section className="panel ai-panel">
-        <div className="panel-heading"><div><h2>Model theo tác vụ</h2></div></div>
-        {routes.isLoading ? <LoadingBlock /> : routes.error ? <ErrorNotice error={routes.error} onRetry={() => { void routes.refetch() }} /> : (
+        {setupMode && !showCards && <p><button type="button" className="button button-secondary" onClick={() => setAddingMore(true)}>Thêm nhà cung cấp khác</button></p>}
+        {setupMode && showCards && (
           <>
-            <div className="ai-list">{defaultRoute && renderRoute(defaultRoute)}</div>
-            {setupMode ? (
-              <details className="ai-route-advanced">
-                <summary>Cấu hình nâng cao: chọn model riêng cho từng tác vụ</summary>
-                <p className="field-help">Không bắt buộc. Chỉ mở phần này khi một tác vụ cần model khác với model mặc định.</p>
-                <div className="ai-list">{taskRoutes.map(renderRoute)}</div>
-              </details>
-            ) : <div className="ai-list ai-task-routes">{taskRoutes.map(renderRoute)}</div>}
+            <div className="ai-cards" role="radiogroup" aria-label="Chọn nhà cung cấp AI">
+              {cards.map(({ item, index }) => {
+                const existing = connectedRow(item.base_url)
+                return (
+                <button type="button" role="radio" aria-checked={!advanced && preset === index} key={item.name} className={`ai-card ${!advanced && preset === index ? 'selected' : ''}`} onClick={() => {
+                  if (existing) { const key = window.prompt(`${item.label} đã được nối. Nhập khóa mới để thay khóa cũ`); if (key) patch.mutate({ id: existing.id, body: { api_key: key } }); return }
+                  setAdvanced(false); choose(index); setConnectNote('')
+                }}>
+                  <strong>{item.label}{existing && <span className="status-pill status-pill-ok"><Check size={12} aria-hidden="true" /> Đã nối · bấm để đổi khóa</span>}</strong>
+                  <span>{item.card?.blurb}</span>
+                  <AiCaps caps={item.caps} />
+                  {item.card?.free && <em>Có gói miễn phí</em>}
+                </button>
+                )
+              })}
+              <button type="button" role="radio" aria-checked={advanced} className={`ai-card ${advanced ? 'selected' : ''}`} onClick={() => { setAdvanced(true); choose(aiPresets.findIndex((item) => !item.card)); setConnectNote('') }}>
+                <strong>Khác</strong>
+                <span>UModelVerse, DeepSeek, Ollama hoặc địa chỉ tự nhập.</span>
+              </button>
+            </div>
+            {selectedCard?.card && !advanced && (
+              <div className="ai-card-form">
+                <label>Khóa API {selectedCard.label}
+                  <input type="password" autoComplete="off" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} />
+                </label>
+                <div className="ai-card-actions">
+                  <a className="button button-secondary" href={selectedCard.card.key_url} target="_blank" rel="noreferrer">{selectedCard.card.free ? 'Lấy khóa miễn phí' : 'Lấy khóa API'}</a>
+                  <button className="button button-primary" disabled={connect.isPending || !form.api_key.trim()} onClick={() => connect.mutate()}>{connect.isPending ? 'Đang kết nối…' : 'Kết nối'}</button>
+                </div>
+                {selectedCard.card.free && <p className="field-help">{aiFreeWarning} Xem hạn mức tại trang nhà cung cấp.</p>}
+                {selectedCard.card.note && <p className="field-help">{selectedCard.card.note}</p>}
+              </div>
+            )}
+            {connectNote && <p className={`status-note ${connectNote.startsWith('Đã kết nối') ? 'status-note-ok' : 'status-note-error'}`} role="status">{connectNote}</p>}
           </>
         )}
-        <p className="field-help ai-routing-help">Các tác vụ chưa đặt riêng sẽ tự dùng model mặc định. Tác vụ đã đặt riêng chỉ gọi một model, không tự chuyển sang model khác khi lỗi.</p>
+        {(!setupMode || advanced) && (
+          <>
+            <div className="form-grid two-col">
+              <label>Loại
+                <select value={preset} onChange={(event) => choose(Number(event.target.value))}>
+                  {/* In the first-run page the cards already cover the presets that have one. */}
+                  {aiPresets.map((item, index) => ({ item, index })).filter(({ item }) => !setupMode || !item.card).map(({ item, index }) => <option key={item.label} value={index}>{item.label}{aiKeyInfo(item)?.free ? ' · có gói miễn phí' : ''}</option>)}
+                </select>
+              </label>
+              <label>Tên (tối đa 32 ký tự)
+                <input value={form.name} maxLength={32} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+              </label>
+              <label>Địa chỉ API (base URL)
+                <input value={form.base_url} placeholder="https://…/v1" onChange={(event) => setForm({ ...form, base_url: event.target.value })} />
+              </label>
+              <label>Khóa API
+                <input type="password" autoComplete="off" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} />
+                {(() => {
+                  const info = aiKeyInfo(aiPresets[preset])
+                  if (!info) return <small className="field-help">Lấy khóa ở trang quản lý của nhà cung cấp bạn chọn.</small>
+                  return (
+                    <span className="key-link-row">
+                      <a className="button button-secondary" href={info.url} target="_blank" rel="noreferrer">{info.free ? 'Lấy khóa miễn phí' : 'Lấy khóa API'} {aiPresets[preset].label.split(' (')[0]} ↗</a>
+                      <small className="field-help">{info.note}{info.free && ` ${aiFreeWarning}`}</small>
+                    </span>
+                  )
+                })()}
+              </label>
+            </div>
+            <p><button className="button button-primary" disabled={add.isPending || !form.name.trim() || !form.base_url.trim() || !form.api_key.trim()} onClick={() => add.mutate()}>{add.isPending ? 'Đang thêm…' : 'Thêm và tải model'}</button></p>
+          </>
+        )}
+      </section>
+      <section className="panel ai-panel">
+        <div className="panel-heading"><div><h2>Cấu hình 3 nhóm model xử lý công việc</h2></div></div>
+        {routes.isLoading ? <LoadingBlock /> : routes.error ? <ErrorNotice error={routes.error} onRetry={() => { void routes.refetch() }} /> : (
+          <>
+            <div className="ai-groups">{aiGroups.map(renderGroup)}</div>
+            <h3>Tính năng sẵn sàng</h3>
+            <ul className="ai-ready" aria-label="Tính năng sẵn sàng">
+              {aiFeatures.map((feature) => {
+                const status = featureState(feature.needs)
+                return (
+                  <li key={feature.label} className={`ai-ready-${status.tone}`}>
+                    <span className="ai-ready-mark" aria-hidden="true">{status.mark}</span>
+                    <span className="ai-ready-label">{feature.label}</span>
+                    <span className="ai-ready-needs">{feature.needs.map((key) => aiCapLabels[key]).join(' + ')}</span>
+                    <span className="ai-ready-status">{status.text}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
       </section>
     </>
   )
@@ -9830,6 +10532,78 @@ function MembersSettings() {
   )
 }
 
+function ShowcaseList() {
+  const queryClient = useQueryClient()
+  const [error, setError] = useState<unknown>()
+  const catalog = useQuery({ queryKey: ['showcase'], queryFn: () => api<ShowcaseCatalog>('/showcase') })
+  const refresh = (next: ShowcaseCatalog) => { queryClient.setQueryData(['showcase'], next); void queryClient.invalidateQueries({ queryKey: ['projects'] }); void queryClient.invalidateQueries({ queryKey: ['setup'] }) }
+  const toggle = useMutation({ mutationFn: (vars: { key: string; enabled: boolean }) => api<ShowcaseCatalog>(`/showcase/${vars.key}`, { method: 'PUT', body: JSON.stringify({ enabled: vars.enabled }) }), onSuccess: (next) => { setError(undefined); refresh(next) }, onError: setError })
+  const removeSamples = useMutation({ mutationFn: (key: string) => api<{ removed: number }>(`/showcase/${key}/samples`, { method: 'DELETE' }), onSuccess: () => { setError(undefined); void catalog.refetch() }, onError: setError })
+  if (catalog.isLoading) return <LoadingBlock />
+  const data = catalog.data
+  if (!data || data.items.length === 0) return null
+  const groups = Object.keys(data.groups).filter((group) => data.items.some((item) => item.group === group))
+  const orphans = data.items.filter((item) => !item.in_catalog)
+  const card = (item: ShowcaseItem) => (
+    <article key={item.key} className="showcase-card">
+      <div>
+        <h3>{item.name} <span className="status-pill">{item.kind === 'demo' ? 'Mẫu' : 'Open source của tác giả'}</span>{item.state === 'archived' && <span className="status-pill">Đã lưu trữ</span>}{!item.in_catalog && <span className="status-pill">Không còn trong danh mục</span>}</h3>
+        {item.summary && <p>{item.summary}</p>}
+        <div className="showcase-meta">
+          {item.repo_url && <a href={item.repo_url} target="_blank" rel="noreferrer">Xem repo <ArrowUpRight size={12} /></a>}
+          {item.languages.length > 0 && <span>{item.languages.join(', ')}</span>}
+          {item.license && <span>{item.license}</span>}
+        </div>
+        {item.kind === 'demo' && <p className="field-help">Dữ liệu hư cấu, không gửi gì ra ngoài.</p>}
+      </div>
+      <div className="showcase-actions">
+        <label className="check-row"><input type="checkbox" checked={item.state === 'on'} disabled={toggle.isPending} onChange={(event) => toggle.mutate({ key: item.key, enabled: event.target.checked })} /> {item.state === 'on' ? 'Đang bật' : 'Bật'}</label>
+        {item.sample_requests > 0 && <button type="button" className="button button-secondary" disabled={removeSamples.isPending} onClick={() => removeSamples.mutate(item.key)}>Xóa {item.sample_requests} yêu cầu thử</button>}
+        {item.state === 'on' && item.kind === 'real' && item.project_code && <Link to={`/intakes?project=${item.project_code}`}>Mở dự án</Link>}
+      </div>
+    </article>
+  )
+  return (
+    <div className="showcase-list">
+      {error != null && <ErrorNotice error={error} onRetry={() => setError(undefined)} />}
+      {groups.map((group) => <section key={group}><h3 className="showcase-group">{data.groups[group]}</h3>{data.items.filter((item) => item.group === group).map(card)}</section>)}
+      {orphans.length > 0 && <section><h3 className="showcase-group">Không còn trong danh mục</h3>{orphans.map(card)}</section>}
+      <p className="field-help">Tắt chỉ lưu trữ dự án và giữ nguyên dữ liệu; bật lại là khôi phục đúng dự án đó.</p>
+    </div>
+  )
+}
+
+function GithubTokenPanel() {
+  const queryClient = useQueryClient()
+  const [label, setLabel] = useState('')
+  const [value, setValue] = useState('')
+  const [error, setError] = useState<unknown>()
+  const rows = useQuery({ queryKey: ['github-tokens'], queryFn: () => api<GithubTokenRow[]>('/integrations/github-tokens') })
+  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['github-tokens'] }); void queryClient.invalidateQueries({ queryKey: ['github-token-names'] }) }
+  const save = useMutation({ mutationFn: () => api<GithubTokenRow>('/integrations/github-tokens', { method: 'PUT', body: JSON.stringify({ label: label.trim(), token: value.trim() }) }), onSuccess: () => { setError(undefined); setLabel(''); setValue(''); refresh() }, onError: setError })
+  const remove = useMutation({ mutationFn: (name: string) => api<void>(`/integrations/github-tokens/${name}`, { method: 'DELETE' }), onSuccess: () => { setError(undefined); refresh() }, onError: setError })
+  return (
+    <div className="github-tokens">
+      {error != null && <ErrorNotice error={error} onRetry={() => setError(undefined)} />}
+      {rows.isLoading ? <LoadingBlock /> : (
+        <ul className="github-token-list">
+          {(rows.data || []).map((row) => (
+            <li key={row.name}><code>{row.name}</code> <small>kết thúc …{row.key_hint}{row.used_by_projects > 0 ? `, ${row.used_by_projects} dự án đang dùng` : ''}</small>
+              <button type="button" className="button button-secondary button-small" disabled={remove.isPending} onClick={() => remove.mutate(row.name)}><Trash2 size={13} /> Xóa</button></li>
+          ))}
+          {(rows.data || []).length === 0 && <li><small>Chưa có token nào lưu ở đây. Token đặt trong .env.github trên máy chủ vẫn dùng được.</small></li>}
+        </ul>
+      )}
+      <form className="github-token-form" onSubmit={(event) => { event.preventDefault(); if (label.trim() && value.trim()) save.mutate() }}>
+        <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Tên gợi nhớ, ví dụ Khách A" aria-label="Tên token" />
+        <input type="password" autoComplete="off" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Dán token GitHub" aria-label="Token GitHub" />
+        <button type="submit" className="button button-primary" disabled={save.isPending || !label.trim() || !value.trim()}>{save.isPending ? 'Đang lưu…' : 'Lưu token'}</button>
+      </form>
+      <p className="field-help">Token được mã hóa khi lưu và chỉ hiện 4 ký tự cuối; không đọc lại được. Cùng tên với token trong .env.github thì token lưu ở đây được dùng trước.</p>
+    </div>
+  )
+}
+
 function ProjectsPage() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
   const link = (label: string, id: string | null, url: string | null, enabled: boolean) => (
@@ -9859,6 +10633,16 @@ function ProjectsPage() {
           </table>
         </section>
       )}
+      {useAuth().user?.role === 'CTO' && (
+        <section className="panel">
+          <SectionHeader title="Token GitHub" helper="Mỗi khách một token riêng để Intake tạo Issue vào repo của khách. Thêm ở đây thay vì sửa file trên máy chủ." />
+          <GithubTokenPanel />
+        </section>
+      )}
+      <section className="panel">
+        <SectionHeader title="Dự án mẫu và open source" helper="Bật để thêm vào Intake một dự án mẫu hoặc dự án open source của tác giả. Tắt chỉ lưu trữ, dữ liệu được giữ." />
+        <ShowcaseList />
+      </section>
     </>
   )
 }
@@ -9933,7 +10717,7 @@ function AccountPage() {
 
       <section className="panel account-section">
         <header>
-          <div><h3>Mật khẩu</h3><p>Dùng để đăng nhập. Tối thiểu 12 ký tự.</p></div>
+          <div><h3>Mật khẩu</h3><p>Dùng để đăng nhập. Tối thiểu 8 ký tự.</p></div>
           {open !== 'password' && <button className="button button-secondary" type="button" onClick={() => { setOpen('password'); setPasswordChanged(false) }}>Đổi mật khẩu</button>}
         </header>
         {passwordChanged && open !== 'password' && <p className="notice notice-success" role="status">Đã đổi mật khẩu.</p>}
@@ -10147,49 +10931,47 @@ function PageIntro({ k }: { k: PageIntroKey }) {
   )
 }
 
-// One screen for a new person: every page introduction and every hint, by page; the CTO also sees the week's counts.
 function GuidePage() {
   const { user } = useAuth()
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const isCto = user?.role === 'CTO'
   const stats = useQuery({ queryKey: ['hint-stats'], queryFn: () => api<{ days: number; opened: { key: string; opens: number; people: number }[]; dismissed: { key: string; people: number }[] }>('/hints/stats?days=7'), enabled: isCto })
   const read = useQuery({ queryKey: ['hints'], queryFn: () => api<{ dismissed: string[] }>('/hints') })
   const reopen = useMutation({ mutationFn: (key: string) => api<void>(`/hints/${key}/dismiss`, { method: 'DELETE' }), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['hints'] }) } })
   const opens = new Map((stats.data?.opened || []).map((row) => [row.key, row]))
-  const marketing = user?.mode === 'MARKETING'
-  const pages = marketing ? [...Object.keys(POST_HINT_PAGES), 'account'] : [...Object.keys(HINT_PAGES), ...Object.keys(POST_HINT_PAGES)]
-  const pageNames: Record<string, string> = { ...HINT_PAGES, ...POST_HINT_PAGES }
-  useEffect(() => {
-    const target = window.location.hash.slice(1)
-    if (target) document.getElementById(`guide-${target}`)?.scrollIntoView({ block: 'center' })
-  }, [])
+  const ctoSection = isCto ? <section className="panel guide-section guide-open-source" id="guide-open-source">
+    <div className="panel-heading"><div><h2>Phương án phát hành mã nguồn mở</h2><p>Đích đề xuất: một repo GitHub sạch, tự cài được và không mang theo lịch sử hoặc cấu hình vận hành riêng.</p></div><span className="guide-status is-ready">Khuyến nghị</span></div>
+    <div className="guide-release-grid">
+      <article><span>01</span><h3>Giấy phép rõ ràng</h3><p>Dùng Apache-2.0 dưới tổ chức ZiniSoft. README Anh - Việt nêu rõ trạng thái pilot, phạm vi hỗ trợ và nguyên tắc AI chỉ đề xuất.</p></article>
+      <article><span>02</span><h3>Tách public và ops</h3><p>Repo public chứa sản phẩm, tài liệu cài đặt và một migration baseline. Repo private giữ môi trường, hạ tầng, tài liệu nội bộ và dữ liệu vận hành.</p></article>
+      <article><span>03</span><h3>Lịch sử mới sạch</h3><p>Sinh cây public bằng script xuất, khởi tạo một lịch sử Git mới và không lọc rồi công khai lịch sử private hiện tại.</p></article>
+      <article><span>04</span><h3>Cổng phát hành bắt buộc</h3><p>Quét secret và tên nội bộ, chạy test backend, kiểm kiểu frontend, cài mới bằng Docker và thử walkthrough với dữ liệu hư cấu.</p></article>
+    </div>
+    <div className="guide-release-callout">
+      <strong>Trang công khai</strong>
+      <p>Người chưa đăng nhập mở <a href="/huong-dan?lang=en">/huong-dan</a> sẽ thấy bản hướng dẫn công khai (không có số liệu, nút mở trang hay phần này). Bản tĩnh cùng nội dung được dựng lên GitHub Pages của repo public.</p>
+    </div>
+  </section> : undefined
   return (
     <>
-      <PageHeader title="Hướng dẫn nhanh" description="Mỗi trang để làm gì, mỗi nút nghĩa là gì. Dấu ⓘ cạnh một nhãn trong app mở đúng lời giải thích ở đây." />
-      {pages.map((page) => {
-        const intro = ALL_INTROS[page]
-        const rows = (Object.keys(ALL_HINTS) as HintKey[]).filter((key) => ALL_HINTS[key].page === page)
-        const dismissed = read.data?.dismissed.includes(`page.${page}`)
-        return (
-          <section className="panel guide-page" key={page} id={`guide-page-${page}`}>
-            <div className="panel-heading"><div><h2>{pageNames[page]}</h2><p>{intro.title}</p></div>
-              {dismissed && <button type="button" className="text-button" disabled={reopen.isPending} onClick={() => reopen.mutate(`page.${page}`)}>Hiện lại lời giới thiệu trên trang</button>}</div>
-            <ul className="guide-intro">{intro.lines.map((line) => <li key={line}>{line}</li>)}</ul>
-            <dl className="guide-hints">
-              {rows.map((key) => (
-                <div key={key} id={`guide-${key}`}>
-                  <dt>{ALL_HINTS[key].label}{isCto && opens.has(key) && <small> · mở {opens.get(key)!.opens} lần, {opens.get(key)!.people} người, 7 ngày</small>}</dt>
-                  <dd><strong>{ALL_HINTS[key].what}</strong> {ALL_HINTS[key].do}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        )
-      })}
+      <PageHeader title={text('Hướng dẫn sử dụng Intake', 'Intake user guide')} description={text('Hiểu vòng đời một yêu cầu, bắt đầu đúng theo vai trò và tra cứu từng trang, từng nút trong hệ thống.', 'Understand the life of a request, start in the right place for your role and look up every page and button.')} />
+      <GuideContent app={{
+        role: user?.role || '',
+        isCto,
+        marketing: user?.mode === 'MARKETING',
+        opens,
+        dismissed: read.data?.dismissed || [],
+        onReopen: (key) => reopen.mutate(key),
+        reopenBusy: reopen.isPending,
+        ctoSection,
+        ctoNav: isCto ? { href: '#guide-open-source', label: 'Mã nguồn mở' } : undefined,
+      }} />
       {isCto && stats.data && <p className="field-help">Số lượt mở tính trong {stats.data.days} ngày, từ lịch sử "hint.opened". Hint không ai mở sau vài tuần là hint có thể bỏ; hint mở nhiều là chỗ giao diện chưa tự nói được.</p>}
     </>
   )
 }
+
 
 // --- Work tracked inside Intake: the board, a card's detail and discussion, the way to an Issue (FR-WRK-01..05, ADR-0066) ---
 
@@ -10548,6 +11330,7 @@ const letterOf = (index: number) => String.fromCharCode(65 + index)
 
 // The block above the week: what the watched sources are talking about, scored by rule and summed up by AI; the owner picks.
 function HotTopicsBlock({ projectId, decides, onOpenTopic, onOpenWork }: { projectId: string; decides: boolean; onOpenTopic: (id: string) => void; onOpenWork: (id: string) => void }) {
+  const aiMissing = useAiMissing()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(() => { try { return localStorage.getItem('hot-topics-open') !== '0' } catch { return true } })
   // After "Làm mới" the list is asked again every few seconds until a new build lands.
@@ -10580,7 +11363,7 @@ function HotTopicsBlock({ projectId, decides, onOpenTopic, onOpenWork }: { proje
       <div className="hot-topics-head">
         <div><h2>{POST_WORDS.hotTopics} <Hint k="week.hot_topics" /></h2><p className="muted">{POST_WORDS.keptThisWeek(data.kept_this_week)}{data.built_at ? ` · cập nhật ${formatMoment(data.built_at)}` : ' · chưa chạy lần nào'} · AI chạy lúc {data.schedule.times.join(', ')}</p></div>
         <div className="hot-topics-actions">
-          {decides && <span className="with-hint"><button type="button" className="button button-secondary button-small" disabled={waiting || data.refresh_left === 0 || rebuild.isPending} onClick={() => rebuild.mutate()}>{waiting ? <><span className="spinner" aria-hidden="true" /> AI đang tóm…</> : <><RefreshCw size={13} aria-hidden="true" /> {POST_WORDS.refreshTopics} (còn {data.refresh_left})</>}</button><Hint k="week.refresh_topics" /></span>}
+          {decides && <span className="with-hint"><button type="button" className="button button-secondary button-small" disabled={waiting || data.refresh_left === 0 || rebuild.isPending || aiMissing} title={aiMissing ? 'Chưa nối khóa AI' : undefined} onClick={() => rebuild.mutate()}>{waiting ? <><span className="spinner" aria-hidden="true" /> AI đang tóm…</> : <><RefreshCw size={13} aria-hidden="true" /> {POST_WORDS.refreshTopics} (còn {data.refresh_left})</>}</button><Hint k="week.refresh_topics" /></span>}
           <button type="button" className="text-button" onClick={toggle}>{open ? 'Thu gọn' : `Mở (${fresh.length})`}</button>
         </div>
       </div>
@@ -10662,6 +11445,7 @@ const EMPTY_PILLAR: Pillar = { name: '', description: '', audience: '', channels
 
 // The pillars as the owner writes them: the frame every AI run reads (FR-MKT-08).
 function PillarsEditor({ code, decides }: { code: string; decides: boolean }) {
+  const aiMissing = useAiMissing()
   const queryClient = useQueryClient()
   const base = `/projects/${code}/watch`
   const pillars = useQuery({ queryKey: ['watch-pillars', code], queryFn: () => api<Pillar[]>(`${base}/pillars`) })
@@ -10701,7 +11485,7 @@ function PillarsEditor({ code, decides }: { code: string; decides: boolean }) {
       <div className="panel-heading">
         <div><h2>{POST_WORDS.pillars} <Hint k="sources.pillars" /></h2><p className="muted">{list.length}/6 trụ · tổng tỉ lệ {total}%</p></div>
         {decides && <div className="rhythm-actions">
-          <button type="button" className="button button-secondary button-small" disabled={thinking || list.length === 0 || dirty} title={dirty ? 'Lưu trụ trước' : undefined} onClick={() => suggest.mutate()}>{thinking ? <><span className="spinner" aria-hidden="true" /> AI đang gợi ý…</> : <><Sparkles size={14} aria-hidden="true" /> AI gợi ý từ khóa</>}</button>
+          <button type="button" className="button button-secondary button-small" disabled={thinking || list.length === 0 || dirty || aiMissing} title={dirty ? 'Lưu trụ trước' : undefined} onClick={() => suggest.mutate()}>{thinking ? <><span className="spinner" aria-hidden="true" /> AI đang gợi ý…</> : <><Sparkles size={14} aria-hidden="true" /> AI gợi ý từ khóa</>}</button>
           <button type="button" className="button button-primary button-small" disabled={!dirty || save.isPending} onClick={() => save.mutate(list)}>{save.isPending ? 'Đang lưu…' : saved && !dirty ? 'Đã lưu' : 'Lưu trụ'}</button>
         </div>}
       </div>
@@ -11565,7 +12349,8 @@ function WorkDetailPanel({ workId, decides, members, onChanged, onDone, onOpen, 
   if (detail.error != null || !row) return <ErrorNotice error={detail.error || new Error('Không tìm thấy việc')} onRetry={() => { void detail.refetch() }} />
   const closed = row.status === 'DONE' || row.status === 'CANCELLED'
   const mine = Boolean(user?.member_id) && row.member_id === user?.member_id
-  const canIssue = decides && row.project_kind === 'SOFTWARE' && !closed && !row.issue_pending && row.outcome !== 'ISSUE'
+  const issueOpen = decides && row.project_kind === 'SOFTWARE' && !closed && !row.issue_pending && row.outcome !== 'ISSUE'
+  const canIssue = issueOpen && row.has_delivery !== false
   return (
     <div className="work-detail">
       <div className="work-detail-head">
@@ -11636,6 +12421,7 @@ function WorkDetailPanel({ workId, decides, members, onChanged, onDone, onOpen, 
             {postMode ? <PostActions row={row} decides={decides} mine={mine} onMove={(status) => requestMove(row, status)} />
               : row.outcome !== 'ISSUE' && <label><span>Cột <Hint k="work.column_pick" /></span><select value={row.status} disabled={move.isPending} onChange={(event) => requestMove(row, event.target.value as WorkItemStatus)}>{workColumns.map((column) => <option key={column.value} value={column.value}>{column.label}</option>)}</select></label>}
             {decides && !closed && <button type="button" className="button button-secondary button-small" onClick={startEdit}><Pencil size={14} /> Sửa</button>}
+            {!postMode && issueOpen && !canIssue && <span className="with-hint"><button type="button" className="button button-secondary button-small" disabled title="Dự án này chưa nối GitHub hay GitLab"><ArrowUpRight size={14} /> Tạo Issue</button><small className="field-help">Dự án chưa nối nơi nhận Issue. CTO thêm token và repo ở trang Dự án (mục Token GitHub) rồi nối trong Cài đặt dự án.</small></span>}
             {!postMode && canIssue && <span className="with-hint"><button type="button" className="button button-secondary button-small" onClick={() => setAskingIssue(true)}><ArrowUpRight size={14} /> Tạo Issue</button><Hint k="work.issue" /></span>}
           </div>
         </>

@@ -3153,6 +3153,7 @@ class WorkOut(BaseModel):
     project_code: str | None = None
     project_name: str | None = None
     project_kind: str | None = None
+    has_delivery: bool = False
     title: str
     description: str = ""
     status: WorkStatus
@@ -3212,6 +3213,9 @@ class SetupStateOut(BaseModel):
     # The first-run wizard (ADR-0071): `wizard` is the installer's flag, `ai_ready` says a route reaches an enabled provider.
     wizard: bool = False
     ai_ready: bool = False
+    # The fictional demo project (FR-SETUP-11): loaded already / bundled with this build.
+    has_demo: bool = False
+    demo_available: bool = False
 
 
 class SetupStatusOut(BaseModel):
@@ -3277,3 +3281,21 @@ class AiRouteOut(BaseModel):
     source: str
     effective_provider: str | None = None
     effective_model: str | None = None
+    # The sample check of the model that serves the row (None = not tried yet): picture for `default` and `vision`,
+    # sound for `stt`; always None for the other rows.
+    check_ok: bool | None = None
+    check_error: str | None = None
+    checked_at: datetime | None = None
+
+
+class AiProbeIn(BaseModel):
+    kind: str = Field(pattern="^(vision|stt)$")
+    model: str = Field(min_length=1, max_length=128)
+
+
+class AiProbeOut(BaseModel):
+    kind: str
+    model: str
+    ok: bool
+    error: str | None = None
+    checked_at: datetime

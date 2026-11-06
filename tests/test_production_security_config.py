@@ -29,7 +29,7 @@ VALID_PRODUCTION = {
         ({"secret_key": "x" * 64}, "SECRET_KEY"),
         ({"cto_initial_password": ""}, "CTO_INITIAL_PASSWORD"),
         ({"cto_initial_password": "dev-cto-password"}, "CTO_INITIAL_PASSWORD"),
-        ({"cto_initial_password": "too-short"}, "CTO_INITIAL_PASSWORD"),
+        ({"cto_initial_password": "short"}, "CTO_INITIAL_PASSWORD"),
         ({"cookie_secure": False}, "COOKIE_SECURE"),
         ({"project_owner_initial_password": "dev-owner-password"}, "PROJECT_OWNER_INITIAL_PASSWORD"),
         ({"project_owner_initial_password": "change-me-owner-password"}, "PROJECT_OWNER_INITIAL_PASSWORD"),

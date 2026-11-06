@@ -1,10 +1,12 @@
 {
   "compilerOptions": {
     "noEmit": true,
+    "target": "ES2022",
+    "lib": ["ES2022"],
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "vite.guide.config.ts"]
 }

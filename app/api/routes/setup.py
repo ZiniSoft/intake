@@ -23,12 +23,21 @@ async def load_private_sample(context: AuthContext = Depends(require_cto)) -> Se
     return SetupStateOut.model_validate(setup_service.state())
 
 
-@router.post("/complete", response_model=SetupStateOut, openapi_extra={"x-requirement-ids": ["FR-SETUP-03"]})
+@router.post("/demo-project", response_model=SetupStateOut, openapi_extra={"x-requirement-ids": ["FR-SETUP-11"]})
+async def load_demo_project(context: AuthContext = Depends(require_cto)) -> SetupStateOut:
+    try:
+        setup_service.load_demo_project(context.user_id)
+    except SetupError as error:
+        raise api_exception(status.HTTP_422_UNPROCESSABLE_ENTITY, error.code, error.message) from error
+    return SetupStateOut.model_validate(setup_service.state())
+
+
+@router.post("/complete",response_model=SetupStateOut, openapi_extra={"x-requirement-ids": ["FR-SETUP-03"]})
 async def complete_setup(context: AuthContext = Depends(require_cto)) -> SetupStateOut:
     try:
         return SetupStateOut.model_validate(setup_service.complete(context.user_id))
     except SetupError as error:
-        raise api_exception(status.HTTP_422_UNPROCESSABLE_ENTITY, error.code, error.message) from error
+        raise api_exception(status.HTTP_422_UNPROCESSABLE_ENTITY, error.code, error.message) from error
 
 
 @router.get("/status", response_model=SetupStatusOut, openapi_extra={"x-requirement-ids": ["FR-SETUP-05"]})

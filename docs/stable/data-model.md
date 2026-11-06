@@ -444,6 +444,20 @@ Một dòng cho mỗi lượt nói: `meeting_id`, thứ tự, nguồn (`REALTIME
 
 Thuật ngữ nạp cho chuyển chữ: `term` (tối đa 50 ký tự), `project_id` nullable (null là thuật ngữ chung), `created_at`; duy nhất theo phạm vi + thuật ngữ.
 
+## 9B. Khởi động lần đầu và token GitHub (ADR-0071, ADR-0075, ADR-0076)
+
+### 9B.1 `showcase_enabled` (064)
+
+Mục danh mục dự án mẫu và open source mà CTO đã bật (FR-SETUP-15): `item_key` (khóa chính), `project_id` (dự án đã tạo, xóa theo dự án), `catalog_version`, `enabled_by`, `enabled_at`. Tắt chỉ chuyển dự án sang `INACTIVE` và giữ dòng này để bật lại khôi phục đúng dự án.
+
+### 9B.2 `github_tokens` (065)
+
+Token GitHub của khách do CTO thêm trên màn hình (FR-INTG-21): `name` (khóa chính, dạng `GITHUB_TOKEN_<TÊN>`), `token_enc` (mã hóa như khóa AI), `key_hint` (4 ký tự cuối), `updated_by`, `created_at`, `updated_at`. `credential_ref` của dự án trỏ tới dòng này hoặc biến môi trường cùng tên; dòng trong CSDL được dùng trước.
+
+### 9B.3 Tác vụ AI `stt` (063)
+
+Ràng buộc CHECK của `ai_routes.task` thêm giá trị `stt` (giọng thành chữ, FR-AI-20). Tác vụ này không tính vào việc AI đã sẵn sàng khi thiết lập lần đầu.
+
 ## 10. Index bắt buộc
 
 ```sql

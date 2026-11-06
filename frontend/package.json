@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit -p tsconfig.app.json && vite build --configLoader runner",
+    "build:guide": "tsc --noEmit -p tsconfig.app.json && vite build --configLoader runner --config vite.guide.config.ts && node -e \"require('fs').renameSync('dist-guide/guide.html','dist-guide/index.html')\"",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:e2e:gate-d": "node e2e/gate-d.mjs",

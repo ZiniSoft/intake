@@ -15,10 +15,11 @@ from app.models import AiProvider, AiRoute, AppSetting, AuditEvent, Project, Use
 from app.modules.identity.service import identity_service
 from app.modules.private_space.service import private_project_ids, private_space_service
 from app.modules.projects.service import OTHER_PROJECT_CODE
+from app.modules.setup.demo import DEMO_BUNDLE, DEMO_FLAG, DemoError, load_demo_project
 
 SETUP_KEY = "setup_completed"
 BOOTSTRAP_KEY = "bootstrap_completed"
-MIN_PASSWORD_LENGTH = 12
+MIN_PASSWORD_LENGTH = 8
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SAMPLE_BUNDLE = Path(__file__).resolve().parents[2] / "resources" / "private_space_sample" / "setup.json"
 
@@ -34,8 +35,17 @@ class SetupService:
     @staticmethod
     def _real_projects(session) -> int:
         private = set(private_project_ids(session))
-        rows = session.execute(select(Project.id, Project.code)).all()
-        return sum(1 for pid, code in rows if code != OTHER_PROJECT_CODE and str(pid) not in private)
+        rows = session.execute(select(Project.id, Project.code, Project.project_settings)).all()
+        # The fictional demo project never counts as the install's own work (FR-SETUP-11).
+        return sum(
+            1 for pid, code, settings in rows
+            if code != OTHER_PROJECT_CODE and str(pid) not in private
+            and not (settings or {}).get(DEMO_FLAG) and not (settings or {}).get("showcase")
+        )
+
+    @staticmethod
+    def _has_demo(session) -> bool:
+        return any((settings or {}).get(DEMO_FLAG) for (settings,) in session.execute(select(Project.project_settings)).all())
 
     def state(self) -> dict[str, object]:
         """An install that already has a real project counts as set up, so a pilot never meets the wizard."""
@@ -43,13 +53,15 @@ class SetupService:
             flag = session.get(AppSetting, SETUP_KEY)
             marked = bool(flag and flag.value)
             real = self._real_projects(session)
+            has_demo = self._has_demo(session)
             has_space = bool(private_project_ids(session))
             ai_ready = session.scalar(
-                select(AiRoute.task).join(AiProvider, AiProvider.id == AiRoute.provider_id).where(AiProvider.enabled.is_(True)).limit(1)
+                select(AiRoute.task).join(AiProvider, AiProvider.id == AiRoute.provider_id).where(AiProvider.enabled.is_(True), AiRoute.task != "stt").limit(1)
             ) is not None
         return {
             "completed": marked or real > 0, "has_project": real > 0, "has_private_space": has_space,
             "sample_available": SAMPLE_BUNDLE.exists(), "wizard": get_settings().first_run_wizard, "ai_ready": ai_ready,
+            "has_demo": has_demo, "demo_available": DEMO_BUNDLE.exists(),
         }
 
     def needs_bootstrap(self) -> bool:
@@ -134,9 +146,19 @@ class SetupService:
         except SystemExit as error:
             raise SetupError("SAMPLE_INVALID", str(error)) from error
 
-    def complete(self, actor_id: str) -> dict[str, object]:
-        if get_settings().first_run_wizard and not self.state()["ai_ready"]:
-            raise SetupError("AI_KEY_REQUIRED", "Add an AI provider and choose a model before finishing setup")
+    def load_demo_project(self, actor_id: str) -> dict[str, object]:
+        if not get_settings().first_run_wizard:
+            raise SetupError("NOT_FOUND", "Not found")
+        try:
+            result = load_demo_project(actor_id)
+        except DemoError as error:
+            raise SetupError(error.code, error.message) from error
+        # Trying the demo is a way of finishing setup; without this the app's guard would bounce the person back to /setup.
+        self._mark_done(actor_id)
+        return result
+
+    @staticmethod
+    def _mark_done(actor_id: str) -> None:
         now = datetime.now(timezone.utc)
         with get_session() as session:
             row = session.get(AppSetting, SETUP_KEY)
@@ -145,6 +167,13 @@ class SetupService:
             else:
                 row.value, row.updated_by, row.updated_at = 1, actor_id, now
             session.commit()
+
+    def complete(self, actor_id: str) -> dict[str, object]:
+        state = self.state()
+        # Someone who tried the demo project may finish without a key; the UI keeps reminding them (FR-SETUP-12).
+        if get_settings().first_run_wizard and not state["ai_ready"] and not state["has_demo"]:
+            raise SetupError("AI_KEY_REQUIRED", "Add an AI provider and choose a model before finishing setup")
+        self._mark_done(actor_id)
         return self.state()
 
 

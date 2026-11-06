@@ -791,6 +791,10 @@ class WorkService:
         return {
             "id": str(row.id), "code": row.code, "project_id": str(row.project_id), "project_code": project.code if project else None,
             "project_name": project.name if project else None, "project_kind": project.kind if project else None,
+            "has_delivery": project is not None and session.scalar(select(ProjectIntegration.id).where(
+                ProjectIntegration.project_id == project.id, ProjectIntegration.system.in_(DELIVERY_SYSTEMS),
+                ProjectIntegration.enabled.is_(True), ProjectIntegration.project_external_id.is_not(None),
+            )) is not None,
             "title": row.title, "description": decrypt(row.description_ciphertext) or "", "status": row.status, "priority": row.priority,
             "member_id": str(row.member_id) if row.member_id else None, "member_name": member.display_name if member else None,
             "due_date": row.due_date, "intake_id": str(row.intake_id) if row.intake_id else None,
