@@ -697,6 +697,23 @@ class PlanningService:
             session.commit()
             return {"project_id": str(project.id), "done_evidence": value}
 
+    def set_acceptance_policy(self, project_ref: str, value: str, actor_id: str) -> dict[str, object]:
+        if value not in ("CTO_ALWAYS", "PO_FINAL_LOW_RISK"):
+            raise PlanningValidationError("ACCEPTANCE_POLICY_UNKNOWN", "Unknown acceptance policy")
+        with get_session() as session:
+            project = self._resolve_project(session, project_ref)
+            settings = dict(project.project_settings or {})
+            before = settings.get("acceptance_policy") or "CTO_ALWAYS"
+            settings["acceptance_policy"] = value
+            project.project_settings = settings
+            session.add(AuditEvent(
+                id=str(uuid4()), project_id=project.id, actor_type="USER", actor_id=actor_id,
+                event_type="planning.acceptance-policy.changed", entity_type="project", entity_id=project.id,
+                details={"from": before, "to": value}, created_at=datetime.now(timezone.utc),
+            ))
+            session.commit()
+            return {"project_id": str(project.id), "acceptance_policy": value}
+
     @staticmethod
     def _expected_report_date(session, member: WorkforceMember, plan_date: date) -> date | None:
         # The CTO reports to nobody: no Daily Report is expected from their own staff record (FR-PLAN-37).

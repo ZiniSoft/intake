@@ -24,6 +24,7 @@ from app.schemas import (
     WeekSummaryOut,
     PlanningAssignmentUnassign,
     ProjectAgentReadyUpdate,
+    ProjectAcceptancePolicyUpdate,
     ProjectDoneEvidenceUpdate,
     VerificationDecisionRequest,
     CapacityOut,
@@ -279,6 +280,33 @@ def _live_copy(session, assignment):
             raise api_exception(status.HTTP_404_NOT_FOUND, "PLANNING_ASSIGNMENT_NOT_FOUND", "Planning assignment was not found")
         current = match
     return current
+
+
+@router.get("/people", openapi_extra={"x-requirement-ids": ["FR-PLAN-40"]})
+async def get_visible_people(context: AuthContext = Depends(require_account)) -> dict:
+    """The people whose plan the caller may read: everyone for the CTO, otherwise themselves and the people who share
+    a project with them (ADR-0081)."""
+    from app.modules.planning.member_plan import visible_members
+
+    return visible_members(context.user_id, context.role, context.project_ids)
+
+
+@router.get("/people/{member_id}/plan", openapi_extra={"x-requirement-ids": ["FR-PLAN-40"]})
+async def get_member_plan(
+    member_id: str,
+    start: date = Query(alias="from"),
+    end: date = Query(alias="to"),
+    context: AuthContext = Depends(require_account),
+) -> dict:
+    """One person's plan, day by day, read only: their work in every project's plan, their internal work and posts,
+    the hours they had and their days off. Work in projects the caller does not share shows as hours only."""
+    from app.modules.planning.member_plan import MemberPlanError, member_plan
+
+    try:
+        return member_plan(member_id, start, end, user_id=context.user_id, role=context.role, granted=context.project_ids)
+    except MemberPlanError as error:
+        code = status.HTTP_404_NOT_FOUND if error.code == "MEMBER_NOT_FOUND" else status.HTTP_422_UNPROCESSABLE_ENTITY
+        raise api_exception(code, error.code, error.message) from error
 
 
 @router.patch("/runs/{run_id}/assignments/{assignment_id}/work-status", openapi_extra={"x-requirement-ids": ["FR-PLAN-34", "FR-MCP-06", "FR-ID-08"]})
@@ -657,6 +685,18 @@ async def set_project_done_evidence(project_ref: str, payload: ProjectDoneEviden
     """What this project accepts as the trace of code behind a closed Issue: a commit that mentions it, or a merged MR."""
     try:
         return planning_service.set_done_evidence(project_ref, payload.done_evidence, context.user_id)
+    except PlanningValidationError as exc:
+        _raise_planning_error(exc)
+
+
+@router.put(
+    "/projects/{project_ref}/acceptance-policy",
+    openapi_extra={"x-requirement-ids": ["FR-PLAN-41"]},
+)
+async def set_project_acceptance_policy(project_ref: str, payload: ProjectAcceptancePolicyUpdate, context: AuthContext = Depends(require_cto)) -> dict[str, object]:
+    """Who closes an acceptance in this project: always the CTO, or the Project Owner for low-risk work."""
+    try:
+        return planning_service.set_acceptance_policy(project_ref, payload.acceptance_policy, context.user_id)
     except PlanningValidationError as exc:
         _raise_planning_error(exc)
 

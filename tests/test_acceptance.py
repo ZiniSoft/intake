@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.db import get_session
 from app.main import app
-from app.models import EmailMessage, ExternalLink, GitLabIssueSnapshot, IntakeItem, IssueVerification, PlanningCandidate, PlanningRun, PlanningWarning, Project, ReportItem, SyncJob, User, WorkforceMember
+from app.models import EmailMessage, ExternalLink, GitLabIssueSnapshot, IntakeItem, IssueEvidenceLink, IssueVerification, PlanningCandidate, PlanningRun, PlanningWarning, Project, ReportItem, SyncJob, User, WorkforceMember
 from app.modules.planning import acceptance
 from tests.test_intake_reopen import _approved, _mark_synced
 
@@ -246,3 +246,201 @@ def test_the_owner_sees_which_acceptances_the_cto_marked_hard() -> None:
                     session.delete(job)
             session.commit()
         _cleanup()
+
+
+# --- Project Owner closes low-risk work (FR-PLAN-41, ADR-0082) ---------------------------------------------------
+
+PO_EMAIL = "acceptance-po@example.test"
+DONE_LINE = "[DONE] Sửa lỗi gửi email trễ | Thời gian: 2 giờ | Tiến độ: 100%\nTham chiếu: GitLab #9702 | Plane: Không có | Intake: Không có"
+P1_LINE = "[DONE] Xuất báo cáo tuần ra PDF | Thời gian: 4 giờ | Tiến độ: 100%\nTham chiếu: GitLab #9701 | Plane: Không có | Intake: Không có"
+
+
+def _po_member() -> str:
+    with get_session() as session:
+        existing = session.scalar(select(WorkforceMember).where(WorkforceMember.email_reference == PO_EMAIL))
+        if existing is not None:
+            return str(existing.id)
+    created = cto.post("/api/v1/planning/members", json={
+        "display_name": "Acceptance PO", "email_reference": PO_EMAIL,
+        "project_mappings": [{"project_id": _project_id(), "gitlab_user_external_id": "7901", "role": "Project Owner"}],
+    })
+    assert created.status_code == 201, created.text
+    return created.json()["data"]["id"]
+
+
+class _PoFinal:
+    """orbit lets its Owner close low-risk work, and the "project-owner" user is that Owner; all restored on exit."""
+
+    def __init__(self, policy: str = "PO_FINAL_LOW_RISK") -> None:
+        self.policy = policy
+
+    def __enter__(self) -> str:
+        member_id = _po_member()
+        assert owner.get("/api/v1/auth/me").status_code == 200
+        with get_session() as session:
+            project = session.get(Project, _project_id())
+            user = session.scalar(select(User).where(User.auth_subject == "project-owner"))
+            self.saved = (dict(project.project_settings or {}), project.owner_member_id, user.member_id)
+            self.user_id = str(user.id)
+            project.project_settings = {**(project.project_settings or {}), "acceptance_policy": self.policy}
+            project.owner_member_id = member_id
+            user.member_id = member_id
+            session.commit()
+        return self.user_id
+
+    def __exit__(self, *exc) -> None:
+        with get_session() as session:
+            project = session.get(Project, _project_id())
+            project.project_settings, project.owner_member_id = self.saved[0], self.saved[1]
+            session.get(User, self.user_id).member_id = self.saved[2]
+            for row in session.scalars(select(IssueEvidenceLink).where(IssueEvidenceLink.project_id == _project_id(), IssueEvidenceLink.issue_external_id.in_(list(ISSUES)))).all():
+                session.delete(row)
+            session.commit()
+
+
+def _row(issue: str) -> str:
+    with get_session() as session:
+        return str(session.scalar(select(IssueVerification).where(
+            IssueVerification.issue_external_id == issue, IssueVerification.project_id == _project_id(), IssueVerification.decision == "PENDING",
+        )).id)
+
+
+def _with_evidence(verification_id: str) -> None:
+    added = acceptance.add_evidence(verification_id, [{"url": "https://docs.example.test/bien-ban-thu"}], actor_id=_cto_id(), allowed_project_ids=None)
+    assert added["evidence_status"] == "OK" if "evidence_status" in added else True
+
+
+def _cto_id() -> str:
+    with get_session() as session:
+        return str(session.scalar(select(User.id).where(User.auth_subject == "cto")))
+
+
+def _po_accepts(verification_id: str, user_id: str, **extra) -> dict:
+    return acceptance.decide(verification_id, decision="ACCEPTED", reason=None, actor_id=user_id, role="PROJECT_OWNER",
+                             allowed_project_ids=frozenset({_project_id()}), **extra)
+
+
+def _reset_po(verification_id: str, **fields) -> None:
+    with get_session() as session:
+        row = session.get(IssueVerification, verification_id)
+        row.po_decision = row.po_decided_by = row.po_decided_at = None
+        for key, value in fields.items():
+            setattr(row, key, value)
+        session.commit()
+
+
+def _labels(issue: str, labels: list[str]) -> None:
+    with get_session() as session:
+        session.scalar(select(GitLabIssueSnapshot).where(
+            GitLabIssueSnapshot.issue_external_id == issue, GitLabIssueSnapshot.project_id == _project_id(), GitLabIssueSnapshot.is_current.is_(True),
+        )).labels = labels
+        session.commit()
+
+
+def test_owner_accepting_low_risk_work_closes_it_and_p1_is_not_hard() -> None:
+    _member()
+    _issues()
+    try:
+        _report("po-final-1", date.today().isoformat(), P1_LINE + "\n\n" + DONE_LINE)
+        with _PoFinal() as user_id:
+            for issue in ("9702", "9701"):
+                verification_id = _row(issue)
+                _with_evidence(verification_id)
+                listed = owner.get("/api/v1/acceptance")
+                assert listed.status_code == 200, listed.text
+                shown = [row for row in listed.json()["data"]["today"] + listed.json()["data"]["more"] if row["id"] == verification_id]
+                if shown:
+                    assert shown[0]["po_final_blockers"] == [] and shown[0]["acceptance_policy"] == "PO_FINAL_LOW_RISK"
+                result = _po_accepts(verification_id, user_id)
+                assert result["po_decision"] == "ACCEPTED" and result["decision"] == "ACCEPTED", (issue, result["po_final_blockers"])
+                assert result["final_by"] == "PO" and result["sync_status"] in ("PENDING", "QUEUE_FAILED")
+                target = acceptance.sync_target(verification_id)
+                if target is not None:
+                    assert target["close"] is True and "Project Owner đã nghiệm thu" in target["note"]
+    finally:
+        _cleanup()
+
+
+def test_owner_word_still_waits_for_the_cto_when_the_work_is_risky() -> None:
+    _member()
+    _issues()
+    try:
+        _report("po-final-2", date.today().isoformat(), DONE_LINE)
+        verification_id = _row("9702")
+        # The default policy keeps the CTO on every acceptance.
+        with _PoFinal("CTO_ALWAYS") as user_id:
+            _with_evidence(verification_id)
+            result = _po_accepts(verification_id, user_id)
+            assert result["decision"] == "PENDING" and result["po_final_blockers"] == ["POLICY"] and not result["final_by"]
+        with _PoFinal() as user_id:
+            # Nothing behind "done": the Owner may say why, but the word is not final.
+            _reset_po(verification_id)
+            result = _po_accepts(verification_id, user_id, evidence_missing_reason="đã xem trực tiếp")
+            assert result["decision"] == "PENDING" and result["po_final_blockers"] == ["EVIDENCE"]
+            _with_evidence(verification_id)
+            # P0 stays hard.
+            _reset_po(verification_id)
+            _labels("9702", ["priority:p0"])
+            result = _po_accepts(verification_id, user_id)
+            assert result["decision"] == "PENDING" and result["po_final_blockers"] == ["P0"]
+            _labels("9702", ["priority:p3"])
+            # The Owner reported the work.
+            _reset_po(verification_id, member_id=_po_member())
+            result = _po_accepts(verification_id, user_id)
+            assert result["decision"] == "PENDING" and result["po_final_blockers"] == ["SELF"]
+            # Someone said "not done" before.
+            _reset_po(verification_id, member_id=_member())
+            with get_session() as session:
+                session.add(IssueVerification(
+                    id=str(uuid4()), project_id=_project_id(), issue_external_id="9702", source="REPORT", decision="REJECTED",
+                    reason="lần trước chưa đạt", decided_at=datetime.now(timezone.utc), created_at=datetime.now(timezone.utc),
+                ))
+                session.commit()
+            result = _po_accepts(verification_id, user_id)
+            assert result["decision"] == "PENDING" and result["po_final_blockers"] == ["REJECTED_BEFORE"]
+            # The CTO still closes it.
+            closed = cto.post(f"/api/v1/acceptance/{verification_id}/accept", json={})
+            assert closed.status_code == 200, closed.text
+            assert closed.json()["data"]["final_by"] == "CTO"
+    finally:
+        _cleanup()
+
+
+def test_hard_work_stays_with_the_cto() -> None:
+    request = _approved("GITLAB")
+    _mark_synced(request["id"], "GITLAB", "9702")
+    _member()
+    _issues()
+    try:
+        with get_session() as session:
+            session.get(IntakeItem, request["id"]).needs_cto_acceptance = True
+            session.commit()
+        _report("po-final-3", date.today().isoformat(), DONE_LINE)
+        verification_id = _row("9702")
+        with _PoFinal() as user_id:
+            _with_evidence(verification_id)
+            result = _po_accepts(verification_id, user_id)
+            assert result["decision"] == "PENDING" and result["po_final_blockers"] == ["HARD"] and result["needs_cto_acceptance"] is True
+    finally:
+        with get_session() as session:
+            for link in session.scalars(select(ExternalLink).where(ExternalLink.intake_id == request["id"])).all():
+                link.target_system = "PLANE"
+            session.commit()
+        _cleanup()
+
+
+def test_only_the_cto_sets_who_closes_acceptance() -> None:
+    with get_session() as session:
+        saved = dict(session.get(Project, _project_id()).project_settings or {})
+    try:
+        assert owner.put("/api/v1/planning/projects/orbit/acceptance-policy", json={"acceptance_policy": "PO_FINAL_LOW_RISK"}).status_code == 403
+        assert cto.put("/api/v1/planning/projects/orbit/acceptance-policy", json={"acceptance_policy": "ANYONE"}).status_code == 422
+        changed = cto.put("/api/v1/planning/projects/orbit/acceptance-policy", json={"acceptance_policy": "PO_FINAL_LOW_RISK"})
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["data"]["acceptance_policy"] == "PO_FINAL_LOW_RISK"
+        with get_session() as session:
+            assert acceptance.acceptance_policy_of(session, _project_id()) == "PO_FINAL_LOW_RISK"
+    finally:
+        with get_session() as session:
+            session.get(Project, _project_id()).project_settings = saved
+            session.commit()

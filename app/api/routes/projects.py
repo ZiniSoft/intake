@@ -11,6 +11,7 @@ from app.modules.private_space.service import private_space_service
 from app.modules.projects.service import project_catalog_service
 from app.schemas import ProjectBriefOut
 from app.schemas import (
+    DeliverySwitchOut,
     IntegrationProbeCreate,
     IntegrationProbeOut,
     ProjectBrief,
@@ -289,9 +290,23 @@ async def remove_project_member(
         _raise(error)
 
 
+@router.get(
+    "/{project_ref}/delivery-switch", response_model=DeliverySwitchOut,
+    openapi_extra={"x-requirement-ids": ["FR-PRJ-13"]},
+)
+async def preview_delivery_switch(project_ref: str, context: AuthContext = Depends(require_cto)) -> DeliverySwitchOut:
+    # What a switch to GitHub leaves behind on GitLab, shown before the CTO confirms.
+    try:
+        return DeliverySwitchOut.model_validate(project_management_service.switch_preview(project_ref))
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found") from error
+    except ProjectError as error:
+        _raise(error)
+
+
 @router.patch(
     "/{project_ref}", response_model=ProjectOut,
-    openapi_extra={"x-requirement-ids": ["FR-PRJ-01", "FR-PRJ-03", "FR-PRJ-06", "FR-PRJ-07"]},
+    openapi_extra={"x-requirement-ids": ["FR-PRJ-01", "FR-PRJ-03", "FR-PRJ-06", "FR-PRJ-07", "FR-PRJ-13"]},
 )
 async def update_project(project_ref: str, payload: ProjectUpdate, context: AuthContext = Depends(require_cto)) -> ProjectOut:
     try:

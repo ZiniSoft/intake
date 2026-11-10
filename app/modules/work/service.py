@@ -17,6 +17,9 @@ from app.db import get_session
 from app.models import AuditEvent, IntakeItem, Meeting, MeetingNoteItem, Project, ProjectIntegration, User, WorkChannel, WorkComment, WorkforceMember, WorkforceProjectMembership, WorkItem, WorkLink
 from app.modules.work.channels import CHANNEL_CODES, FORMAT_OF_CHANNEL, FORMATS
 from app.modules.work.links import links_of
+from app.services.attachment_reader import AttachmentCheckError, check_file
+from app.services.attachment_service import ALLOWED_MIME_TYPES, MAX_ATTACHMENT_SIZE
+from app.services.object_storage import get_object_storage
 from app.services.raw_crypto import decrypt, encrypt
 
 # APPROVED is "Đã duyệt, chờ đăng" on a marketing board (FR-MKT-01); the software board never shows it.
@@ -38,6 +41,8 @@ MAX_NOTE = 500
 MAX_LINK_NOTE = 300
 MAX_URL = 1000
 MAX_LINKS = 40
+MAX_FILE_NAME = 255
+MAX_FILE_BYTES = 5 * 1024 * 1024  # same ceiling as a request attachment
 HISTORY_LIMIT = 50
 CLOSED_WINDOW_DAYS = 30
 # Pipelines (FR-WRK-08): the steps a template makes, in order; the last ones need a link (or a reason) before Xong.
@@ -249,6 +254,7 @@ class WorkService:
                 "links": [{
                     "id": str(l.id), "url": l.url, "note": l.note, "source": l.source, "added_by": str(l.added_by) if l.added_by else None,
                     "added_by_name": names.get(str(l.added_by)), "created_at": l.created_at,
+                    "file_name": l.file_name, "mime_type": l.mime_type, "size_bytes": l.size_bytes,
                 } for l in links],
                 "comments": [{
                     "id": str(c.id), "user_id": str(c.user_id) if c.user_id else None, "user_name": names.get(str(c.user_id)),
@@ -592,6 +598,54 @@ class WorkService:
             session.commit()
         return self.get(work_id) or {}
 
+    def add_link_file(self, work_id: str, *, filename: str, mime_type: str, content: bytes, note: str | None, actor_id: str) -> dict[str, object]:
+        """A picture or a PDF from the computer, kept in object storage and shown among the links (FR-WRK-10). Checked like a request's file (FR-AI-09)."""
+        if mime_type not in ALLOWED_MIME_TYPES:
+            raise WorkError("FILE_TYPE_UNSUPPORTED", "Only pictures (JPG, PNG, WebP) and PDF files")
+        if not content:
+            raise WorkError("FILE_EMPTY", "The file is empty")
+        if len(content) > MAX_ATTACHMENT_SIZE:
+            raise WorkError("FILE_TOO_LARGE", "The file is over 5 MB")
+        try:
+            detected = check_file(content, mime_type)
+        except AttachmentCheckError as error:
+            raise WorkError("FILE_TYPE_MISMATCH", str(error)) from error
+        name = _clean_line(filename, MAX_FILE_NAME).replace("/", "_").replace("\\", "_") or "tệp"
+        clean_note = _clean_line(note, MAX_LINK_NOTE) or None
+        now = _now()
+        link_id = str(uuid4())
+        key = f"work/{work_id}/{uuid4().hex}"
+        with get_session() as session:
+            row = session.get(WorkItem, work_id)
+            if row is None:
+                raise KeyError(work_id)
+            if int(session.scalar(select(func.count()).select_from(WorkLink).where(WorkLink.work_id == row.id)) or 0) >= MAX_LINKS:
+                raise WorkError("TOO_MANY_LINKS", f"At most {MAX_LINKS} links on one work item")
+            storage = get_object_storage()
+            storage.put(key, content, detected)
+            session.add(WorkLink(id=link_id, work_id=row.id, url=f"/api/v1/work/{work_id}/links/{link_id}/file", note=clean_note, source="USER", added_by=actor_id,
+                                 created_at=now, object_key=key, file_name=name, mime_type=detected, size_bytes=len(content)))
+            session.add(AuditEvent(
+                id=str(uuid4()), project_id=row.project_id, actor_type="USER", actor_id=actor_id, event_type="work.linked",
+                entity_type="work", entity_id=row.id, details={"file": name, "size_bytes": len(content), "note": clean_note}, created_at=now,
+            ))
+            row.updated_at = now
+            try:
+                session.commit()
+            except Exception:
+                storage.delete(key)
+                raise
+        return self.get(work_id) or {}
+
+    def link_file(self, work_id: str, link_id: str) -> tuple[bytes, str, str]:
+        """The bytes, the type and the name of a file link."""
+        with get_session() as session:
+            link = session.get(WorkLink, link_id)
+            if link is None or str(link.work_id) != str(work_id) or not link.object_key:
+                raise KeyError(link_id)
+            key, mime, name = link.object_key, link.mime_type or "application/octet-stream", link.file_name or "tệp"
+        return get_object_storage().get(key), mime, name
+
     def delete_link(self, work_id: str, link_id: str, *, actor_id: str, is_cto: bool) -> None:
         with get_session() as session:
             link = session.get(WorkLink, link_id)
@@ -599,8 +653,11 @@ class WorkService:
                 raise KeyError(link_id)
             if not is_cto and str(link.added_by) != str(actor_id):
                 raise WorkError("NOT_YOURS", "Only the person who added the link, or the CTO, removes it")
+            key = link.object_key
             session.delete(link)
             session.commit()
+        if key:
+            get_object_storage().delete(key)
 
     def delete_comment(self, work_id: str, comment_id: str, *, actor_id: str, is_cto: bool) -> None:
         with get_session() as session:

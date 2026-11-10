@@ -9,6 +9,7 @@ import httpx
 
 from app.modules.integrations.description import details_markdown
 from app.config import get_settings
+from app.modules.integrations.gitlab_connection import EffectiveSettings
 
 
 GITLAB_PRIORITY_LABELS = {
@@ -32,7 +33,8 @@ GITLAB_TYPE_LABELS = {
 
 class GitLabAdapter:
     def __init__(self) -> None:
-        self.settings = get_settings()
+        # The GitLab address and token saved on a screen win over .env (ADR-0080).
+        self.settings = EffectiveSettings()
 
     def build_issue_payload(self, approved: dict[str, object]) -> dict[str, object]:
         if not approved.get("approved"):
@@ -324,7 +326,7 @@ class GitLabAdapter:
 
 async def gitlab_projects(search: str | None = None, path: str | None = None) -> list[dict[str, object]]:
     """Projects the shared token can reach; with `path`, exactly that project. Returns only names and URLs."""
-    settings = get_settings()
+    settings = EffectiveSettings()
     if not settings.gitlab_token:
         raise GitLabPermanentError("GITLAB_NOT_CONFIGURED")
     headers = {"PRIVATE-TOKEN": settings.gitlab_token}
@@ -352,7 +354,7 @@ async def gitlab_projects(search: str | None = None, path: str | None = None) ->
 
 async def gitlab_project_members(path: str) -> list[dict[str, object]]:
     """Active users of one GitLab project, to map a workforce member to a GitLab assignee."""
-    settings = get_settings()
+    settings = EffectiveSettings()
     if not settings.gitlab_token:
         raise GitLabPermanentError("GITLAB_NOT_CONFIGURED")
     headers = {"PRIVATE-TOKEN": settings.gitlab_token}

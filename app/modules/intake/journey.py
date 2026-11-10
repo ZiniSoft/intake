@@ -59,6 +59,7 @@ def intake_journey(intake_id: str) -> dict[str, object] | None:
 
         plans: list[dict[str, object]] = []
         accepted_at = None
+        accepted_by = None
         verification = None
         if link is not None:
             accepted = session.scalar(select(IssueVerification).where(
@@ -67,15 +68,23 @@ def intake_journey(intake_id: str) -> dict[str, object] | None:
                 IssueVerification.decision == "ACCEPTED",
             ).order_by(IssueVerification.decided_at.desc()))
             accepted_at = accepted.decided_at if accepted is not None else None
+            accepted_by = session.get(User, accepted.decided_by) if accepted is not None and accepted.decided_by else None
             latest_verification = session.scalar(select(IssueVerification).where(
                 IssueVerification.project_id == item.project_id,
                 IssueVerification.issue_external_id == link.external_id,
             ).order_by(IssueVerification.created_at.desc()))
             if latest_verification is not None:
+                po_by = session.get(User, latest_verification.po_decided_by) if latest_verification.po_decided_by else None
+                final_by = latest_verification.final_by or ("CTO" if latest_verification.decision != "PENDING" else None)
                 verification = {
                     "id": str(latest_verification.id), "decision": latest_verification.decision,
                     "source": latest_verification.source or "CLOSED", "created_at": latest_verification.created_at,
                     "reason": latest_verification.reason,
+                    # The Project Owner's word, and whose word closed it (FR-PLAN-41).
+                    "po_decision": latest_verification.po_decision, "po_decided_at": latest_verification.po_decided_at,
+                    "po_decided_by_name": (po_by.display_name or po_by.auth_subject) if po_by else None,
+                    "final_by": final_by,
+                    "accepted_by_name": (accepted_by.display_name or accepted_by.auth_subject) if accepted_by else None,
                 }
             rows = session.execute(
                 select(PlanningAssignment, PlanningRun, WorkforceMember)

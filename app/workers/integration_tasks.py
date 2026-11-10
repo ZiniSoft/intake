@@ -16,7 +16,7 @@ from app.modules.integrations.adapters import (
     GitLabPermanentError,
     GitLabTransientError,
 )
-from app.modules.integrations import github
+from app.modules.integrations import access_check, github
 from app.modules.integrations.github import GitHubPermanentError, GitHubTransientError
 
 logger = logging.getLogger(__name__)
@@ -261,12 +261,18 @@ def run_integration_probe(probe_id: str) -> str:
                 project_management_service.complete_probe(probe_id, result=[{"id": name, "name": name} for name in github.token_names()])
                 return "DONE"
             token_ref, _, target = str(request["reference"] or "").partition("|")
+            if request["action"] == "ACCESS":
+                project_management_service.complete_probe(probe_id, result=asyncio.run(access_check.github_access(token_ref, target)))
+                return "DONE"
             if request["action"] == "MEMBERS":
                 rows = asyncio.run(github.assignees(token_ref, target))
             elif request["action"] == "CHECK":
                 rows = asyncio.run(github.repositories(token_ref, repository=target))
             else:
                 rows = asyncio.run(github.repositories(token_ref, search=target or None))
+        elif request["action"] == "ACCESS":
+            project_management_service.complete_probe(probe_id, result=asyncio.run(access_check.gitlab_access(request["reference"] or None)))
+            return "DONE"
         elif request["action"] == "MEMBERS":
             rows = asyncio.run(gitlab_project_members(str(request["reference"])))
         elif request["system"] == "GITLAB":

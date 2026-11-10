@@ -307,7 +307,8 @@ services:
     # retired Plane integration so removing one tracker cannot cut off another.
     networks: [backend, integration-egress]
 
-  # Reads docs/agent/CONTEXT.md from each project's repository with a read-only token (ADR-0063); no write token, no AI key.
+  # Reads docs/agent/CONTEXT.md from each project's repository (ADR-0063); no AI key. Reads with GITLAB_REPO_READ_TOKEN when
+  # set, else with the GitLab token saved on screen or GITLAB_TOKEN (ADR-0080).
   repo-reader:
     build:
       context: .
@@ -321,7 +322,7 @@ services:
     environment:
       <<: *app-environment
       GITLAB_REPO_READ_TOKEN: ${GITLAB_REPO_READ_TOKEN:-}
-      GITLAB_TOKEN: ""
+      GITLAB_TOKEN: ${GITLAB_TOKEN:-}
       REPORT_IMAP_PASSWORD: ""
       CONTACT_IMAP_PASSWORD: ""
       ELEVENLABS_API_KEY: ""
