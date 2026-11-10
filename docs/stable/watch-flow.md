@@ -1,31 +1,33 @@
-# Nối một công cụ quét bên ngoài với Intake
+English | [Tiếng Việt](watch-flow.vi.md)
 
-Tài liệu cho người dựng luồng quét (ví dụ bằng n8n hoặc Make) để tìm bài viết theo các trụ nội dung của khu riêng và của các dự án marketing. Quyết định thiết kế nằm ở ADR-0039 (khu riêng) và ADR-0068 (nhiều dự án, chủ đề nóng).
+# Connecting an external scanning tool to Intake
 
-Intake không tự mở địa chỉ nào. Luồng của bạn làm ba việc: lấy danh sách nguồn và từ khóa, đi quét, gửi kết quả về. Một mẫu luồng n8n nằm ở `docs/stable/flows/watch-rss.n8n.json` (RSS, Google Trends, YouTube; nhánh Instagram, Threads và dịch vụ cào để sẵn, tắt).
+Documentation for people building a scanning flow (for example with n8n or Make) to find posts matching the content pillars of the Private Space and of marketing projects. The design decisions are in ADR-0039 (Private Space) and ADR-0068 (multiple projects, hot topics).
 
-## Nhiều dự án (từ ADR-0068)
+Intake does not open any address by itself. Your flow does three things: fetch the list of sources and keywords, go scan, send the results back. A sample n8n flow is at `docs/stable/flows/watch-rss.n8n.json` (RSS, Google Trends, YouTube; Instagram, Threads and scraping service branches are in place, disabled).
 
-Cùng hai đường dưới đây phục vụ mọi dự án đang nghe: khu riêng của CTO (hai mạch `business`, `technical`) và mỗi dự án marketing (một mạch `content`). Khác biệt so với bản đầu:
+## Multiple projects (since ADR-0068)
 
-- `GET /api/v1/watch/config` trả thêm `projects[]`; mỗi phần tử có `project` (mã Intake của dự án, ví dụ `DMK`), `name`, `kind` (`PRIVATE` hoặc `NON_CODE`), `networks` (kênh mạng xã hội dự án bật, trong số kênh CTO đã mở ở Cài đặt > Nguồn quét), `scan_every_hours`, `next_scan_at` (giờ UTC nên quét lại; `null` ở lần đọc đầu), và `tracks[]` cùng dạng với khối `tracks` cũ. Khối `tracks` ở gốc vẫn là khu riêng, để luồng cũ không phải sửa.
-- Mỗi trụ có thêm `terms[]`: `{ text, kind: keyword | hashtag, priority: high | normal }`, ưu tiên cao đứng trước. `keywords[]` (chuỗi) vẫn còn.
-- Mỗi mục gửi về có thể mang `project` (mã Intake) để chỉ dự án khi không có `source_id`; `via` (`api` mặc định, hoặc `scrape` khi lấy qua dịch vụ cào); `priority` (`high` khi khớp từ khóa ưu tiên). Thứ tự xác định dự án: `source_id` → `project` → khu riêng. Mục có `project` không ai biết bị từ chối với lý do `unknown project`.
-- Luồng nên chạy mỗi 30 phút, đọc `config`, và chỉ quét dự án có `next_scan_at` đã qua (hoặc `null`). Nhịp quét và giờ AI chạy do Project Owner đặt trong Intake; luồng không cần lịch riêng cho từng dự án.
-- Dịch vụ cào (Facebook trang công khai, TikTok) là việc của luồng; Intake chỉ nhận tín hiệu đánh dấu `via: "scrape"`, chấm điểm thấp hơn nguồn trắng một bậc, và không giữ khóa của dịch vụ đó.
+The same two endpoints below serve every project that is listening: the CTO's Private Space (two tracks `business`, `technical`) and each marketing project (one track `content`). Differences from the first version:
 
-## Chuẩn bị trên máy chủ Intake
+- `GET /api/v1/watch/config` also returns `projects[]`; each element has `project` (the project's Intake ID, for example `DMK`), `name`, `kind` (`PRIVATE` or `NON_CODE`), `networks` (social network channels the project enabled, among the channels the CTO opened in Settings > Scan sources ("Cài đặt > Nguồn quét")), `scan_every_hours`, `next_scan_at` (UTC time to scan again; `null` on the first read), and `tracks[]` in the same shape as the old `tracks` block. The `tracks` block at the root is still the Private Space, so old flows do not need changes.
+- Each pillar also has `terms[]`: `{ text, kind: keyword | hashtag, priority: high | normal }`, high priority first. `keywords[]` (strings) is still there.
+- Each item sent back may carry `project` (Intake ID) to indicate the project when there is no `source_id`; `via` (`api` by default, or `scrape` when obtained via a scraping service); `priority` (`high` when it matches a priority keyword). Order for determining the project: `source_id` → `project` → Private Space. Items with an unknown `project` are rejected with the reason `unknown project`.
+- The flow should run every 30 minutes, read `config`, and scan only projects whose `next_scan_at` has passed (or is `null`). Scan frequency and AI run times are set by the Project Owner in Intake; the flow does not need a separate schedule per project.
+- Scraping services (public Facebook pages, TikTok) are the flow's job; Intake only receives signals marked `via: "scrape"`, scores them one level lower than whitelisted sources, and does not keep that service's keys.
 
-Đặt hai biến trong `.env` của máy chủ rồi khởi động lại API. Mỗi giá trị là một chuỗi ngẫu nhiên từ 24 ký tự trở lên, khác với hai khóa của luồng đăng bài. Không gửi các giá trị này qua chat hay email.
+## Preparation on the Intake server
 
-| Biến | Dùng để |
+Set two variables in the server's `.env` and restart the API. Each value is a random string of 24 characters or more, different from the two keys of the publishing flow. Do not send these values over chat or email.
+
+| Variable | Used for |
 |---|---|
-| `WATCH_API_KEY` | Luồng đọc nguồn và từ khóa |
-| `WATCH_WEBHOOK_SECRET` | Luồng ký kết quả gửi về |
+| `WATCH_API_KEY` | The flow reads sources and keywords |
+| `WATCH_WEBHOOK_SECRET` | The flow signs the results it sends back |
 
-Để trống một biến thì đường tương ứng trả `404`.
+If a variable is left empty, the corresponding endpoint returns `404`.
 
-## 1. Lấy nguồn và từ khóa
+## 1. Fetch sources and keywords
 
 ```
 GET /api/v1/watch/config
@@ -53,7 +55,7 @@ Authorization: Bearer <WATCH_API_KEY>
 }
 ```
 
-Mỗi mạch còn có `demand`, cho biết cần quét bao nhiêu và trước lúc nào:
+Each track also has `demand`, which says how much to scan and by when:
 
 ```json
 "demand": {
@@ -70,32 +72,32 @@ Mỗi mạch còn có `demand`, cho biết cần quét bao nhiêu và trước l
 }
 ```
 
-| Trường | Nghĩa |
+| Field | Meaning |
 |---|---|
-| `wanted_per_week` | Số tín hiệu mạch cần mỗi tuần. `0` là mạch không đặt mục tiêu |
-| `deadline` | Hạn kế tiếp phải có dữ liệu, giờ UTC. `weekday` (1 là thứ Hai) và `time` là cùng hạn đó theo giờ Việt Nam |
-| `window_start` | Hạn liền trước. Tín hiệu nhận sau mốc này được tính cho tuần hiện tại |
-| `received`, `remaining` | Đã nhận và còn thiếu trong tuần hiện tại |
-| `accept_up_to` | Số mục Intake còn nhận trong tuần này: gấp rưỡi số cần, trừ số đã nhận. `null` khi mạch không đặt mục tiêu |
-| `lookback_days` | Chỉ tìm bài đăng trong số ngày này |
+| `wanted_per_week` | Number of signals the track needs per week. `0` means the track has no target |
+| `deadline` | Next deadline by which data must exist, in UTC. `weekday` (1 is Monday) and `time` are the same deadline in Vietnam time |
+| `window_start` | The previous deadline. Signals received after this point count toward the current week |
+| `received`, `remaining` | Received and still missing in the current week |
+| `accept_up_to` | Number of items Intake will still accept this week: one and a half times the target, minus what has been received. `null` when the track has no target |
+| `lookback_days` | Only look for posts published within this many days |
 
-- Mỗi mạch có trụ, từ khóa của từng trụ, và các nguồn đang bật của mạch đó. Nguồn khai cho "cả hai mạch" xuất hiện ở cả hai.
-- `kind` là một trong `WEB`, `FACEBOOK`, `X`, `YOUTUBE`, `LINKEDIN`, `OTHER`.
-- Trụ chưa có từ khóa trả danh sách rỗng: không có gì để tìm cho trụ đó.
-- Gọi lại trước mỗi lượt quét; người dùng có thể đã đổi nguồn hoặc từ khóa.
+- Each track has pillars, keywords for each pillar, and the active sources of that track. Sources declared for "both tracks" appear in both.
+- `kind` is one of `WEB`, `FACEBOOK`, `X`, `YOUTUBE`, `LINKEDIN`, `OTHER`.
+- A pillar without keywords returns an empty list: there is nothing to search for that pillar.
+- Call it again before each scan run; the user may have changed sources or keywords.
 
-### Tự quyết lúc nào quét
+### Deciding when to scan
 
-Luồng nên chạy theo lịch cố định và để `demand` quyết có làm gì hay không:
+The flow should run on a fixed schedule and let `demand` decide whether to do anything:
 
-1. Gọi `config` đầu mỗi lượt.
-2. Mạch nào có `remaining` bằng `0` thì bỏ qua cho tới sau `deadline`.
-3. Mạch còn thiếu thì quét các nguồn của mạch, chỉ lấy bài trong `lookback_days` ngày, và gửi về không quá `accept_up_to` mục.
-4. Chạy thêm một lượt khoảng hai giờ trước `deadline` để bù phần còn thiếu.
+1. Call `config` at the start of each run.
+2. Skip any track whose `remaining` is `0` until after `deadline`.
+3. For tracks still short, scan the track's sources, only take posts within `lookback_days` days, and send back no more than `accept_up_to` items.
+4. Run one extra pass about two hours before `deadline` to make up the shortfall.
 
-Quét blog và YouTube một lần mỗi ngày là đủ; X và Facebook một đến hai lần mỗi ngày. Quét dày hơn nhịp đăng của nguồn không cho thêm bài mới.
+Scanning blogs and YouTube once a day is enough; X and Facebook once or twice a day. Scanning more often than the source publishes yields no new posts.
 
-## 2. Gửi kết quả về
+## 2. Send results back
 
 ```
 POST /api/v1/watch/signals
@@ -121,34 +123,34 @@ X-Intake-Signature: <chữ ký, dạng hex>
 }
 ```
 
-| Trường | Bắt buộc | Ghi chú |
+| Field | Required | Notes |
 |---|---|---|
-| `url` | có | Bắt đầu bằng `http://` hoặc `https://`, tối đa 1.000 ký tự |
-| `title` | có | Giữ lại 300 ký tự đầu |
-| `source_id` hoặc `track` | một trong hai | `track` là `business`, `technical`, hoặc `content` (dự án marketing). Nguồn thuộc "cả hai mạch" thì phải gửi `track` |
-| `project` | không | Mã Intake của dự án (xem `projects[].project` trong config) khi không có `source_id`; thiếu thì là khu riêng |
-| `via` | không | `api` (mặc định) hoặc `scrape` |
-| `priority` | không | `high` khi khớp từ khóa ưu tiên, mặc định `normal` |
-| `excerpt` | không | Giữ lại 1.000 ký tự đầu. Không gửi nguyên bài |
-| `author`, `keyword` | không | Giữ lại 120 ký tự đầu |
-| `pillar` | không | Phải đúng tên một trụ của mạch, nếu không sẽ bị bỏ trống |
-| `published_at` | không | Giờ UTC |
+| `url` | yes | Starts with `http://` or `https://`, at most 1,000 characters |
+| `title` | yes | The first 300 characters are kept |
+| `source_id` or `track` | one of the two | `track` is `business`, `technical`, or `content` (marketing project). For a source belonging to "both tracks", `track` must be sent |
+| `project` | no | The project's Intake ID (see `projects[].project` in config) when there is no `source_id`; if missing, it is the Private Space |
+| `via` | no | `api` (default) or `scrape` |
+| `priority` | no | `high` when it matches a priority keyword, default `normal` |
+| `excerpt` | no | The first 1,000 characters are kept. Do not send the full post |
+| `author`, `keyword` | no | The first 120 characters are kept |
+| `pillar` | no | Must exactly match the name of one of the track's pillars, otherwise it is left empty |
+| `published_at` | no | UTC time |
 
-Giới hạn: tối đa 50 mục mỗi lần gọi, thân yêu cầu tối đa 256 KB.
+Limits: at most 50 items per call, request body at most 256 KB.
 
-Trả lời:
+Response:
 
 ```json
 { "accepted": 1, "duplicates": 0, "rejected": [ { "index": 3, "reason": "url, title and a known track are required" } ] }
 ```
 
-- Cùng một `url` trong cùng một mạch chỉ được lưu một lần; gửi lại được tính vào `duplicates`.
-- Khi mạch đã nhận đủ gấp rưỡi số cần trong tuần, các mục gửi thêm nằm trong `rejected` với lý do `this week's quota for the track is reached`.
-- Tín hiệu tự bị xóa sau 30 ngày, trừ khi người dùng đã chuyển nó thành ý. Kho giữ tối đa 600 tín hiệu.
+- The same `url` in the same track is stored only once; resending counts toward `duplicates`.
+- Once a track has received one and a half times its weekly target, further items land in `rejected` with the reason `this week's quota for the track is reached`.
+- Signals are deleted automatically after 30 days, unless the user has turned them into an idea. The store keeps at most 600 signals.
 
-### Cách ký
+### How to sign
 
-Giống lời gọi báo kết quả đăng bài: HMAC-SHA256, khóa là `WATCH_WEBHOOK_SECRET`, trên chuỗi `<dấu thời gian>.<nguyên thân yêu cầu>`, viết dạng hex chữ thường.
+Same as the publish result callback: HMAC-SHA256, with `WATCH_WEBHOOK_SECRET` as the key, over the string `<dấu thời gian>.<nguyên thân yêu cầu>` (timestamp, then the raw request body), written as lowercase hex.
 
 ```js
 const crypto = require('crypto')
@@ -157,36 +159,36 @@ const timestamp = String(Math.floor(Date.now() / 1000))
 const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')
 ```
 
-Dấu thời gian lệch quá 5 phút so với giờ máy chủ bị từ chối.
+Timestamps more than 5 minutes off the server time are rejected.
 
-| Mã | Nghĩa |
+| Code | Meaning |
 |---|---|
-| `200` | Đã xử lý; xem `accepted`, `duplicates`, `rejected` |
-| `401` | Thiếu hoặc sai chữ ký, hoặc dấu thời gian quá hạn |
-| `404` | Đường này chưa được bật |
-| `413` | Thân yêu cầu quá lớn |
-| `422` | Sai định dạng, hoặc hơn 200 mục |
+| `200` | Processed; see `accepted`, `duplicates`, `rejected` |
+| `401` | Missing or wrong signature, or expired timestamp |
+| `404` | This endpoint is not enabled |
+| `413` | Request body too large |
+| `422` | Wrong format, or more than 200 items |
 
-## Intake kiểm luồng của bạn thế nào
+## How Intake checks your flow
 
-Lúc 07:30 và 19:30 giờ Việt Nam, Intake xét từng mạch có `wanted_per_week` lớn hơn 0. Mạch còn thiếu (`remaining` lớn hơn 0) mà 12 giờ trước đó không nhận được mục nào thì người dùng thấy cảnh báo. Intake phân biệt hai trường hợp: luồng không gọi `config` lần nào trong 12 giờ, và luồng có gọi nhưng không gửi gì.
+At 07:30 and 19:30 Vietnam time, Intake checks each track with `wanted_per_week` greater than 0. If a track is still short (`remaining` greater than 0) and received no items in the previous 12 hours, the user sees a warning. Intake distinguishes two cases: the flow did not call `config` at all in 12 hours, and the flow called it but sent nothing.
 
-Để không sinh cảnh báo thừa: chạy ít nhất hai lần mỗi ngày khi mạch còn thiếu, và luôn gọi `config` đầu mỗi lượt kể cả khi không tìm thấy bài nào.
+To avoid unnecessary warnings: run at least twice a day while a track is still short, and always call `config` at the start of each run even when no posts are found.
 
-## Điều cần biết
+## Things to know
 
-- Việc quét là của luồng bên ngoài, kể cả việc tuân theo điều khoản của từng nền tảng. Quét Facebook hoặc X bằng tài khoản cá nhân có thể làm tài khoản đó bị khóa.
-- Ai có `WATCH_API_KEY` thấy được bạn theo dõi ai và trụ nội dung của bạn. Ai có `WATCH_WEBHOOK_SECRET` đưa được tiêu đề tùy ý vào danh sách tín hiệu, và qua đó vào thứ AI đọc khi đề xuất tuần.
-- AI của Intake chỉ đọc tiêu đề, từ khóa và tên miền của tín hiệu, và coi đó là văn bản không tin cậy.
-- Chỉ gọi qua HTTPS.
+- Scanning is the external flow's job, including complying with each platform's terms. Scanning Facebook or X with a personal account can get that account locked.
+- Whoever has `WATCH_API_KEY` can see whom you follow and your content pillars. Whoever has `WATCH_WEBHOOK_SECRET` can put arbitrary titles into the signal list, and through it into what the AI reads when proposing the week.
+- Intake's AI reads only the title, keyword and domain name of a signal, and treats them as untrusted text.
+- Call only over HTTPS.
 
-## Cổng nhận cho dịch vụ không ký HMAC (FR-MKT-13)
+## Inbound gateway for services that do not sign with HMAC (FR-MKT-13)
 
-Make, Zapier, Apify, Mention hay bất kỳ dịch vụ nào đẩy được JSON tới một địa chỉ đều nối được mà không cần n8n:
+Make, Zapier, Apify, Mention or any service that can push JSON to an address can connect without n8n:
 
-1. CTO vào Cài đặt > Nguồn quét, chọn dự án, tạo một cổng: tên, loại dịch vụ (JSON tùy ý, n8n, Make, Apify, Mention), đường lấy dữ liệu (API hay dịch vụ cào), trụ mặc định. Intake hiện đường đẩy và bí mật một lần; chép sang dịch vụ.
-2. Dịch vụ gửi `POST <đường đẩy>` với header `X-Intake-Token: <bí mật>` (hoặc `Authorization: Bearer`), thân là JSON, tối đa 512 KB và 50 mục.
-3. Ánh xạ nói Intake đọc mục ở đâu: `items` là đường dẫn chấm tới danh sách (rỗng nếu thân gọi đã là danh sách hoặc một mục), `fields` là đường dẫn tới từng trường (`url`, `title` bắt buộc; `excerpt`, `author`, `published_at` ISO hoặc epoch, `keyword`, `pillar`). Ví dụ Make: `{"items": "", "fields": {"url": "link", "title": "title", "excerpt": "summary", "published_at": "date", "keyword": "query"}}`. Mỗi loại có mẫu điền sẵn.
-4. Dán một payload mẫu vào "Thử ánh xạ" để thấy sẽ nhận mấy mục và vì sao từ chối, không lưu gì. Nhật ký giữ 30 lần gọi gần nhất.
+1. The CTO goes to Settings > Scan sources, picks a project, and creates a gateway: name, service type (any JSON, n8n, Make, Apify, Mention), data path (API or scraping service), default pillar. Intake shows the push URL and the secret once; copy them into the service.
+2. The service sends `POST <đường đẩy>` with header `X-Intake-Token: <bí mật>` (or `Authorization: Bearer`), JSON body, at most 512 KB and 50 items.
+3. The mapping tells Intake where to read items: `items` is the dot path to the list (empty if the body is already a list or a single item), `fields` are the paths to each field (`url`, `title` required; `excerpt`, `author`, `published_at` ISO or epoch, `keyword`, `pillar`). Make example: `{"items": "", "fields": {"url": "link", "title": "title", "excerpt": "summary", "published_at": "date", "keyword": "query"}}`. Each type has a prefilled template.
+4. Paste a sample payload into "Test mapping" ("Thử ánh xạ") to see how many items would be accepted and why any are rejected, without saving anything. The log keeps the 30 most recent calls.
 
-Trả lời giống `/watch/signals`, thêm `problems[]` (chỗ ánh xạ không đọc được). Cổng chỉ ghi tín hiệu: ai có bí mật không đọc được gì. Cổng đã đóng hoặc không tồn tại trả `404`; sai bí mật `401`. Tín hiệu qua cổng đi cùng đường với luồng quét: trùng địa chỉ, hạn mức tuần, kho 600, chủ đề nóng.
+The response is the same as `/watch/signals`, plus `problems[]` (places the mapping could not read). The gateway only writes signals: someone with the secret cannot read anything. A closed or nonexistent gateway returns `404`; a wrong secret `401`. Signals through the gateway follow the same path as the scanning flow: address dedupe, weekly quota, the 600 store, hot topics.

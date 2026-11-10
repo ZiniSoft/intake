@@ -1,10 +1,12 @@
-# Luồng nghiệp vụ chuẩn
+English | [Tiếng Việt](flows.vi.md)
 
-_Version 1.2 | Baseline cập nhật 2026-10-01_
+# Standard business flows
 
-Các sơ đồ mô tả target flow. Từ ADR-0066 và migration 057, Plane không còn là tuyến vận hành: dữ liệu/link cũ chỉ đọc với nhãn “Plane · lịch sử”; mọi nhánh Plane còn xuất hiện trong phần lịch sử của tài liệu không phải hành động có thể chạy. Phần đã có code và phần còn thiếu được tách tại `IMPLEMENTATION-INVENTORY.md`.
+_Version 1.2 | Baseline updated 2026-10-01_
 
-## 1. Từ chat khách hàng tới nhân sự
+The diagrams describe the target flow. Since ADR-0066 and migration 057, Plane is no longer an operational route: old data/links are read-only with the label "Plane · history" ("Plane · lịch sử"); any Plane branch that still appears in the historical parts of this document is not a runnable action. What already has code and what is still missing are separated in `IMPLEMENTATION-INVENTORY.md`.
+
+## 1. From customer chat to team members
 
 ```mermaid
 flowchart LR
@@ -28,7 +30,7 @@ flowchart LR
     STAFF --> MR[Branch, MR, CI, review, release]
 ```
 
-## 2. Quy tắc routing
+## 2. Routing rules
 
 ```mermaid
 flowchart TD
@@ -45,7 +47,7 @@ flowchart TD
     R --> H
 ```
 
-## 3. Approve và Sync hai bước
+## 3. Two-step Approve and Sync
 
 ```mermaid
 sequenceDiagram
@@ -72,9 +74,9 @@ sequenceDiagram
     API-->>UI: SYNCED
 ```
 
-Nếu item thay đổi sau approval, API invalidates snapshot. Sync snapshot cũ trả `409 APPROVAL_SNAPSHOT_STALE`.
+If the item changes after approval, the API invalidates the snapshot. Syncing an old snapshot returns `409 APPROVAL_SNAPSHOT_STALE`.
 
-## 4. Pipeline text, image và PDF
+## 4. Text, image and PDF pipeline
 
 ```mermaid
 flowchart TD
@@ -99,9 +101,9 @@ flowchart TD
     VAL -->|Một phần| PART[PARTIAL + warning]
 ```
 
-Pilot chỉ gọi UModelVerse; OpenRouter fallback hoãn sau pilot theo ADR-0011. Kiểm tra file gồm magic bytes, kích thước, số trang và từ chối PDF mã hóa/có file nhúng; pilot không dùng malware scan. OCR chạy trong container cô lập trên máy riêng cùng LAN; chỉ phần chữ đã OCR đi vào evidence bundle gửi UModelVerse, file gốc không gửi lên cloud (ADR-0015).
+The pilot only calls UModelVerse; the OpenRouter fallback is postponed until after the pilot per ADR-0011. File checks cover magic bytes, size, page count and rejection of encrypted PDFs or PDFs with embedded files; the pilot does not use malware scanning. OCR runs in an isolated container on a separate machine on the same LAN; only the OCR text goes into the evidence bundle sent to UModelVerse, and the original file is not sent to the cloud (ADR-0015).
 
-## 5. Daily Report và Planning Run
+## 5. Daily Report and Planning Run
 
 ```mermaid
 sequenceDiagram
@@ -128,11 +130,11 @@ sequenceDiagram
     Sync->>DB: Per-Issue SUCCEEDED/RETRY/FAILED; run SYNCED/PARTIAL
 ```
 
-Worker không có SMTP credential và không gửi email.
+The worker has no SMTP credentials and does not send email.
 
-Report thiếu, muộn hoặc sai format không dừng Planner. Cuối tuần scheduler vẫn chạy; capacity mặc định 0 và chỉ người có CTO override OT hoặc work evidence mới bị kỳ vọng report.
+A missing, late or malformed report does not stop the Planner. On weekends the scheduler still runs; capacity defaults to 0 and only people with a CTO OT override or work evidence are expected to report.
 
-### 5.1. Nguồn sự thật và conflict
+### 5.1. Source of truth and conflicts
 
 ```mermaid
 flowchart TD
@@ -149,9 +151,9 @@ flowchart TD
     R --> P
 ```
 
-GitLab quyết định Issue, delivery state, assignee, milestone và due date. Priority lấy từ Planning snapshot đã duyệt gần nhất có chứa Issue; nếu chưa có thì dùng priority label của GitLab (ADR-0013). Email bổ sung giờ làm, bước tiếp theo, blocker, rủi ro và yêu cầu hỗ trợ. UI luôn hiển thị hai giá trị khi có conflict.
+GitLab decides the Issue, delivery state, assignee, milestone and due date. Priority comes from the most recent approved Planning snapshot that contains the Issue; if there is none, the GitLab priority label is used (ADR-0013). Email adds hours worked, next steps, blockers, risks and support requests. The UI always shows both values when there is a conflict.
 
-### 5.2. Capacity và chia ca
+### 5.2. Capacity and shift split
 
 ```mermaid
 flowchart LR
@@ -165,7 +167,7 @@ flowchart LR
     A --> PM[Afternoon assignments]
 ```
 
-Mỗi người chỉ có một distinct primary development Issue ở `Doing`, trừ P0 hoặc CTO override có lý do. Review/QA/support là secondary work nhưng vẫn trừ capacity.
+Each person has only one distinct primary development Issue in `Doing`, except for P0 or a CTO override with a reason. Review/QA/support is secondary work but still deducted from capacity.
 
 ### 5.3. Unified Quick Add
 
@@ -187,13 +189,13 @@ flowchart TD
     V -->|Không| H[Không cho approve]
 ```
 
-`report@example.com` chỉ nhận Daily Report, không dùng làm mailbox Quick Add. P0 dùng Emergency Add: khi CTO xác nhận kèm lý do, Intake tự tạo ngay GitLab Issue tối thiểu qua integration worker, không qua hai bước `Approve` rồi `Sync`, và ghi audit (ADR-0012). Issue đó trở thành candidate; planning approval vẫn là bước riêng.
+`report@example.com` only receives Daily Reports and is not used as a Quick Add mailbox. P0 uses Emergency Add: when the CTO confirms with a reason, Intake immediately creates a minimal GitLab Issue through the integration worker, without going through the two steps `Approve` then `Sync`, and records an audit entry (ADR-0012). That Issue becomes a candidate; planning approval is still a separate step.
 
-Assignment thiếu milestone hoặc due date chỉ tạo warning cần CTO acknowledge; thiếu GitLab Issue hoặc GitLab user mapping vẫn chặn approval (ADR-0013).
+An assignment missing a milestone or due date only creates a warning that the CTO must acknowledge; a missing GitLab Issue or GitLab user mapping still blocks approval (ADR-0013).
 
-Với Quick Add form/paste, transaction tạo Intake + candidate phải commit trước; normalize/dedupe được enqueue bất đồng bộ và không chặn response. Trước approval CTO được sửa priority, assignee, milestone, due date, slot và planned hours. Priority chỉ lưu trong Planning snapshot ở pilot. Nếu run đã approved cần sửa, hệ thống tạo revision mới toàn run và chỉ sync per-Issue delta đã duyệt.
+For Quick Add form/paste, the transaction that creates Intake + candidate must commit first; normalize/dedupe is enqueued asynchronously and does not block the response. Before approval the CTO may edit priority, assignee, milestone, due date, slot and planned hours. Priority is only stored in the Planning snapshot during the pilot. If an approved run needs changes, the system creates a new revision of the whole run and only syncs the approved per-Issue delta.
 
-### 5.4. Từ Daily Report đã xem sang Planning (ADR-0019)
+### 5.4. From a reviewed Daily Report to Planning (ADR-0019)
 
 ```mermaid
 flowchart TD
@@ -211,9 +213,9 @@ flowchart TD
     I -->|Không| T[PENDING_TRIAGE: CTO gắn Issue rồi mới promote]
 ```
 
-Candidate được tạo lúc run sinh ra (07:00) và mỗi lần CTO mở lại run còn sửa được, nên báo cáo xác nhận muộn vẫn vào kế hoạch trong ngày. Báo cáo dùng là báo cáo của ngày làm việc gần nhất của từng nhân sự. Chữ ký sau dòng `--` không hiện trong thư gốc (thu gọn) và không được gửi cho AI.
+Candidates are created when the run is generated (07:00) and each time the CTO reopens a run that is still editable, so a report confirmed late still gets into the same day's plan. The report used is the one from each member's most recent working day. The signature after the `--` line is not shown in the original email (collapsed) and is not sent to AI.
 
-### 5.5. Ghi âm cuộc họp tới Intake (ADR-0018, ADR-0019)
+### 5.5. Meeting recording to Intake (ADR-0018, ADR-0019)
 
 ```mermaid
 sequenceDiagram
@@ -238,7 +240,7 @@ sequenceDiagram
     CTO->>API: Tạo Intake kênh MEETING từ một mục
 ```
 
-Nguồn "tải file có sẵn" bỏ bước realtime. Audio chỉ tới ElevenLabs; UModelVerse chỉ nhận bản chữ. Mọi mục note thuộc dự án của cuộc họp; Intake tạo ra đi qua pipeline và phê duyệt như mọi Intake.
+The "upload an existing file" ("tải file có sẵn") source skips the realtime step. Audio only goes to ElevenLabs; UModelVerse only receives the transcript. Every note item belongs to the meeting's project; the Intakes created go through the pipeline and approval like any Intake.
 
 ## 6. Multi-project isolation
 
@@ -253,25 +255,25 @@ flowchart TB
     KQ --> KG[Đúng tracker của dự án B/GitLab]
 ```
 
-Worker luôn tải project/mapping từ job/intake trong database. Không được route theo project mặc định trong environment.
+Workers always load the project/mapping from the job/intake in the database. Routing by a default project in the environment is not allowed.
 
-## 7. Chọn việc đầu ngày
+## 7. Picking work at the start of the day
 
-| Priority | Người quyết định | Quy tắc |
+| Priority | Decided by | Rule |
 |---|---|---|
-| P0 | CTO | Incident nghiêm trọng; ngắt công việc khác; Issue được Intake tạo ngay qua Emergency Add, không bổ sung sau |
-| P1 | CTO trong phase hiện tại | Ảnh hưởng cam kết gần; chọn trước P2/P3 |
-| P2 | CTO trong phase hiện tại | Công việc kế hoạch thông thường |
-| P3 | CTO trong phase hiện tại | Backlog, tối ưu hoặc nice-to-have |
+| P0 | CTO | Severe incident; interrupts other work; the Issue is created immediately by Intake through Emergency Add, not added afterwards |
+| P1 | CTO in the current phase | Affects a near-term commitment; picked before P2/P3 |
+| P2 | CTO in the current phase | Normal planned work |
+| P3 | CTO in the current phase | Backlog, optimization or nice-to-have |
 
-Planner đề xuất Issue theo priority, carry-over, review/QA, milestone, dependency và trạng thái `Ready`; CTO duyệt kế hoạch sáng/chiều. Phase sau Project Owner có thể duyệt trong project được phân quyền, CTO giữ quyền override. Nhân sự không tự đổi P0-P3 để lấy việc thuận tiện hơn.
+The planner proposes Issues based on priority, carry-over, review/QA, milestone, dependencies and `Ready` status; the CTO approves the morning/afternoon plan. In a later phase the Project Owner may approve within projects they are authorized for, and the CTO keeps override rights. Members do not change P0-P3 themselves to pick more convenient work.
 
 
-## 8. Nghe và chủ đề nóng cho dự án marketing (ADR-0068, FR-MKT-08..12)
+## 8. Listening and hot topics for marketing projects (ADR-0068, FR-MKT-08..12)
 
-1. Project Owner khai trụ cột nội dung (mô tả, người đọc, kênh ưu tiên, tỉ lệ tuần, từ khóa và hashtag có ưu tiên, bài mẫu, điều tránh), dán nguồn theo dõi, bật mạng xã hội trong số kênh CTO đã mở (Cài đặt > Nguồn quét), đặt nhịp quét và giờ AI chạy (trong trần CTO đặt). Trang `/nguon`.
-2. Luồng quét ngoài (n8n, mẫu `docs/stable/flows/watch-rss.n8n.json`) chạy mỗi 30 phút: đọc `GET /api/v1/watch/config` (mọi dự án đang nghe, `next_scan_at`), quét RSS, Google Trends, YouTube theo từ khóa, gửi lô ký HMAC về `POST /api/v1/watch/signals` với `project`, `via`, `priority`. Intake không mở địa chỉ nào.
-3. Intake nhận tín hiệu theo dự án (hạn mức tuần, kho 600, trùng theo địa chỉ). Beat mỗi 30 phút gọi lượt AI cho dự án tới mốc giờ: nhóm tín hiệu theo từ khóa, chấm điểm bằng luật, AI tóm thành chủ đề (tiêu đề, vì sao, góc, kênh gợi ý, lưu ý); AI lỗi thì bản luật đứng. "Làm mới" tay tối đa 3 lần mỗi ngày.
-4. Trên Tuần này, khối "Chủ đề nóng tuần": PO đọc phân tích, bấm Thành bài (bài ở Ý tưởng kèm link nguồn) hoặc Thành chuỗi (bản cho từng kênh ưu tiên của trụ với giờ tốt), hoặc Bỏ (chủ đề và tín hiệu của nó không hiện lại). Số đo: chủ đề thành bài mỗi tuần.
-5. Trong thẻ bài, mỗi bản kênh có chữ riêng đếm theo luật kênh (vượt mức dài thì không Gửi duyệt được) và một link rút gọn `/p/<mã>` dẫn về trang đích kèm UTM; Intake đếm click người. Số liệu nền tảng theo mốc 30 phút, 6 giờ, 24, 48 giờ, 7 ngày là lát A4 kế tiếp.
-6. Telegram nhắc quanh giờ đăng (FR-MKT-15), mọi ngày: 08:00 lịch đăng hôm nay vào nhóm dự án hoặc riêng Project Owner; 60 phút trước giờ nhắc riêng người làm (kênh tự đăng mà bài chưa duyệt thì nhắc PO duyệt); 30 phút sau giờ mà chưa Đã đăng thì nhắc cả người làm và PO. Tin không chứa chữ của bài.
+1. The Project Owner declares content pillars (description, audience, preferred channels, weekly ratio, prioritized keywords and hashtags, sample posts, things to avoid), pastes watch sources, enables social networks among the channels the CTO has opened (Settings > Scan sources ("Cài đặt > Nguồn quét")), and sets the scan cadence and the AI run time (within the ceiling set by the CTO). Page `/nguon`.
+2. An external scan flow (n8n, template `docs/stable/flows/watch-rss.n8n.json`) runs every 30 minutes: reads `GET /api/v1/watch/config` (every project that is listening, `next_scan_at`), scans RSS, Google Trends and YouTube by keyword, and sends HMAC-signed batches back to `POST /api/v1/watch/signals` with `project`, `via`, `priority`. Intake does not open any address.
+3. Intake receives signals per project (weekly quota, store of 600, deduplicated by address). A beat every 30 minutes triggers an AI pass for projects that have reached their scheduled time: groups signals by keyword, scores them with rules, and AI summarizes them into topics (title, why, angle, suggested channels, notes); if AI fails, the rule-based version stands. Manual "Refresh" ("Làm mới") is limited to 3 times per day.
+4. On This week ("Tuần này"), in the "Hot topics of the week" ("Chủ đề nóng tuần") block: the PO reads the analysis and clicks Make post ("Thành bài": the post goes to Ideas ("Ý tưởng") with the source link) or Make series ("Thành chuỗi": a version for each of the pillar's preferred channels with good times), or Drop ("Bỏ": the topic and its signals do not appear again). Metric: topics turned into posts per week.
+5. In the post card, each channel version has its own text counted against the channel's rules (over the length limit it cannot be Sent for approval ("Gửi duyệt")) and a short link `/p/<mã>` leading to the landing page with UTM; Intake counts human clicks. Platform metrics at 30 minutes, 6 hours, 24, 48 hours and 7 days are the next slice, A4.
+6. Telegram reminders around posting time (FR-MKT-15), every day: at 08:00, today's posting schedule goes to the project group or privately to the Project Owner; 60 minutes before the time, a private reminder to the person doing it (for self-posting channels where the post is not approved yet, the PO is reminded to approve); 30 minutes after the time, if it is not yet Posted ("Đã đăng"), both the person doing it and the PO are reminded. Messages do not contain the post's text.

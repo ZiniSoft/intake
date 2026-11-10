@@ -1,8 +1,10 @@
+English | [Tiếng Việt](deployment-topology.vi.md)
+
 # Deployment topology 1.2
 
-_Target production topology; runtime local evidence ngày 2026-10-01; domain/TLS chốt ngày 2026-10-03_
+_Target production topology; local runtime evidence on 2026-10-01; domain/TLS finalized on 2026-10-03_
 
-## 1. Môi trường pilot
+## 1. Pilot environment
 
 ```text
 Windows 11 Pro workstation
@@ -26,46 +28,46 @@ GitLab Community: `https://gitlab.example.com`.
 
 ## 2. Network
 
-| Zone | Thành phần | Quy tắc |
+| Zone | Components | Rules |
 |---|---|---|
-| VPN application | Intake, GitLab | HTTPS; user access chỉ qua VPN |
-| Docker internal | PostgreSQL, Redis, SeaweedFS | Không publish LAN |
-| AI egress | UModelVerse SG (OpenRouter không dùng trong pilot, ADR-0011) | Chỉ HTTPS endpoint allowlist; chỉ gửi text và phần chữ đã OCR, không gửi file gốc (ADR-0015) |
-| Speech-to-text egress | ElevenLabs API (ADR-0018) | Chỉ `meeting-gateway` gọi; là container duy nhất giữ `ELEVENLABS_API_KEY`; audio cuộc họp rời mạng nội bộ qua đường này |
-| OCR egress | Máy OCR cùng LAN | Chỉ worker xử lý attachment gọi đúng địa chỉ máy OCR, có xác thực; máy OCR không ra Internet và không truy cập ngược database/Redis/SeaweedFS |
+| VPN application | Intake, GitLab | HTTPS; user access only via VPN |
+| Docker internal | PostgreSQL, Redis, SeaweedFS | Not published to the LAN |
+| AI egress | UModelVerse SG (OpenRouter not used in the pilot, ADR-0011) | Only allowlisted HTTPS endpoints; only text and OCR'd text is sent, never original files (ADR-0015) |
+| Speech-to-text egress | ElevenLabs API (ADR-0018) | Only `meeting-gateway` calls it; it is the only container holding `ELEVENLABS_API_KEY`; meeting audio leaves the internal network through this path |
+| OCR egress | OCR machine on the same LAN | Only the worker processing attachments calls the exact OCR machine address, with authentication; the OCR machine has no Internet access and cannot reach back into database/Redis/SeaweedFS |
 | Mail egress | `mail.example.com:993` | IMAPS only |
 | SMTP | IMAPS worker | Block 25/465/587 |
 
-Windows có thể dùng Wi-Fi trong khi Ubuntu VM dùng external virtual switch trên card LAN. VM nhận IP LAN riêng, không dùng chung IP Windows.
+Windows can use Wi-Fi while the Ubuntu VM uses an external virtual switch on the LAN card. The VM gets its own LAN IP and does not share the Windows IP.
 
 ## 3. Storage
 
-Máy có SSD 2 TB, không RAID. SeaweedFS một volume server không tạo redundancy. Backup sang máy khác là bắt buộc; nguồn điện dự phòng năng lượng mặt trời giảm nguy cơ mất điện nhưng không thay thế backup hoặc filesystem consistency check.
+The machine has a 2 TB SSD, no RAID. SeaweedFS with a single volume server provides no redundancy. Backup to another machine is mandatory; solar backup power reduces the risk of power loss but does not replace backups or filesystem consistency checks.
 
-## 4. Domain mục tiêu
+## 4. Target domains
 
-| Domain | Vị trí | Access |
+| Domain | Location | Access |
 |---|---|---|
-| `mail.example.com` | VPS mail | Public mail protocols theo policy |
-| `gitlab.example.com` | Self-host GitLab CE | VPN |
-| `intake.example.com` | Ubuntu VM, trỏ trực tiếp | VPN, CTO only |
+| `mail.example.com` | Mail VPS | Public mail protocols per policy |
+| `gitlab.example.com` | Self-hosted GitLab CE | VPN |
+| `intake.example.com` | Ubuntu VM, pointed directly | VPN, CTO only |
 
-Theo ADR-0014, Intake phục vụ HTTPS bằng chứng chỉ TLS miễn phí cấp tự động qua ACME. VM không nhận kết nối từ Internet, nên chứng chỉ phải cấp bằng DNS-01 challenge hoặc cơ chế tương đương, và cần một reverse proxy kết thúc TLS trước `web`/`api`. VPN product, reverse proxy và ACME client cụ thể còn mở tại OD-004.
+Per ADR-0014, Intake serves HTTPS with free TLS certificates issued automatically via ACME. The VM accepts no connections from the Internet, so certificates must be issued via the DNS-01 challenge or an equivalent mechanism, and a reverse proxy terminating TLS is needed in front of `web`/`api`. The specific VPN product, reverse proxy and ACME client are still open under OD-004.
 
 ## 5. Container security
 
-- Pin image digest/version; không dùng `latest` cho pilot baseline.
-- Chạy non-root khi image hỗ trợ.
-- Read-only filesystem và drop capabilities cho stateless worker nếu khả thi.
-- Healthcheck tách liveness/readiness.
-- Secret nạp từ `.env` chỉ ở pilot; trước production chuyển sang secret manager/file mount bảo vệ.
-- Tách credential theo container; AI worker không thấy GitLab/GitHub token.
+- Pin image digest/version; do not use `latest` for the pilot baseline.
+- Run as non-root when the image supports it.
+- Read-only filesystem and dropped capabilities for stateless workers where feasible.
+- Healthchecks separate liveness/readiness.
+- Secrets loaded from `.env` only in the pilot; before production move to a secret manager/protected file mount.
+- Separate credentials per container; the AI worker does not see GitLab/GitHub tokens.
 
-## 6. Runtime Compose hiện hành
+## 6. Current Compose runtime
 
-Compose khai báo PostgreSQL, Redis, SeaweedFS master/volume/filer/S3/config, API, web, outbox dispatcher, AI worker, integration worker, planning worker, planning scheduler và IMAPS worker. Local bind mặc định chỉ `127.0.0.1:8080` cho web và `127.0.0.1:8001` cho API; database/broker/storage ở internal network.
+Compose declares PostgreSQL, Redis, SeaweedFS master/volume/filer/S3/config, API, web, outbox dispatcher, AI worker, integration worker, planning worker, planning scheduler and IMAPS worker. Local binding by default is only `127.0.0.1:8080` for web and `127.0.0.1:8001` for the API; database/broker/storage are on the internal network.
 
-Integration worker là container duy nhất nhận token ghi GitLab/GitHub. API, dispatcher, AI worker, planning worker/scheduler và IMAPS worker không nhận token ghi external. IMAPS worker có mail-egress riêng; runtime hiện `REPORT_IMAP_ENABLED=false`.
+The integration worker is the only container that receives GitLab/GitHub write tokens. The API, dispatcher, AI worker, planning worker/scheduler and IMAPS worker do not receive external write tokens. The IMAPS worker has its own mail egress; the runtime currently has `REPORT_IMAP_ENABLED=false`.
 
-Compose chưa có reverse proxy/TLS cho `intake.example.com` và chưa có backup job. Evidence Gate C đến Gate F được chạy trên workstation Windows; theo ADR-0014 phải chạy lại smoke/E2E trọng yếu trên Ubuntu VM trước Gate G (OD-021).
+Compose does not yet have a reverse proxy/TLS for `intake.example.com` and does not yet have a backup job. Evidence for Gate C through Gate F was run on the Windows workstation; per ADR-0014 the critical smoke/E2E must be rerun on the Ubuntu VM before Gate G (OD-021).
 

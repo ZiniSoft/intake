@@ -1,36 +1,38 @@
-# Quy tắc coding 1.2
+English | [Tiếng Việt](coding-rules.vi.md)
 
-## 1. Kiến trúc
+# Coding rules 1.2
 
-- Route mỏng; business invariant ở service; persistence qua repository/unit-of-work rõ ràng.
-- Module không import vòng hoặc query trực tiếp bảng của module khác tùy tiện.
-- External provider qua adapter interface và contract tests.
-- PostgreSQL là nguồn trạng thái; Redis chỉ broker/cache.
+## 1. Architecture
+
+- Thin routes; business invariants in services; persistence through an explicit repository/unit-of-work.
+- Modules do not have circular imports or arbitrarily query another module's tables directly.
+- External providers go through an adapter interface and contract tests.
+- PostgreSQL is the source of state; Redis is only a broker/cache.
 
 ## 2. Database
 
-- Schema thay đổi chỉ qua migration được review.
-- Không serialize dict thủ công vào cột JSONB.
-- Transaction bao gồm state change và outbox tương ứng.
-- Claim job dùng lease và `SKIP LOCKED`; không giữ DB transaction trong lúc gọi mạng.
-- Không N+1; list projection không lấy raw/JSON lớn.
+- Schema changes only through reviewed migrations.
+- Do not manually serialize dicts into JSONB columns.
+- A transaction includes the state change and its corresponding outbox entry.
+- Job claims use a lease and `SKIP LOCKED`; do not hold a DB transaction during network calls.
+- No N+1; list projections do not fetch raw/large JSON.
 
-## 3. Error và logging
+## 3. Errors and logging
 
-- Không `except Exception: pass`.
-- Phân loại permanent/transient.
-- Log structured có request/job/intake/project ID và error code.
-- Redact token, password, raw message, prompt và PII.
+- No `except Exception: pass`.
+- Classify permanent/transient.
+- Structured logs with request/job/intake/project ID and error code.
+- Redact tokens, passwords, raw messages, prompts and PII.
 
-## 4. Test
+## 4. Tests
 
-- Mỗi invariant có test thành công và test tiêm lỗi.
-- Provider adapter có contract test với timeout, 429, 5xx, invalid JSON, 401/403.
-- Side effect ngoài có concurrency/idempotency test.
-- Database behavior cần test PostgreSQL thật; SQLite chỉ dùng unit test không phụ thuộc kiểu/locking.
-- Thay đổi docs và readiness evidence nằm trong cùng PR/commit series.
+- Each invariant has a success test and a fault-injection test.
+- Provider adapters have contract tests for timeout, 429, 5xx, invalid JSON, 401/403.
+- External side effects have concurrency/idempotency tests.
+- Database behavior needs real PostgreSQL tests; SQLite is only for unit tests that do not depend on types/locking.
+- Docs changes and readiness evidence go in the same PR/commit series.
 
 ## 5. Quality
 
-Code format, lint, type check, unit, integration và migration smoke phải là CI hard gate trước controlled pilot.
+Code format, lint, type check, unit, integration and migration smoke must be CI hard gates before the controlled pilot.
 

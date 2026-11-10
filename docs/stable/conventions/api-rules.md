@@ -1,13 +1,15 @@
-# Quy tắc API 1.2
+English | [Tiếng Việt](api-rules.vi.md)
 
-OpenAPI runtime và `IMPLEMENTATION-INVENTORY.md` quyết định endpoint nào đang khả dụng; ví dụ target route chưa có code không được client gọi chỉ vì xuất hiện trong specification.
+# API rules 1.2
 
-## 1. URL và version
+The runtime OpenAPI and `IMPLEMENTATION-INVENTORY.md` decide which endpoints are available; for example, a target route with no code yet must not be called by clients just because it appears in the specification.
+
+## 1. URL and version
 
 - Prefix `/api/v1`.
-- Resource dùng danh từ số nhiều, kebab-case.
-- GET không có side effect.
-- State transition dùng sub-resource ngắn khi không thể biểu diễn bằng PATCH, ví dụ `POST /intakes/{id}/approve`.
+- Resources use plural nouns, kebab-case.
+- GET has no side effects.
+- State transitions use a short sub-resource when they cannot be expressed with PATCH, for example `POST /intakes/{id}/approve`.
 
 ## 2. Response contract
 
@@ -29,39 +31,39 @@ OpenAPI runtime và `IMPLEMENTATION-INVENTORY.md` quyết định endpoint nào 
 }
 ```
 
-Không trả stack trace, secret, raw prompt hoặc raw source trong error.
+Do not return stack traces, secrets, raw prompts or raw source in errors.
 
-## 3. Status code
+## 3. Status codes
 
-| Code | Dùng cho |
+| Code | Used for |
 |---|---|
-| 200 | Đọc/update/action thành công |
-| 201 | Tạo resource |
-| 202 | Job đã được nhận và chạy async |
-| 400 | Shape/validation sai |
-| 401 | Chưa xác thực |
-| 403 | Có danh tính nhưng thiếu quyền |
-| 404 | Resource không tồn tại hoặc không thuộc scope |
+| 200 | Successful read/update/action |
+| 201 | Resource created |
+| 202 | Job accepted and running async |
+| 400 | Wrong shape/validation |
+| 401 | Not authenticated |
+| 403 | Identity known but lacking permission |
+| 404 | Resource does not exist or is out of scope |
 | 409 | Version/state/idempotency conflict |
-| 413 | File/payload quá lớn |
-| 422 | Business validation không đạt |
+| 413 | File/payload too large |
+| 422 | Business validation failed |
 | 429 | Rate limit |
-| 500/503 | Lỗi hệ thống/dependency tạm thời |
+| 500/503 | System error/temporary dependency error |
 
 ## 4. Pagination
 
-List bắt buộc có `limit` mặc định 20, tối đa 100 và cursor keyset. Filter tối thiểu: `project_id`, `status`, `channel`, `from`, `to`. `sort_by` phải thuộc allowlist. Không dùng offset sâu cho bảng intake/audit/job.
+Lists must have `limit` with default 20, max 100, and a keyset cursor. Minimum filters: `project_id`, `status`, `channel`, `from`, `to`. `sort_by` must be in an allowlist. Do not use deep offsets for intake/audit/job tables.
 
-## 5. Concurrency và idempotency
+## 5. Concurrency and idempotency
 
-- Mutation review gửi `expected_version`.
-- Sync nhận `approval_snapshot_id`; server tạo idempotency key theo project, target và snapshot/payload hash.
-- Request retry phải trả cùng kết quả hoặc current state, không tạo side effect mới.
+- Review mutations send `expected_version`.
+- Sync takes `approval_snapshot_id`; the server builds the idempotency key from project, target and snapshot/payload hash.
+- A retried request must return the same result or the current state, without creating a new side effect.
 
 ## 6. Security
 
-- Project scope lấy từ resource/database và quyền đã xác minh, không tin body để đổi ownership.
-- Response dùng field allowlist theo role.
-- Download attachment bắt buộc authorization; không trả permanent public object URL.
-- Mọi route khai policy cùng thay đổi tạo route.
+- Project scope comes from the resource/database and verified permissions; do not trust the body to change ownership.
+- Responses use field allowlists per role.
+- Attachment downloads require authorization; do not return permanent public object URLs.
+- Every route declares its policy in the same change that creates the route.
 

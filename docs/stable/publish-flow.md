@@ -1,28 +1,30 @@
-# Nối một luồng đăng bài bên ngoài với Intake
+English | [Tiếng Việt](publish-flow.vi.md)
 
-Tài liệu cho người dựng luồng tự động (ví dụ bằng n8n hoặc Make) để đăng các bài đã duyệt trong khu riêng. Quyết định thiết kế nằm ở ADR-0038.
+# Connecting an external publishing flow to Intake
 
-Intake không đăng bài. Luồng của bạn làm ba việc: lấy bài đã duyệt, đăng lên nền tảng, báo lại kết quả.
+Documentation for people building an automated flow (for example with n8n or Make) to publish approved posts in the Private Space. The design decision is in ADR-0038.
 
-## Chuẩn bị trên máy chủ Intake
+Intake does not publish posts. Your flow does three things: fetch approved posts, publish them on the platform, report the result back.
 
-Đặt hai biến trong `.env` của máy chủ rồi khởi động lại API. Mỗi giá trị là một chuỗi ngẫu nhiên từ 24 ký tự trở lên. Không gửi hai giá trị này qua chat hay email.
+## Preparation on the Intake server
 
-| Biến | Dùng để |
+Set two variables in the server's `.env` and restart the API. Each value is a random string of 24 characters or more. Do not send these two values over chat or email.
+
+| Variable | Used for |
 |---|---|
-| `PUBLISH_API_KEY` | Luồng đọc hàng chờ |
-| `PUBLISH_WEBHOOK_SECRET` | Luồng ký lời gọi báo kết quả |
+| `PUBLISH_API_KEY` | The flow reads the queue |
+| `PUBLISH_WEBHOOK_SECRET` | The flow signs its result callbacks |
 
-Để trống một biến thì đường tương ứng trả `404`.
+If a variable is left empty, the corresponding endpoint returns `404`.
 
-## 1. Lấy bài đã duyệt
+## 1. Fetch approved posts
 
 ```
 GET /api/v1/publish/queue
 Authorization: Bearer <PUBLISH_API_KEY>
 ```
 
-Thêm `?channel=LINKEDIN` để chỉ lấy một kênh. Kết quả nằm trong `data`, bài có giờ dự định sớm nhất đứng trước:
+Add `?channel=LINKEDIN` to fetch only one channel. Results are in `data`, with the earliest scheduled post first:
 
 ```json
 {
@@ -44,14 +46,14 @@ Thêm `?channel=LINKEDIN` để chỉ lấy một kênh. Kết quả nằm trong
 }
 ```
 
-- `channel` là một trong `FACEBOOK`, `LINKEDIN`, `THREADS`, `FACEBOOK_GROUP`, `BLOG`, `VIDEO_SCRIPT`.
-- `scheduled_for` là giờ UTC; có thể là `null` khi bài được duyệt mà không gắn ô nào của tuần.
-- Một bài ở lại hàng chờ cho tới khi có ghi nhận đã đăng. Luồng của bạn phải tự nhớ bài nào nó đang xử lý để không đăng hai lần.
-- Bài bị bỏ duyệt sẽ biến khỏi hàng chờ. Nên lấy lại hàng chờ ngay trước giờ đăng.
+- `channel` is one of `FACEBOOK`, `LINKEDIN`, `THREADS`, `FACEBOOK_GROUP`, `BLOG`, `VIDEO_SCRIPT`.
+- `scheduled_for` is UTC time; it can be `null` when the post was approved without being assigned to a slot in the week.
+- A post stays in the queue until a published record exists. Your flow must remember which posts it is handling so it does not publish twice.
+- A post whose approval is withdrawn disappears from the queue. Fetch the queue again right before publishing time.
 
-Facebook cá nhân và hội nhóm Facebook không có đường đăng tự động chính thức. Với hai kênh này, hãy đăng tay rồi bấm "Đánh dấu đã đăng" trong Intake.
+Personal Facebook and Facebook groups have no official automated publishing path. For these two channels, publish manually and then click "Mark as published" ("Đánh dấu đã đăng") in Intake.
 
-## 2. Báo kết quả
+## 2. Report the result
 
 ```
 POST /api/v1/publish/events
@@ -60,7 +62,7 @@ X-Intake-Timestamp: <giây Unix hiện tại>
 X-Intake-Signature: <chữ ký, dạng hex>
 ```
 
-Thân yêu cầu:
+Request body:
 
 ```json
 {
@@ -72,20 +74,20 @@ Thân yêu cầu:
 }
 ```
 
-Khi đăng không được, gửi `"status": "FAILED"` kèm `"error": "mô tả ngắn"`. Bài vẫn ở trạng thái đã duyệt và ở lại hàng chờ; lỗi hiện trên thẻ nháp.
+When publishing fails, send `"status": "FAILED"` with `"error": "mô tả ngắn"` (a short description). The post stays approved and remains in the queue; the error shows on the draft card.
 
-| Trường | Bắt buộc | Ghi chú |
+| Field | Required | Notes |
 |---|---|---|
-| `draft_id` | có | Lấy từ hàng chờ |
-| `status` | có | `POSTED` hoặc `FAILED` |
-| `posted_at` | không | Giờ bài lên; bỏ trống thì lấy giờ Intake nhận được lời gọi |
-| `url` | không | Phải bắt đầu bằng `http://` hoặc `https://`, tối đa 500 ký tự |
-| `platform` | không | Tối đa 40 ký tự, chỉ để ghi lại |
-| `error` | không | Tối đa 200 ký tự |
+| `draft_id` | yes | Taken from the queue |
+| `status` | yes | `POSTED` or `FAILED` |
+| `posted_at` | no | Time the post went live; if empty, the time Intake received the call is used |
+| `url` | no | Must start with `http://` or `https://`, at most 500 characters |
+| `platform` | no | At most 40 characters, for record only |
+| `error` | no | At most 200 characters |
 
-### Cách ký
+### How to sign
 
-Chữ ký là HMAC-SHA256, khóa là `PUBLISH_WEBHOOK_SECRET`, trên chuỗi `<dấu thời gian>.<nguyên thân yêu cầu>`, viết dạng hex chữ thường.
+The signature is HMAC-SHA256, with `PUBLISH_WEBHOOK_SECRET` as the key, over the string `<dấu thời gian>.<nguyên thân yêu cầu>` (timestamp, then the raw request body), written as lowercase hex.
 
 ```js
 const crypto = require('crypto')
@@ -94,27 +96,27 @@ const timestamp = String(Math.floor(Date.now() / 1000))
 const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')
 ```
 
-Thân yêu cầu gửi đi phải đúng từng byte với chuỗi đã ký. Dấu thời gian lệch quá 5 phút so với giờ máy chủ bị từ chối.
+The request body sent must match the signed string byte for byte. Timestamps more than 5 minutes off the server time are rejected.
 
-### Trả lời
+### Response
 
-| Mã | Nghĩa |
+| Code | Meaning |
 |---|---|
-| `200` | Đã ghi. Gọi lặp cho một bài đã có ghi nhận đăng vẫn trả `200` và giữ ghi nhận đầu tiên |
-| `401` | Thiếu hoặc sai chữ ký, hoặc dấu thời gian quá hạn |
-| `404` | Không có nháp với mã đó, hoặc đường này chưa được bật |
-| `409` | Nháp chưa được duyệt |
-| `422` | Thân yêu cầu sai định dạng |
+| `200` | Recorded. Repeated calls for a post that already has a published record still return `200` and keep the first record |
+| `401` | Missing or wrong signature, or expired timestamp |
+| `404` | No draft with that ID, or this endpoint is not enabled |
+| `409` | Draft not approved yet |
+| `422` | Request body in the wrong format |
 
-## Điều cần biết
+## Things to know
 
-- Ai có `PUBLISH_API_KEY` đọc được mọi bài đã duyệt chưa đăng. Ai có `PUBLISH_WEBHOOK_SECRET` đánh dấu được một bài đã duyệt là đã đăng. Giữ hai giá trị ở nơi lưu bí mật của công cụ tự động, không để trong nội dung luồng.
-- Trễ vài phút giữa lúc bài lên và lúc Intake biết là bình thường; giờ hiển thị là `posted_at` bạn gửi.
-- Chỉ gọi qua HTTPS.
+- Whoever has `PUBLISH_API_KEY` can read every approved, unpublished post. Whoever has `PUBLISH_WEBHOOK_SECRET` can mark an approved post as published. Keep both values in the automation tool's secret store, not in the flow content.
+- A delay of a few minutes between when a post goes live and when Intake knows is normal; the displayed time is the `posted_at` you send.
+- Call only over HTTPS.
 
-## Bài của đội marketing (FR-MKT-14, ADR-0068)
+## Marketing team posts (FR-MKT-14, ADR-0068)
 
-Cùng hai đường trên phục vụ thêm bài của dự án marketing khi CTO bật "Tự đăng" cho kênh ở Cài đặt > Kênh đăng:
+The same two endpoints above also serve marketing project posts when the CTO turns on "Auto publish" ("Tự đăng") for a channel in Settings > Publishing channels ("Cài đặt > Kênh đăng"):
 
-- `GET /api/v1/publish/queue` trả thêm các mục `"kind": "post_version"`: `draft_id` dạng `work_channel:<id>`, `channel` (mã kênh của Intake, ví dụ `FACEBOOK_PAGE`, `LINKEDIN`), `title`, `text` (chữ của bản kênh, hoặc mô tả bài nếu chưa có chữ), `scheduled_for`, `project` (mã Intake), `work` (mã bài), `language`, `short_link` (link rút gọn nếu đã cấp; dán vào bài thay link gốc). Chỉ bản Sẵn sàng của bài Đã duyệt trên kênh bật tự đăng, tới giờ trong 15 phút tới và chưa quá 48 giờ. Khi CTO bấm "Dừng khẩn", hàng chờ trống.
-- `POST /api/v1/publish/events` với `draft_id` đó, ký như cũ: `POSTED` kèm `url` làm bản sang Đã đăng và bài tự Đã đăng khi mọi bản đã đăng; `FAILED` kèm `error` ghi lại và bản vẫn ở hàng chờ để luồng thử lại hoặc người làm đăng tay. Nói hai lần thì lần đầu đứng.
+- `GET /api/v1/publish/queue` also returns items with `"kind": "post_version"`: `draft_id` in the form `work_channel:<id>`, `channel` (Intake's channel code, for example `FACEBOOK_PAGE`, `LINKEDIN`), `title`, `text` (the channel version's text, or the post description if there is no text yet), `scheduled_for`, `project` (Intake ID), `work` (post ID), `language`, `short_link` (the short link if one has been issued; paste it into the post instead of the original link). Only Ready versions of Approved posts on channels with auto publish on, due within the next 15 minutes and not more than 48 hours overdue. When the CTO clicks "Emergency stop" ("Dừng khẩn"), the queue is empty.
+- `POST /api/v1/publish/events` with that `draft_id`, signed as before: `POSTED` with `url` moves the version to Published and the post becomes Published automatically once all versions are published; `FAILED` with `error` is recorded and the version stays in the queue for the flow to retry or for the assignee to publish manually. If reported twice, the first one stands.

@@ -2,7 +2,7 @@
 
 A private intake tool for engineering leads. Customer requests arrive from chat, email, meetings and forms; AI normalizes them; the lead reviews and approves; Intake creates a GitLab or GitHub Issue (or an internal work item) and schedules it into the team's daily plan.
 
-> Status: pilot-grade, used by a small team. The core public walkthrough is available in English with `?lang=en`; other screens and the technical documentation under `docs/` are still primarily Vietnamese.
+> Status: pilot-grade, used by a small team. The core public walkthrough is available in English with `?lang=en`; other screens are still primarily Vietnamese. The documentation under `docs/` is in English, with a Vietnamese version next to each file (`X.vi.md`).
 
 **User guide**: every role, feature, page and button, in English and Vietnamese, at [zinisoft.github.io/intake](https://zinisoft.github.io/intake/?lang=en). The same guide is public at `/huong-dan` on any running instance. <!-- export-gate: allow (public Pages URL) -->
 

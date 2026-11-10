@@ -18,4 +18,5 @@ Intake receives customer requests (chat, email, meetings, forms, agents), lets A
 ## Conventions
 - Branches `feature/<slug>` or `fix/<issue>-<slug>` from `main`; no direct commits to `main`.
 - New requirement: add an FR code to the SRS. Architecture decision: add an ADR.
+- Docs under `docs/` are bilingual: `X.md` English (default), `X.vi.md` Vietnamese, with a language switch line at the top. Update both versions in the same change.
 - No secrets in files; use `.env`. Do not use real customer data for tests.

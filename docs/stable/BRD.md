@@ -1,124 +1,126 @@
+English | [Tiếng Việt](BRD.vi.md)
+
 # BRD - Private Feedback Intake
 
-_Version 2.0 | Bản dành cho mã nguồn mở | Owner: CTO/Tech Lead_
+_Version 2.0 | Open source edition | Owner: CTO/Tech Lead_
 
-Tài liệu này mô tả mục tiêu kinh doanh. Mức triển khai thực tế được công bố riêng tại `PRODUCTION-READINESS.md` và đối chiếu code tại `IMPLEMENTATION-INVENTORY.md`.
+This document describes the business goals. The actual implementation level is published separately in `PRODUCTION-READINESS.md` and reconciled against the code in `IMPLEMENTATION-INVENTORY.md`.
 
-## 1. Bối cảnh
+## 1. Context
 
-Một công ty phần mềm nhỏ vừa phát triển sản phẩm vừa triển khai dự án cho khách. Yêu cầu khách hàng xuất hiện qua ứng dụng chat, email và họp trực tiếp; CTO tốn phần lớn thời gian mỗi ngày để đọc, phân loại và theo dõi chúng.
+A small software company both builds products and delivers projects for customers. Customer requests arrive through chat apps, email, and in-person meetings; the CTO spends most of each day reading, classifying, and tracking them.
 
-Yêu cầu thường được trao đổi bằng chat/email trước khi thành đặc tả. GitLab Issue nhiều khi chỉ được tạo sau khi đã xuất hiện bug. Hệ quả là khó truy vết nguồn yêu cầu, dễ bỏ sót hoặc trùng lặp, nhân sự không có hàng đợi thống nhất và báo cáo tiến độ phụ thuộc CTO tổng hợp thủ công.
+Requests are usually discussed over chat/email before they become a specification. GitLab Issues are often created only after a bug has appeared. As a result, it is hard to trace where a request came from, requests are easily missed or duplicated, members have no unified queue, and progress reporting depends on the CTO compiling it by hand.
 
-## 2. Mục tiêu kinh doanh
+## 2. Business goals
 
-### BR-BIZ-01 - Cổng tiếp nhận riêng tư
+### BR-BIZ-01 - Private intake portal
 
-Tập trung text, image, PDF và email report vào một hệ thống tự lưu trữ, chỉ CTO truy cập trong giai đoạn đầu.
+Centralize text, images, PDFs, and email reports in one self-hosted system, accessible only to the CTO in the initial phase.
 
-### BR-BIZ-02 - Chuẩn hóa yêu cầu
+### BR-BIZ-02 - Request normalization
 
-AI trích xuất loại yêu cầu, tóm tắt, acceptance criteria, mức ưu tiên đề xuất, route và các thông tin còn thiếu. AI không có quyền quyết định cuối cùng.
+The AI extracts the request type, summary, acceptance criteria, suggested priority, route, and missing information. The AI has no authority to make the final decision.
 
-### BR-BIZ-03 - Tách việc nội bộ và delivery
+### BR-BIZ-03 - Separate internal work and delivery
 
-- Intake quản lý idea, feature, discovery, BRD, scope change và Việc nội bộ.
-- GitLab/GitHub quản lý Issue, assignee, branch, Merge Request/Pull Request, CI, test và release.
-- Intake giữ nguồn gốc, phê duyệt, snapshot, trạng thái đồng bộ và audit.
+- Intake manages ideas, features, discovery, BRDs, scope changes, and Internal tasks.
+- GitLab/GitHub manage Issues, assignees, branches, Merge Requests/Pull Requests, CI, tests, and releases.
+- Intake keeps the origin, approval, snapshot, sync status, and audit.
 
-### BR-BIZ-04 - Giảm tải CTO
+### BR-BIZ-04 - Reduce CTO workload
 
-- Giảm thời gian phân loại và theo dõi feedback thủ công.
-- Mọi công việc bắt đầu phát triển phải có GitLab Issue. P0 được ưu tiên qua luồng khẩn cấp nhưng vẫn phải tạo Issue tối thiểu trước Planning approval.
-- Báo cáo ngày/tuần phải chỉ ra khối lượng hoàn thành, blocker và quyết định đang chờ theo từng dự án.
+- Reduce the time spent manually classifying and tracking feedback.
+- All work that starts development must have a GitLab Issue. P0 is prioritized through the emergency flow but must still create a minimal Issue before Planning approval.
+- Daily/weekly reports must show completed volume, blockers, and pending decisions per project.
 
-### BR-BIZ-05 - Chuẩn bị cho điều phối AI Agent
+### BR-BIZ-05 - Prepare for AI Agent orchestration
 
-Tạo dữ liệu có cấu trúc và truy vết đủ tốt để giai đoạn sau giao việc cho nhiều AI Agent trong cùng GitLab repository. Multi-agent orchestration không thuộc phạm vi triển khai hiện tại.
+Create structured, well-traced data so that a later phase can assign work to multiple AI Agents in the same GitLab repository. Multi-agent orchestration is outside the current implementation scope.
 
-### BR-BIZ-06 - Daily Report thành kế hoạch triển khai
+### BR-BIZ-06 - Daily Report into a delivery plan
 
-Tự động đọc Daily Report, đối chiếu GitLab/GitHub và tạo kế hoạch sáng/chiều lúc 07:00 mỗi ngày. Hệ thống vẫn lập kế hoạch khi report thiếu, muộn hoặc sai format; CTO duyệt priority, assignee, milestone và due date trước khi Intake cập nhật nơi giao việc.
+Automatically read Daily Reports, reconcile with GitLab/GitHub, and create a morning/afternoon plan at 07:00 every day. The system still plans when reports are missing, late, or malformed; the CTO approves priority, assignee, milestone, and due date before Intake updates the delivery target.
 
-## 3. Phạm vi pilot
+## 3. Pilot scope
 
-### Trong phạm vi
+### In scope
 
-- Nhiều dự án chạy song song; nơi giao việc GitLab/GitHub được cấu hình theo từng dự án.
-- Local account + MFA; chỉ CTO đăng nhập Intake.
-- Manual intake từ Zalo, WhatsApp và meeting.
-- Ghi âm cuộc họp online hoặc tải file ghi âm, chuyển chữ có tách người nói, meeting note do AI tạo và chuyển mục thành Intake (ADR-0018, ADR-0019).
-- CTO xem và xác nhận Daily Report trước khi dùng; task chưa xong trong báo cáo thành ứng viên của kế hoạch ngày kế tiếp (ADR-0019).
-- IMAPS read-only cho hộp thư báo cáo do người cài đặt cấu hình.
-- Tổng hợp cuối ngày lúc 23:30, refresh nguồn lúc 06:45 và tạo Planning Run lúc 07:00 theo `Asia/Ho_Chi_Minh`, kể cả thứ Bảy/Chủ nhật.
-- Capacity ngày thường mặc định 8 giờ; cuối tuần mặc định 0 giờ và chỉ có OT khi CTO nhập override. Capacity khả dụng trừ họp, review, support và hoạt động cố định khác.
-- Planning Run chia kế hoạch theo buổi sáng/buổi chiều, giới hạn mặc định một development task chính ở `Doing` cho mỗi người.
-- Unified Quick Add từ item hiện hữu, form nhập nhanh hoặc paste nguồn; yêu cầu delivery phải có GitLab Issue trước khi kế hoạch được duyệt. Với P0, `Emergency Add` để Intake tự tạo ngay Issue tối thiểu, có lý do và audit (ADR-0012).
-- CTO phê duyệt Planning Run; approval tạo snapshot bất biến và tự động enqueue cập nhật assignee, milestone và due date của GitLab Issue.
-- Text, PDF và image; tối đa 5 MB cho mỗi file.
-- Raw data lưu 90 ngày.
-- Async queue, transactional outbox, pipeline status và retry có kiểm soát.
-- Một AI provider chính qua adapter (OpenRouter hoặc nhà cung cấp tương thích); đổi provider chỉ cần đổi cấu hình.
-- Intake chạy trên một máy chủ Linux riêng, HTTPS với chứng chỉ TLS hợp lệ, nên đặt sau VPN.
-- CTO chỉnh sửa, duyệt và đồng bộ theo hai bước `Approve` rồi `Sync`.
-- GitLab/GitHub adapter idempotent và lưu liên kết ngoài sau khi tạo thành công.
-- Backup hằng ngày; mục tiêu RPO 24 giờ, RTO 4 giờ.
+- Multiple projects in parallel; the GitLab/GitHub delivery target is configured per project.
+- Local account + MFA; only the CTO logs in to Intake.
+- Manual intake from Zalo, WhatsApp, and meetings.
+- Recording online meetings or uploading recording files, speech-to-text with speaker separation, AI-generated meeting notes, and turning items into Intakes (ADR-0018, ADR-0019).
+- The CTO reviews and confirms Daily Reports before use; unfinished tasks in a report become candidates for the next day plan (ADR-0019).
+- Read-only IMAPS for the report mailbox configured by the installer.
+- End-of-day summary at 23:30, source refresh at 06:45, and Planning Run creation at 07:00 in `Asia/Ho_Chi_Minh`, including Saturday/Sunday.
+- Weekday capacity defaults to 8 hours; weekends default to 0 hours, with OT only when the CTO enters an override. Available capacity excludes meetings, reviews, support, and other fixed activities.
+- The Planning Run splits the plan into morning/afternoon, with a default limit of one main development task in `Doing` per person.
+- Unified Quick Add from an existing item, a quick-entry form, or pasted source; delivery requests must have a GitLab Issue before the plan is approved. For P0, `Emergency Add` lets Intake immediately create a minimal Issue, with a reason and audit (ADR-0012).
+- The CTO approves the Planning Run; approval creates an immutable snapshot and automatically enqueues updates to the GitLab Issue's assignee, milestone, and due date.
+- Text, PDF, and images; at most 5 MB per file.
+- Raw data retained for 90 days.
+- Async queue, transactional outbox, pipeline status, and controlled retry.
+- One primary AI provider through an adapter (OpenRouter or a compatible provider); changing providers only requires a configuration change.
+- Intake runs on a dedicated Linux server, HTTPS with a valid TLS certificate, preferably behind a VPN.
+- The CTO edits, approves, and syncs in two steps: `Approve` then `Sync`.
+- Idempotent GitLab/GitHub adapter that stores the external link after successful creation.
+- Daily backup; target RPO 24 hours, RTO 4 hours.
 
-### Ngoài phạm vi pilot
+### Out of pilot scope
 
-- Tự đọc trực tiếp private chat Zalo/WhatsApp.
-- Gửi email hoặc phản hồi khách hàng tự động.
-- Project Owner đăng nhập Intake.
-- Project Owner phê duyệt Planning Run; quyền này chỉ mở ở phase sau và phải giới hạn theo project.
-- Đồng bộ hai chiều đầy đủ GitLab/GitHub.
-- AI tự duyệt hoặc tự tạo công việc ngoài hệ thống.
-- Multi-agent viết code, review và sửa lỗi.
-- High availability hoặc zero downtime.
+- Directly reading private Zalo/WhatsApp chats.
+- Automatically sending email or replying to customers.
+- Project Owner logging in to Intake.
+- Project Owner approving Planning Runs; this permission opens only in a later phase and must be limited per project.
+- Full two-way GitLab/GitHub sync.
+- AI self-approving or creating work outside the system on its own.
+- Multi-agent coding, review, and bug fixing.
+- High availability or zero downtime.
 
-## 4. Nguyên tắc nghiệp vụ
+## 4. Business principles
 
-1. Raw source thuộc Intake.
-2. Discovery và việc không phải code thuộc Intake; delivery thuộc GitLab/GitHub.
-3. AI chỉ đề xuất; CTO chịu trách nhiệm quyết định.
-4. `Approve` khóa snapshot nhưng không tạo dữ liệu ngoài.
-5. `Sync` chỉ dùng snapshot đã duyệt; sửa payload làm mất hiệu lực approval trước đó.
-6. Mỗi dữ liệu nghiệp vụ phải gắn `project_id`; không dùng project mặc định toàn hệ thống.
-7. Không đưa raw chat, số điện thoại, email cá nhân hoặc secret vào GitLab/GitHub.
-8. Retry không được tạo trùng external item.
-9. Email là nguồn report/ngoại lệ, không phải nguồn duy nhất của phần trăm tiến độ.
-10. GitLab là nguồn sự thật cho trạng thái delivery.
-11. Khi email và GitLab mâu thuẫn, GitLab quyết định task, trạng thái, assignee, milestone và due date; email bổ sung thời gian, bước tiếp theo, blocker, rủi ro và yêu cầu hỗ trợ. Priority lấy từ Planning snapshot đã duyệt gần nhất, GitLab label là dự phòng (ADR-0013). Mâu thuẫn luôn được hiển thị, không bị ghi đè im lặng.
-12. Report thiếu, muộn hoặc sai format không chặn Planning Run.
-13. Planning approval khác intake approval: CTO duyệt Planning Run sẽ khóa snapshot và enqueue GitLab update jobs; retry phải idempotent và lỗi một Issue không rollback Issue đã cập nhật thành công.
-14. Chi tiết sáng/chiều thuộc Intake; GitLab chỉ nhận assignee, milestone và due date theo khả năng của API.
+1. Raw source belongs to Intake.
+2. Discovery and non-code work belong to Intake; delivery belongs to GitLab/GitHub.
+3. AI only proposes; the CTO is responsible for decisions.
+4. `Approve` locks the snapshot but does not create external data.
+5. `Sync` only uses the approved snapshot; editing the payload invalidates the previous approval.
+6. All business data must carry a `project_id`; no system-wide default project.
+7. Do not put raw chat, phone numbers, personal email, or secrets into GitLab/GitHub.
+8. Retry must not create duplicate external items.
+9. Email is a source of reports/exceptions, not the sole source of progress percentage.
+10. GitLab is the source of truth for delivery status.
+11. When email and GitLab conflict, GitLab decides task, status, assignee, milestone, and due date; email adds time, next steps, blockers, risks, and support requests. Priority comes from the latest approved Planning snapshot, with the GitLab label as fallback (ADR-0013). Conflicts are always shown, never silently overwritten.
+12. Missing, late, or malformed reports do not block the Planning Run.
+13. Planning approval differs from intake approval: the CTO approving a Planning Run locks the snapshot and enqueues GitLab update jobs; retry must be idempotent, and a failure on one Issue does not roll back Issues already updated successfully.
+14. Morning/afternoon details belong to Intake; GitLab only receives assignee, milestone, and due date as far as the API allows.
 
-## 5. Vai trò
+## 5. Roles
 
-| Vai trò | Trách nhiệm trong pilot |
+| Role | Responsibility in the pilot |
 |---|---|
-| CTO | Nhập/kiểm tra raw data, sửa AI result, quyết định P0-P3, approve, sync và xử lý xung đột |
-| Nhân sự dự án | Chọn và cập nhật GitLab Issue; báo blocker; không truy cập Intake |
-| Project Owner | Phối hợp scope và quản lý dự án trong Intake theo quyền được cấp |
-| AI worker | Chuẩn hóa, đề xuất và ghi evidence; không có credential ghi GitLab/GitHub |
-| Integration worker | Chỉ xử lý sync job từ snapshot đã duyệt |
+| CTO | Enter/check raw data, edit AI results, decide P0-P3, approve, sync, and resolve conflicts |
+| Project member | Choose and update GitLab Issues; report blockers; no access to Intake |
+| Project Owner | Coordinate scope and manage projects in Intake per granted permissions |
+| AI worker | Normalize, propose, and record evidence; has no GitLab/GitHub write credentials |
+| Integration worker | Only processes sync jobs from approved snapshots |
 
-Trong phase hiện tại, chỉ CTO được duyệt Planning Run và chốt priority, assignee, milestone, due date. Data model và authorization phải sẵn sàng để phase sau cấp quyền Project Owner theo project; CTO vẫn giữ quyền override.
+In the current phase, only the CTO approves Planning Runs and finalizes priority, assignee, milestone, and due date. The data model and authorization must be ready so that a later phase can grant Project Owner permissions per project; the CTO keeps override rights.
 
-## 6. Chỉ số thành công
+## 6. Success metrics
 
-| ID | Chỉ số pilot | Mục tiêu ban đầu |
+| ID | Pilot metric | Initial target |
 |---|---|---|
-| KPI-01 | Intake không bị mất sau khi API/Redis restart | 100% |
-| KPI-02 | Sync retry không tạo trùng GitLab/GitHub Issue | 100% |
-| KPI-03 | Công việc dev bắt đầu có GitLab Issue | 100%, kể cả P0 qua luồng khẩn cấp có audit |
-| KPI-04 | AI result có provider/model/prompt/schema trace | 100% |
-| KPI-05 | Raw data quá hạn được purge | Trong 24 giờ sau mốc 90 ngày |
-| KPI-06 | Khôi phục từ backup | RPO <= 24 giờ, RTO <= 4 giờ trong restore drill |
-| KPI-07 | Tách dữ liệu giữa các dự án | Không có cross-project leak trong test |
-| KPI-08 | Planning Run đúng lịch | Tạo lúc 07:00 hằng ngày; lỗi report không chặn run |
-| KPI-09 | Planning GitLab sync | Retry không cập nhật trùng; trạng thái từng Issue truy vết được |
-| KPI-10 | Capacity/WIP | Không có phân bổ vượt capacity hoặc quá một development task chính mà thiếu CTO override có lý do |
+| KPI-01 | Intakes not lost after API/Redis restart | 100% |
+| KPI-02 | Sync retry does not create duplicate GitLab/GitHub Issues | 100% |
+| KPI-03 | Dev work starts with a GitLab Issue | 100%, including P0 via the audited emergency flow |
+| KPI-04 | AI results have a provider/model/prompt/schema trace | 100% |
+| KPI-05 | Expired raw data is purged | Within 24 hours after the 90-day mark |
+| KPI-06 | Restore from backup | RPO <= 24 hours, RTO <= 4 hours in a restore drill |
+| KPI-07 | Data separation between projects | No cross-project leak in tests |
+| KPI-08 | Planning Run on schedule | Created at 07:00 daily; report errors do not block the run |
+| KPI-09 | Planning GitLab sync | Retry does not update twice; each Issue's status is traceable |
+| KPI-10 | Capacity/WIP | No allocation over capacity or more than one main development task without a CTO override with a reason |
 
-## 7. Tiêu chí hoàn tất
+## 7. Completion criteria
 
-Bản triển khai chỉ được coi là đạt khi các requirement bắt buộc trong SRS đạt `VERIFIED`, không còn P0/P1 mở, restore drill đạt mục tiêu và CTO hoàn thành UAT cho cả luồng thành công lẫn lỗi có kiểm soát.
+The deployment is considered passing only when the mandatory requirements in the SRS are `VERIFIED`, no P0/P1 remain open, the restore drill meets its targets, and the CTO completes UAT for both the success path and controlled failure paths.
