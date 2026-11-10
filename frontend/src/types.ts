@@ -194,7 +194,17 @@ export interface Project {
   owner_member_id: string | null
   owner_name: string | null
   done_evidence: 'COMMIT' | 'MR'
+  // Who closes an acceptance: always the CTO, or the Project Owner for low-risk work (FR-PLAN-41).
+  acceptance_policy?: 'CTO_ALWAYS' | 'PO_FINAL_LOW_RISK'
   agent_ready: boolean
+  // The tracker the project left for GitHub; old Issues stay reachable through their own links (FR-PRJ-13).
+  previous_delivery?: { system: 'GITLAB'; project_external_id: string | null; project_url: string | null; switched_at: string } | null
+}
+
+export interface DeliverySwitchPreview {
+  from_system: 'GITLAB'
+  to_system: 'GITHUB'
+  open_issues: number
 }
 
 export interface AgentReadiness {
@@ -231,10 +241,10 @@ export interface GitLabUser {
 export interface IntegrationProbe {
   id: string
   system: 'GITLAB' | 'GITHUB'
-  action: 'LIST' | 'CHECK' | 'MEMBERS' | 'TOKENS'
+  action: 'LIST' | 'CHECK' | 'MEMBERS' | 'TOKENS' | 'ACCESS'
   reference: string | null
   status: 'PENDING' | 'DONE' | 'FAILED'
-  result: RemoteProject | RemoteProject[] | null
+  result: RemoteProject | RemoteProject[] | AccessResult | null
   error_code: string | null
 }
 
@@ -556,6 +566,93 @@ export interface PeopleDay {
   people: PeopleDayPerson[]
 }
 
+// One person's plan across projects and days, read only (FR-PLAN-40, ADR-0081).
+export interface PlanPerson {
+  member_id: string
+  display_name: string
+  is_me: boolean
+}
+
+export interface PlanPeople {
+  me: string | null
+  members: PlanPerson[]
+}
+
+export interface MemberPlanAssignment {
+  kind: 'ASSIGNMENT'
+  id: string
+  run_id: string
+  run_status: string
+  project_id: string
+  project: string | null
+  project_name: string
+  title: string
+  issue: string | null
+  issue_url: string | null
+  intake: string | null
+  priority: string | null
+  slot: string | null
+  hours: number
+  work_type: string | null
+  status: 'PLANNED' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED'
+  accepted_at: string | null
+}
+
+export interface MemberPlanWorkItem {
+  kind: 'WORK_ITEM'
+  id: string
+  code: string
+  title: string
+  status: WorkItemStatus
+  priority: string | null
+  project_id: string
+  project: string | null
+  project_name: string
+  channel: string | null
+  urgent: boolean
+  due_date: string | null
+  closed: boolean
+}
+
+export interface MemberPlanPersonal {
+  kind: 'PERSONAL'
+  id: string
+  title: string
+  hours: number
+  status: string
+  start_time: string | null
+}
+
+export type MemberPlanItem = MemberPlanAssignment | MemberPlanWorkItem | MemberPlanPersonal
+
+export interface MemberPlanDay {
+  date: string
+  capacity_hours: number
+  personal_hours: number
+  available_hours: number
+  planned_hours: number
+  off: boolean
+  items: MemberPlanItem[]
+  hidden_projects: { name: string; hours: number }[]
+}
+
+export interface MemberPlan {
+  member: PlanPerson
+  from: string
+  to: string
+  days: MemberPlanDay[]
+  totals: {
+    planned_hours: number
+    available_hours: number
+    personal_hours: number
+    off_days: number
+    by_project: { name: string; hours: number; visible: boolean }[]
+    work_status: Record<'PLANNED' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED', number>
+    accepted: number
+    work_items: Partial<Record<WorkItemStatus, number>>
+  }
+}
+
 export interface SyncStatus {
   intake_id: string
   snapshot_id: string | null
@@ -827,7 +924,6 @@ export interface AcceptanceItem {
   evidence_fetched_at: string | null
   intake_id: string | null
   intake_public_id: string | null
-  needs_cto_acceptance: boolean
   acceptance: string[]
   picked_on: string | null
   decision: 'PENDING' | 'ACCEPTED' | 'REJECTED'
@@ -838,6 +934,11 @@ export interface AcceptanceItem {
   po_reason: string | null
   po_decided_at: string | null
   po_decided_by_name: string | null
+  // Whose word closed it, and why a Project Owner's "done" would still go to the CTO (FR-PLAN-41).
+  final_by?: 'CTO' | 'PO' | null
+  acceptance_policy?: 'CTO_ALWAYS' | 'PO_FINAL_LOW_RISK'
+  needs_cto_acceptance?: boolean
+  po_final_blockers?: string[]
   sync_status: string | null
   sync_error: string | null
   synced_at: string | null
@@ -1130,7 +1231,11 @@ export interface IntakeJourney {
   previous_targets: { system: string; external_id: string; url: string | null }[]
   sync_status: string | null
   accepted_at: string | null
-  verification: { id: string; decision: 'PENDING' | 'ACCEPTED' | 'REJECTED'; source: string; created_at: string; reason: string | null } | null
+  verification: {
+    id: string; decision: 'PENDING' | 'ACCEPTED' | 'REJECTED'; source: string; created_at: string; reason: string | null
+    po_decision?: 'ACCEPTED' | 'REJECTED' | null; po_decided_at?: string | null; po_decided_by_name?: string | null
+    final_by?: 'CTO' | 'PO' | null; accepted_by_name?: string | null
+  } | null
   work: { entries: number; latest_id?: string; latest_decision: 'PENDING' | 'CONFIRMED' | 'RETURNED'; latest_at: string; latest_by: string | null; off_plan: boolean; worked_on: string | null; actual_minutes: number | null; deployed: boolean | null } | null
   unlogged_evidence: { commits: number; merge_requests: number; links: number } | null
   plans: { plan_date: string; run_id: string; assignment_id: string; member_name: string; slot: string; planned_hours: number; settled: boolean; work_status: WorkStatus; work_status_at: string | null; accepted_at: string | null }[]
@@ -1214,6 +1319,8 @@ export interface IntakeWorkLog {
   reviewed_by_name: string | null
   reviewed_at: string | null
   created_at: string
+  // The commit's page on GitLab/GitHub, built from the request's Issue; null when the repository is unknown.
+  commit_url?: string | null
 }
 
 // What changed, for the people using the app, and the build that is running (FR-UI-14).
@@ -1723,6 +1830,9 @@ export interface WorkLink {
   added_by_name: string | null
   mine: boolean
   created_at: string
+  file_name?: string | null
+  mime_type?: string | null
+  size_bytes?: number | null
 }
 
 export interface WorkDetail extends WorkItem {
@@ -1756,6 +1866,32 @@ export interface ShowcaseItem {
   project_code: string | null
   sample_requests: number
   in_catalog: boolean
+}
+
+export interface AccessCheck {
+  key: string
+  status: 'OK' | 'MISSING' | 'WARN' | 'UNKNOWN'
+  detail: string | null
+}
+
+export interface AccessResult {
+  system: 'GITLAB' | 'GITHUB'
+  ok: boolean
+  checks: AccessCheck[]
+  source?: 'APP' | 'ENV' | 'NONE'
+  base_url?: string
+  token_ref?: string
+  repository?: string
+}
+
+export interface GitlabConnection {
+  configured: boolean
+  source: 'APP' | 'ENV' | 'NONE'
+  base_url: string
+  key_hint: string
+  updated_at: string | null
+  linked_projects: number
+  projects_enabled?: number | null
 }
 
 export interface GithubTokenRow {

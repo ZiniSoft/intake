@@ -1,7 +1,9 @@
 """Work tracked inside Intake: the board, its items, their discussion, and the way to an Issue (FR-WRK-01..05, ADR-0066)."""
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 
 from app.api.errors import api_exception
 from app.api.security import AuthContext, ensure_project, require_account, require_member
@@ -9,7 +11,7 @@ from app.db import get_session
 from app.modules.intake.feedback import member_of_user
 from app.modules.projects.service import project_catalog_service
 from app.modules.work.links import LinkError, issue_link
-from app.modules.work.service import DOER_STATUSES, WorkError, work_service
+from app.modules.work.service import DOER_STATUSES, MAX_FILE_BYTES, WorkError, work_service
 from app.schemas import (
     PostLinkCreate, PostLinkOut, WorkBulkCreate, WorkBulkUpdate, WorkChannelIn, WorkChannelUpdate, WorkCommentCreate, WorkCreate, WorkDetail, WorkLinkCreate,
     WorkMove, WorkOut, WorkUpdate,
@@ -235,6 +237,41 @@ async def link_work(work_id: str, payload: WorkLinkCreate, context: AuthContext 
     except WorkError as error:
         _raise(error)
     return WorkDetail.model_validate(_mine(context, row)).model_dump()
+
+
+@router.post("/{work_id}/links/file", response_model=WorkDetail, status_code=status.HTTP_201_CREATED, openapi_extra={"x-requirement-ids": ["FR-WRK-10"]})
+async def link_work_file(
+    work_id: str, file: UploadFile = File(...), note: str | None = Form(default=None), context: AuthContext = Depends(require_account),
+) -> dict:
+    """A picture or a PDF from the computer, kept by Intake and listed with the links (5 MB, content checked against its type)."""
+    _visible(context, work_id)
+    content = await file.read(MAX_FILE_BYTES + 1)
+    try:
+        row = work_service.add_link_file(
+            work_id, filename=file.filename or "tệp", mime_type=file.content_type or "", content=content, note=note, actor_id=context.user_id,
+        )
+    except WorkError as error:
+        _raise(error)
+    return WorkDetail.model_validate(_mine(context, row)).model_dump()
+
+
+@router.get("/{work_id}/links/{link_id}/file", openapi_extra={"x-requirement-ids": ["FR-WRK-10"]})
+async def download_link_file(work_id: str, link_id: str, context: AuthContext = Depends(require_account)) -> Response:
+    """The file of a link, always as a download and never shown inline (ADR-0015)."""
+    _visible(context, work_id)
+    try:
+        content, mime_type, name = work_service.link_file(work_id, link_id)
+    except Exception as error:
+        if isinstance(error, (KeyError, FileNotFoundError)) or type(error).__name__ == "ClientError":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        raise
+    ascii_name = "".join(ch if 32 <= ord(ch) < 127 and ch not in {'"', "/", "\\"} else "_" for ch in name) or "file"
+    disposition = f'attachment; filename="{ascii_name}"'
+    if not name.isascii():
+        disposition += f"; filename*=UTF-8''{quote(name, safe='')}"
+    return Response(content=content, media_type=mime_type, headers={
+        "Content-Disposition": disposition, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+    })
 
 
 @router.delete("/{work_id}/links/{link_id}", status_code=status.HTTP_204_NO_CONTENT, openapi_extra={"x-requirement-ids": ["FR-WRK-07"]})

@@ -57,12 +57,39 @@ def _clean_details(details: dict | None) -> dict:
     return out
 
 
+def _issue_url(session, intake_id: str) -> str | None:
+    """The web address of the GitLab or GitHub Issue the request became, to point commits at its repository."""
+    from app.models import ExternalLink
+    from app.modules.planning import evidence as ev
+
+    links = session.scalars(select(ExternalLink).where(ExternalLink.intake_id == intake_id, ExternalLink.target_system.in_(("GITLAB", "GITHUB"))).order_by(ExternalLink.created_at.desc())).all()
+    for link in links:
+        url = ev.snapshot_url(session, str(link.project_id), link.external_id) or link.url
+        if ev.repo_base(url):
+            return url
+    return None
+
+
+def commit_link(issue_url: str | None, commit: str | None) -> str | None:
+    """A link to review the commit: the commit as given when it is already an address, else built from the Issue's repository."""
+    from app.modules.planning import evidence as ev
+
+    text = (commit or "").strip()
+    if not text:
+        return None
+    if text.lower().startswith(("http://", "https://")):
+        return text
+    return ev.commit_url(issue_url, text)
+
+
 class WorkLogService:
     @staticmethod
-    def _dict(session, row: IntakeWorkLog) -> dict[str, object]:
+    def _dict(session, row: IntakeWorkLog, issue_url: str | None = None) -> dict[str, object]:
         actor = session.get(User, row.actor_id) if row.actor_id else None
         reviewer = session.get(User, row.reviewed_by) if row.reviewed_by else None
+        commit = (row.details or {}).get("commit")
         return {
+            "commit_url": commit_link(issue_url if issue_url is not None else (_issue_url(session, str(row.intake_id)) if commit else None), commit),
             "id": str(row.id), "intake_id": str(row.intake_id), "project_id": str(row.project_id),
             "actor_id": str(row.actor_id) if row.actor_id else None, "actor_name": actor.display_name if actor else None,
             "agent_name": row.agent_name, "summary": row.summary, "details": row.details or {},
@@ -74,7 +101,8 @@ class WorkLogService:
     def list(self, intake_id: str) -> list[dict[str, object]]:
         with get_session() as session:
             rows = session.scalars(select(IntakeWorkLog).where(IntakeWorkLog.intake_id == intake_id).order_by(IntakeWorkLog.created_at.desc())).all()
-            return [self._dict(session, row) for row in rows]
+            issue_url = _issue_url(session, intake_id) if any((row.details or {}).get("commit") for row in rows) else None
+            return [self._dict(session, row, issue_url or "") for row in rows]
 
     def add(self, intake_id: str, *, summary: str, details: dict | None, actor_id: str, agent_name: str | None) -> dict[str, object]:
         text = " ".join(summary.split())

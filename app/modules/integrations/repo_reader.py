@@ -1,6 +1,8 @@
-"""Reading one file from a project's main repository with a read-only token (ADR-0063). Only the repo-reader
-worker is given these tokens: `GITLAB_REPO_READ_TOKEN` for GitLab, `GITHUB_REPO_READ_TOKEN_<NAME>` (or
-`GITHUB_REPO_READ_TOKEN`) for GitHub. Nothing here can write."""
+"""Reading one file from a project's main repository (ADR-0063, ADR-0080). Nothing here writes.
+
+GitLab: the separate read token `GITLAB_REPO_READ_TOKEN` when one is still set, else the company GitLab token saved on
+a screen (scope read_repository). GitHub: `GITHUB_REPO_READ_TOKEN_<NAME>` (or `GITHUB_REPO_READ_TOKEN`) when set, else
+the project's own token saved on a screen (permission Contents: Read)."""
 from __future__ import annotations
 
 import base64
@@ -10,7 +12,7 @@ from urllib.parse import quote
 
 import httpx
 
-from app.config import get_settings
+from app.modules.integrations import github, gitlab_connection
 
 GITHUB_API = "https://api.github.com"
 TOKEN_NAME = re.compile(r"^GITHUB_TOKEN_[A-Z0-9_]+$")
@@ -31,14 +33,13 @@ def _decode(content: str) -> str:
 
 async def read_gitlab_file(project_path: str, path: str) -> tuple[str, str]:
     """The file's text and its blob id on the project's default branch."""
-    settings = get_settings()
-    token = (settings.gitlab_repo_read_token or "").strip()
-    if not settings.gitlab_base_url or not token:
+    base_url, token = gitlab_connection.read_token()
+    if not base_url or not token:
         raise RepoReadError("GITLAB_READ_NOT_CONFIGURED")
     headers = {"PRIVATE-TOKEN": token}
     encoded = quote(project_path, safe="")
     file_url = f"/api/v4/projects/{encoded}/repository/files/{quote(path, safe='')}"
-    async with httpx.AsyncClient(base_url=settings.gitlab_base_url, timeout=30) as client:
+    async with httpx.AsyncClient(base_url=base_url, timeout=30) as client:
         try:
             project = await client.get(f"/api/v4/projects/{encoded}", headers=headers)
             if project.status_code == 404:
@@ -78,6 +79,10 @@ def _github_token(token_ref: str) -> str:
         value = os.environ.get(name, "").strip()
         if value:
             return value
+    # One token per customer, saved on a screen (ADR-0076), reads the file too when it has Contents: Read (ADR-0080).
+    stored = github._stored_token(token_ref) if suffix else None
+    if stored:
+        return stored
     raise RepoReadError("GITHUB_READ_NOT_CONFIGURED")
 
 

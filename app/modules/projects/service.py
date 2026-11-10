@@ -35,9 +35,13 @@ class ProjectView:
     delivery_system: str | None = None
     # What counts as the trace of code behind a closed Issue: COMMIT (default) or MR (FR-PLAN-22).
     done_evidence: str = "COMMIT"
+    # Who closes an acceptance: CTO_ALWAYS (default) or PO_FINAL_LOW_RISK (FR-PLAN-41).
+    acceptance_policy: str = "CTO_ALWAYS"
     agent_ready: bool = False
     owner_member_id: str | None = None
     owner_name: str | None = None
+    # The tracker the project left for GitHub, kept for its old Issue links (FR-PRJ-13).
+    previous_delivery: dict | None = None
 
 
 class ProjectCatalogService:
@@ -118,7 +122,7 @@ class ProjectCatalogService:
             name=project.name,
             status=project.status,
             gitlab_project_id=gitlab_mapping.project_external_id if gitlab_mapping else None,
-            gitlab_project_url=config.get("project_url") if gitlab_mapping else None,
+            gitlab_project_url=config.get("project_url") if gitlab_mapping and gitlab_mapping.project_external_id else None,
             kind=project.kind,
             gitlab_enabled=bool(gitlab_mapping and gitlab_mapping.enabled and gitlab_mapping.project_external_id),
             owner_member_id=str(project.owner_member_id) if project.owner_member_id else None,
@@ -134,7 +138,9 @@ class ProjectCatalogService:
                 else "GITLAB" if gitlab_mapping and gitlab_mapping.project_external_id else None
             ),
             done_evidence=str((project.project_settings or {}).get("done_evidence") or "COMMIT"),
+            acceptance_policy=str((project.project_settings or {}).get("acceptance_policy") or "CTO_ALWAYS"),
             agent_ready=bool((project.project_settings or {}).get("agent_ready")),
+            previous_delivery=config.get("previous") if gitlab_mapping and isinstance(config.get("previous"), dict) else None,
         )
 
 

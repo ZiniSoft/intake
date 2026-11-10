@@ -304,6 +304,149 @@ const PAGE_GROUPS: readonly { index: string; title: Bi; description: Bi; pages: 
   },
 ]
 
+// How to make the GitLab or GitHub token Intake needs (FR-INTG-23, ADR-0080). The same words appear in the first-run
+// setup, beside the token fields and in the guide below.
+export const GITLAB_MIN_ROLE = 'Reporter'
+
+export function gitlabTokenUrl(base?: string) {
+  const root = (base || 'https://gitlab.com').trim().replace(/\/+$/, '').replace(/\/api\/v4$/, '')
+  return `${root}/-/user_settings/personal_access_tokens?name=Intake&scopes=api,read_repository`
+}
+
+export const GITHUB_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new?name=Intake&description=Intake%20-%20Issues%20and%20project%20context&contents=read&issues=write'
+
+const GITLAB_STEPS: readonly Bi[] = [
+  [`Đăng nhập GitLab bằng tài khoản có vai trò tối thiểu ${GITLAB_MIN_ROLE} trong các dự án cần nối (nên dùng một tài khoản riêng cho Intake thay vì tài khoản cá nhân).`, `Sign in to GitLab with an account that has at least the ${GITLAB_MIN_ROLE} role on the projects to link (a separate account for Intake is better than a personal one).`],
+  ['Mở Preferences → Access tokens → Add new token (nút bên dưới mở sẵn trang này, đã điền tên và hai scope).', 'Open Preferences → Access tokens → Add new token (the button below opens that page with the name and both scopes filled in).'],
+  ['Chọn hai scope: api (tạo và cập nhật Issue) và read_repository (đọc tệp ngữ cảnh dự án). Đặt ngày hết hạn và ghi lại để thay token trước ngày đó.', 'Tick two scopes: api (create and update Issues) and read_repository (read the project context file). Set an expiry date and note it so you replace the token before then.'],
+  ['Bấm Create, chép token ngay (GitLab chỉ hiện một lần), dán vào Intake ở Dự án → Kết nối GitLab, bấm Lưu rồi Kiểm tra quyền.', 'Click Create, copy the token right away (GitLab shows it only once), paste it in Intake under Projects → GitLab connection, Save, then Check permissions.'],
+]
+
+const GITHUB_STEPS: readonly Bi[] = [
+  ['Mỗi khách một token fine-grained, chỉ thấy repo của khách đó. Mở Settings → Developer settings → Fine-grained tokens → Generate new token (nút bên dưới mở sẵn trang này).', 'One fine-grained token per customer, seeing only that customer\'s repository. Open Settings → Developer settings → Fine-grained tokens → Generate new token (the button below opens that page).'],
+  ['Resource owner: tài khoản hoặc tổ chức sở hữu repo. Repository access: Only select repositories → chọn đúng repo của khách (đừng chọn Public repositories, lựa chọn đó chỉ cho đọc).', 'Resource owner: the account or organization that owns the repository. Repository access: Only select repositories → pick the customer\'s repository (not Public repositories, which is read-only).'],
+  ['Ở mục Repositories (không phải Organizations), Add permissions: Issues = Read and write, Contents = Read-only (Metadata = Read-only có sẵn). Đặt ngày hết hạn.', 'Under Repositories (not Organizations), Add permissions: Issues = Read and write, Contents = Read-only (Metadata = Read-only comes with it). Set an expiry date.'],
+  ['Nếu tổ chức bắt duyệt token, nhờ owner của tổ chức duyệt. Chép token, dán vào Intake ở Dự án → Token GitHub với tên như GITHUB_TOKEN_KHACH_A, rồi Kiểm tra quyền với repo owner/name.', 'If the organization requires approval, ask an organization owner to approve it. Copy the token, paste it in Intake under Projects → GitHub tokens with a name such as GITHUB_TOKEN_CUSTOMER_A, then Check permissions against owner/name.'],
+]
+
+export function TokenGuide({ system, gitlabBase, compact = false }: { system: 'GITLAB' | 'GITHUB'; gitlabBase?: string; compact?: boolean }) {
+  const { locale } = useLocale()
+  const t = (value: Bi) => pick(locale, value)
+  const steps = system === 'GITLAB' ? GITLAB_STEPS : GITHUB_STEPS
+  const href = system === 'GITLAB' ? gitlabTokenUrl(gitlabBase) : GITHUB_TOKEN_URL
+  return (
+    <div className={`token-guide${compact ? ' is-compact' : ''}`}>
+      <ol>{steps.map((step) => <li key={step[1]}>{t(step)}</li>)}</ol>
+      <p>
+        <a className="button button-secondary button-small" href={href} target="_blank" rel="noreferrer">
+          {system === 'GITLAB' ? t(['Mở trang tạo token GitLab', 'Open the GitLab token page']) : t(['Mở trang tạo token GitHub', 'Open the GitHub token page'])}
+        </a>
+      </p>
+      <p className="token-guide-note">{system === 'GITLAB'
+        ? t(['Token chỉ lưu trên máy chủ Intake, đã mã hóa; màn hình chỉ hiện 4 ký tự cuối. Cài qua .env (GITLAB_TOKEN) vẫn chạy, token lưu trên màn hình được ưu tiên.', 'The token is kept on the Intake server, encrypted; screens show only its last 4 characters. A GITLAB_TOKEN in .env still works; a token saved on the screen wins.'])
+        : t(['Token lưu mã hóa trên máy chủ Intake; màn hình chỉ hiện 4 ký tự cuối. Một token chỉ dùng cho repo của một khách để dữ liệu khách không lẫn nhau.', 'Tokens are kept encrypted on the Intake server; screens show only the last 4 characters. One token serves one customer\'s repository so customers\' data never mix.'])}</p>
+    </div>
+  )
+}
+
+const ACCESS_LABELS: Record<string, { label: Bi; fix: Bi }> = {
+  'GITLAB.token_valid': { label: ['Token còn dùng được', 'Token works'], fix: ['Token sai, đã bị thu hồi hoặc hết hạn: tạo token mới và lưu lại.', 'The token is wrong, revoked or expired: create a new one and save it.'] },
+  'GITLAB.scope_api': { label: ['Scope api (tạo và cập nhật Issue)', 'Scope api (create and update Issues)'], fix: ['Tạo lại token có tick scope api.', 'Create the token again with the api scope ticked.'] },
+  'GITLAB.scope_read_repository': { label: ['Scope read_repository (đọc tệp ngữ cảnh dự án)', 'Scope read_repository (read the project context file)'], fix: ['GitLab không cho thêm scope vào token đã tạo: tạo token mới có tick cả api và read_repository, rồi lưu lại.', 'GitLab cannot add a scope to an existing token: create a new one with both api and read_repository ticked, then save it.'] },
+  'GITLAB.expires': { label: ['Ngày hết hạn', 'Expiry date'], fix: ['Tạo token mới và lưu lại trước ngày hết hạn.', 'Create a new token and save it before it expires.'] },
+  'GITLAB.project_found': { label: ['Thấy dự án trên GitLab', 'Project visible on GitLab'], fix: ['Kiểm tra đường dẫn nhóm/dự án, hoặc thêm tài khoản của token vào dự án.', 'Check the group/project path, or add the token\'s account to the project.'] },
+  'GITLAB.project_role': { label: [`Vai trò trong dự án (tối thiểu ${GITLAB_MIN_ROLE})`, `Role on the project (at least ${GITLAB_MIN_ROLE})`], fix: [`Nâng vai trò của tài khoản lên ${GITLAB_MIN_ROLE} trở lên trong Manage → Members của dự án.`, `Raise the account to ${GITLAB_MIN_ROLE} or higher under the project's Manage → Members.`] },
+  'GITHUB.token_valid': { label: ['Token còn dùng được', 'Token works'], fix: ['Token sai, đã bị thu hồi hoặc hết hạn: tạo token mới và lưu lại cùng tên.', 'The token is wrong, revoked or expired: create a new one and save it under the same name.'] },
+  'GITHUB.metadata': { label: ['Token thấy repo', 'Token sees the repository'], fix: ['Sửa token: Resource owner phải là tổ chức hoặc tài khoản sở hữu repo, Repository access chọn đúng repo này. Nếu tổ chức bắt duyệt token, nhờ owner duyệt.', 'Edit the token: the Resource owner must be the organization or account that owns the repository, and Repository access must include it. If the organization requires approval, ask an owner to approve it.'] },
+  'GITHUB.issues_enabled': { label: ['Repo đang bật Issues', 'Issues turned on for the repository'], fix: ['Bật Issues trong Settings → General → Features của repo.', 'Turn on Issues under the repository\'s Settings → General → Features.'] },
+  'GITHUB.issues_read': { label: ['Đọc Issue', 'Read Issues'], fix: ['Sửa token: Issues = Read and write.', 'Edit the token: Issues = Read and write.'] },
+  'GITHUB.issues_write': { label: ['Tạo và sửa Issue', 'Create and edit Issues'], fix: ['Sửa token: Issues = Read and write.', 'Edit the token: Issues = Read and write.'] },
+  'GITHUB.contents_read': { label: ['Đọc mã (Contents, cho tệp ngữ cảnh dự án)', 'Read code (Contents, for the project context file)'], fix: ['Sửa token: Contents = Read-only.', 'Edit the token: Contents = Read-only.'] },
+  'GITHUB.expires': { label: ['Ngày hết hạn', 'Expiry date'], fix: ['Tạo token mới và lưu lại cùng tên trước ngày hết hạn.', 'Create a new token and save it under the same name before it expires.'] },
+}
+
+// The worker names the usual cause of a refusal in `detail` (ADR-0080 operations note); these replace the generic fix.
+const ACCESS_CAUSES: Record<string, Bi> = {
+  'GITHUB.issues_write.public_read_only': ['Repo công khai nên token đọc được, nhưng chưa được ghi. Hay gặp: Repository access đang là "Public repositories" (chỉ đọc), hoặc Issues được thêm ở mục Organizations thay vì Repositories, hoặc token đang chờ owner tổ chức duyệt. Sửa: Only select repositories → chọn repo này, mục Repositories → Issues = Read and write, bấm Update.', 'The repository is public, so the token can read it but not write. Usually: Repository access is "Public repositories" (read-only), Issues was added under Organizations instead of Repositories, or the token still awaits the organization owner\'s approval. Fix: Only select repositories → pick this repository, Repositories → Issues = Read and write, then Update.'],
+  'GITHUB.issues_write.read_only': ['Token đọc được Issue nhưng không ghi được: Issues đang là Read-only. Sửa token ở mục Repositories: Issues = Read and write.', 'The token reads Issues but cannot write them: Issues is Read-only. Edit the token under Repositories: Issues = Read and write.'],
+  'GITHUB.issues_write.org_policy': ['Tổ chức đang giới hạn token fine-grained (thường là thời hạn tối đa). Tạo lại token với ngày hết hạn ngắn hơn, hoặc nhờ owner xem Settings → Personal access tokens của tổ chức.', 'The organization limits fine-grained tokens (usually their maximum lifetime). Create the token again with an earlier expiry, or ask an owner to check the organization\'s Settings → Personal access tokens.'],
+  'GITHUB.metadata.org_policy': ['Tổ chức đang giới hạn token fine-grained (thường là thời hạn tối đa). Tạo lại token với ngày hết hạn ngắn hơn, hoặc nhờ owner xem Settings → Personal access tokens của tổ chức.', 'The organization limits fine-grained tokens (usually their maximum lifetime). Create the token again with an earlier expiry, or ask an owner to check the organization\'s Settings → Personal access tokens.'],
+}
+
+const CAUSE_CODES = new Set(['public_read_only', 'read_only', 'org_policy'])
+
+// Common token mistakes, listed in the guide (#guide-token-mistakes) and linked from a failed check.
+const TOKEN_MISTAKES: readonly { system: string; mistake: Bi; fix: Bi }[] = [
+  { system: 'GitHub', mistake: ['Chọn "Public repositories" ở Repository access: token chỉ đọc được repo công khai, không tạo được Issue.', 'Picking "Public repositories" under Repository access: the token only reads public repositories and cannot create Issues.'], fix: ['Chọn Only select repositories và chọn repo của khách.', 'Pick Only select repositories and choose the customer\'s repository.'] },
+  { system: 'GitHub', mistake: ['Thêm quyền ở mục Organizations (như Issue Fields, Issue Types) thay vì Repositories: trông giống nhưng không cho tạo Issue.', 'Adding permissions under Organizations (such as Issue Fields or Issue Types) instead of Repositories: they look alike but do not allow creating Issues.'], fix: ['Mục Repositories → Add permissions → Issues = Read and write, Contents = Read-only.', 'Repositories → Add permissions → Issues = Read and write, Contents = Read-only.'] },
+  { system: 'GitHub', mistake: ['Resource owner là tài khoản cá nhân trong khi repo thuộc tổ chức: token không thấy repo.', 'Resource owner set to a personal account while the repository belongs to an organization: the token cannot see it.'], fix: ['Tạo lại token, Resource owner chọn tổ chức sở hữu repo.', 'Create the token again with the owning organization as Resource owner.'] },
+  { system: 'GitHub', mistake: ['Tổ chức bắt duyệt token và token đang chờ: repo riêng tư thì không thấy, repo công khai thì chỉ đọc.', 'The organization requires approval and the token is still pending: a private repository is invisible, a public one is read-only.'], fix: ['Owner tổ chức duyệt ở Settings → Personal access tokens → Pending requests.', 'An organization owner approves it under Settings → Personal access tokens → Pending requests.'] },
+  { system: 'GitHub', mistake: ['Tổ chức giới hạn thời hạn token: token đặt hạn quá dài bị từ chối.', 'The organization caps token lifetime: a token with a longer expiry is refused.'], fix: ['Tạo lại token với ngày hết hạn trong giới hạn của tổ chức.', 'Create the token again with an expiry inside the organization\'s limit.'] },
+  { system: 'GitLab', mistake: ['Chỉ tick scope api, quên read_repository: Intake không đọc được tệp ngữ cảnh dự án.', 'Ticking only the api scope and forgetting read_repository: Intake cannot read the project context file.'], fix: ['GitLab không cho thêm scope vào token cũ: tạo token mới có cả hai scope rồi lưu lại.', 'GitLab cannot add a scope to an old token: create a new one with both scopes and save it.'] },
+  { system: 'GitLab', mistake: [`Tài khoản của token chỉ là Guest hoặc Planner trong dự án.`, 'The token\'s account is only Guest or Planner on the project.'], fix: [`Nâng lên ${GITLAB_MIN_ROLE} trở lên ở Manage → Members của dự án.`, `Raise it to ${GITLAB_MIN_ROLE} or higher under the project's Manage → Members.`] },
+  { system: 'GitHub, GitLab', mistake: ['Nghĩ rằng sửa quyền xong phải dán lại token.', 'Thinking the token must be pasted again after changing its permissions.'], fix: ['Sửa quyền trên GitHub không đổi token, chỉ cần bấm Kiểm tra quyền lại. Tạo token mới (hay Regenerate) thì phải lưu token mới vào Intake.', 'Editing permissions on GitHub keeps the same token: just check again. A new or regenerated token must be saved in Intake.'] },
+]
+
+function TokenMistakes() {
+  const { locale } = useLocale()
+  const t = (value: Bi) => pick(locale, value)
+  return (
+    <div className="guide-table-wrap" id="guide-token-mistakes">
+      <h3>{t(['Lỗi thường gặp khi tạo token', 'Common token mistakes'])}</h3>
+      <table className="guide-feature-table">
+        <thead><tr><th scope="col">{t(['Nơi', 'Where'])}</th><th scope="col">{t(['Lỗi', 'Mistake'])}</th><th scope="col">{t(['Cách sửa', 'Fix'])}</th></tr></thead>
+        <tbody>{TOKEN_MISTAKES.map((row) => <tr key={row.mistake[1]}><th scope="row">{row.system}</th><td>{t(row.mistake)}</td><td>{t(row.fix)}</td></tr>)}</tbody>
+      </table>
+    </div>
+  )
+}
+
+const ACCESS_STATUS: Record<string, Bi> ={ OK: ['Đủ', 'OK'], MISSING: ['Thiếu', 'Missing'], WARN: ['Lưu ý', 'Warning'], UNKNOWN: ['Chưa rõ', 'Unknown'] }
+
+export type AccessRow = { key: string; status: string; detail: string | null }
+
+export function AccessResultList({ system, ok, checks }: { system: 'GITLAB' | 'GITHUB'; ok: boolean; checks: readonly AccessRow[] }) {
+  const { locale } = useLocale()
+  const t = (value: Bi) => pick(locale, value)
+  const detailText = (row: AccessRow) => {
+    if (!row.detail) return ''
+    if (row.key === 'expires') {
+      if (row.detail === 'never') return t(['không hết hạn', 'never expires'])
+      if (row.status === 'MISSING') return t([`đã hết hạn ${row.detail}`, `expired ${row.detail}`])
+      if (row.status === 'WARN') return t([`hết hạn ${row.detail}, còn dưới 14 ngày`, `expires ${row.detail}, under 14 days left`])
+      return row.detail
+    }
+    if (row.detail === 'empty') return t(['repo còn trống, chưa kiểm được', 'the repository is empty, nothing to check yet'])
+    if (CAUSE_CODES.has(row.detail)) return ''
+    return row.detail
+  }
+  const fixText = (row: AccessRow) => {
+    const cause = row.detail ? ACCESS_CAUSES[`${system}.${row.key}.${row.detail}`] : undefined
+    const meta = ACCESS_LABELS[`${system}.${row.key}`]
+    return cause ? t(cause) : meta ? t(meta.fix) : ''
+  }
+  return (
+    <div className={`access-result ${ok ? 'is-ok' : 'is-missing'}`} role="status">
+      <strong>{ok ? t(['Token đủ quyền cho Intake.', 'The token has every permission Intake needs.']) : t(['Token còn thiếu quyền, sửa theo gợi ý dưới đây rồi kiểm lại.', 'The token is missing permissions; fix them as suggested below and check again.'])}</strong>
+      <ul className="access-checks">
+        {checks.map((row) => {
+          const meta = ACCESS_LABELS[`${system}.${row.key}`]
+          const detail = detailText(row)
+          return (
+            <li key={row.key} className={`is-${row.status.toLowerCase()}`}>
+              <span className="access-status">{t(ACCESS_STATUS[row.status] ?? ['?', '?'])}</span>
+              <span>{meta ? t(meta.label) : row.key}{detail && <small> - {detail}</small>}
+                {(row.status === 'MISSING' || row.status === 'WARN') && fixText(row) && <em>{fixText(row)}</em>}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      {!ok && <p><a className="text-button" href="/huong-dan#guide-token-mistakes" target="_blank" rel="noreferrer">{t(['Xem các lỗi thường gặp khi tạo token', 'See common token mistakes'])}</a></p>}
+    </div>
+  )
+}
+
 export type GuideAppContext = {
   role: string
   isCto: boolean
@@ -349,6 +492,7 @@ export function GuideContent({ app }: { app?: GuideAppContext }) {
         <a href="#guide-overview">{t(['Tổng quan', 'Overview'])}</a>
         <a href="#guide-roles">{t(['Theo vai trò', 'By role'])}</a>
         <a href="#guide-features">{t(['Tính năng', 'Features'])}</a>
+        <a href="#guide-trackers">{t(['Kết nối GitLab/GitHub', 'GitLab/GitHub connection'])}</a>
         <a href="#guide-history">{t(['Lịch sử', 'History'])}</a>
         {app?.ctoNav && <a href={app.ctoNav.href}>{app.ctoNav.label}</a>}
         {!app && <a href="#guide-self-host">{t(['Tự cài đặt', 'Self-host'])}</a>}
@@ -383,6 +527,16 @@ export function GuideContent({ app }: { app?: GuideAppContext }) {
           </table>
         </div>
         <p className="guide-note"><strong>Beta</strong> {t(['nghĩa là giao diện và quy tắc còn có thể đổi. Intake hiện chưa tự đăng bài; các nguồn quét và kênh nội dung chỉ chạy khi CTO chủ động cấu hình.', 'means the screens and rules may still change. Intake does not publish posts by itself; watched sources and content channels run only after the CTO sets them up.'])}</p>
+      </section>
+
+      <section className="panel guide-section" id="guide-trackers">
+        <div className="panel-heading"><div><h2>{t(['Kết nối GitLab hoặc GitHub', 'Connect GitLab or GitHub'])}</h2><p>{t(['Không bắt buộc để dùng thử. Cần khi muốn Intake tạo Issue trên tracker của đội và đọc tệp ngữ cảnh dự án. Chỉ CTO lưu token; sau khi lưu, bấm Kiểm tra quyền để biết token còn thiếu gì.', 'Not needed to try Intake. Needed for Intake to create Issues on the team\'s tracker and read the project context file. Only the CTO saves tokens; after saving, click Check permissions to see what the token still lacks.'])}</p></div></div>
+        <div className="guide-token-grid">
+          <article><h3>{t(['GitLab: một token cá nhân cho cả công ty', 'GitLab: one personal access token for the company'])}</h3><TokenGuide system="GITLAB" /></article>
+          <article><h3>{t(['GitHub: mỗi khách một token fine-grained', 'GitHub: one fine-grained token per customer'])}</h3><TokenGuide system="GITHUB" /></article>
+        </div>
+        <TokenMistakes />
+        <p className="guide-note">{t(['Nối dự án: khi tạo hoặc sửa dự án, chọn GitLab hay GitHub, chọn repo rồi bấm Kiểm tra kết nối. Token bị từ chối ở đâu thì Kiểm tra quyền chỉ đúng chỗ đó.', 'Linking a project: when creating or editing a project, pick GitLab or GitHub, pick the repository, then Check connection. Wherever the token is refused, Check permissions points at that exact spot.'])}</p>
       </section>
 
       <section className="panel guide-section" id="guide-history">

@@ -23,6 +23,8 @@ from app.models import (
     WorkforceMember,
     WorkforceProjectMembership,
 )
+from app.modules.integrations import gitlab_connection
+from app.modules.projects import delivery_switch
 from app.modules.projects.service import OTHER_PROJECT_CODE
 
 
@@ -80,9 +82,13 @@ class ProjectManagementService:
             raise ProjectError("PROBE_ACTION_NOT_SUPPORTED", "Only GitHub uses a token per project")
         if action == "TOKENS":
             cleaned = None
+        elif action == "ACCESS" and system == "GITLAB":
+            # The company token's scopes; with a project, also the role on it (FR-INTG-23).
+            cleaned = _clean_reference(system, reference) if (reference or "").strip() else None
         else:
-            cleaned = _clean_reference(system, reference) if action in ("CHECK", "MEMBERS") else ((reference or "").strip()[:100] or None)
-            if action in ("CHECK", "MEMBERS") and not cleaned:
+            needs_target = action in ("CHECK", "MEMBERS", "ACCESS")
+            cleaned = _clean_reference(system, reference) if needs_target else ((reference or "").strip()[:100] or None)
+            if needs_target and not cleaned:
                 raise ProjectError("PROBE_REFERENCE_REQUIRED", "A project reference is required")
             if system == "GITHUB":
                 # The worker needs to know which of its tokens to use; only the variable name travels.
@@ -262,7 +268,7 @@ class ProjectManagementService:
             if payload.status is not None:
                 project.status = payload.status
             project.updated_at = now
-            links = self._apply_links(session, project, payload, now)
+            links = self._apply_links(session, project, payload, now, actor_id=actor_id)
             session.add(AuditEvent(
                 id=str(uuid4()), project_id=project.id, actor_type="USER", actor_id=actor_id,
                 event_type="project.updated", entity_type="project", entity_id=project.id,
@@ -271,7 +277,7 @@ class ProjectManagementService:
             session.commit()
             return str(project.id)
 
-    def _apply_links(self, session, project: Project, payload, now: datetime) -> list[str]:
+    def _apply_links(self, session, project: Project, payload, now: datetime, actor_id: str | None = None) -> list[str]:
         settings = get_settings()
         rules = KIND_RULES[project.kind]
         existing = {
@@ -283,6 +289,9 @@ class ProjectManagementService:
             "GITLAB": (_clean_reference("GITLAB", payload.gitlab_project_path), payload.gitlab_probe_id),
             "GITHUB": (_clean_reference("GITHUB", payload.github_repository), payload.github_probe_id),
         }
+        switch_to = getattr(payload, "switch_delivery", None)
+        if switch_to:
+            self._switch_delivery(session, project, existing, requested, payload, switch_to, now, actor_id)
         linked_delivery = {system for system in DELIVERY_SYSTEMS if existing.get(system) and existing[system].project_external_id}
         asked_delivery = {system for system in DELIVERY_SYSTEMS if requested[system][0]}
         if len(asked_delivery) > 1 or (asked_delivery and linked_delivery and asked_delivery != linked_delivery):
@@ -323,8 +332,9 @@ class ProjectManagementService:
             else:
                 config = {"project_url": verified.get("url"), "project_name": verified.get("name")}
                 values = {
-                    "base_url": settings.gitlab_base_url, "workspace_external_id": None,
-                    "credential_ref": "GITLAB_TOKEN", "enabled": bool(settings.gitlab_integration_enabled),
+                    "base_url": gitlab_connection.credentials().base_url or settings.gitlab_base_url, "workspace_external_id": None,
+                    # Connected on the GitLab screen counts as switched on (ADR-0080).
+                    "credential_ref": "GITLAB_TOKEN", "enabled": bool(settings.gitlab_integration_enabled) or gitlab_connection.configured_in_app(),
                 }
             if current is None:
                 session.add(ProjectIntegration(
@@ -339,6 +349,50 @@ class ProjectManagementService:
                     setattr(current, key, value)
             changed.append(system)
         return changed
+
+    @staticmethod
+    def _switch_target(session, project: Project, target: str) -> ProjectIntegration:
+        """The GitLab link a switch to `target` would retire; refused when there is nothing to switch."""
+        current = session.scalar(select(ProjectIntegration).where(
+            ProjectIntegration.project_id == project.id, ProjectIntegration.system == "GITLAB",
+        ))
+        github = session.scalar(select(ProjectIntegration).where(
+            ProjectIntegration.project_id == project.id, ProjectIntegration.system == "GITHUB",
+        ))
+        if (target not in delivery_switch.SWITCH_TARGETS or project.kind != "SOFTWARE" or current is None
+                or not current.project_external_id or (github is not None and github.project_external_id)):
+            raise ProjectError("DELIVERY_SWITCH_NOT_APPLICABLE", "Only a software project on GitLab can be switched to GitHub")
+        return current
+
+    def switch_preview(self, project_ref: str) -> dict[str, object]:
+        """What a switch to GitHub leaves behind, shown before the CTO confirms (FR-PRJ-13)."""
+        with get_session() as session:
+            project = session.scalar(select(Project).where(Project.code == project_ref))
+            if project is None and len(project_ref) == 36:
+                project = session.get(Project, project_ref)
+            if project is None:
+                raise KeyError(project_ref)
+            self._switch_target(session, project, "GITHUB")
+            return {"from_system": "GITLAB", "to_system": "GITHUB", "open_issues": delivery_switch.open_issues(session, str(project.id))}
+
+    def _switch_delivery(self, session, project: Project, existing: dict, requested: dict, payload, target: str, now: datetime, actor_id: str | None) -> None:
+        """Retire the GitLab link so the GitHub link in the same request becomes the delivery system (ADR-0079)."""
+        current = self._switch_target(session, project, target)
+        reference, probe_id = requested[target]
+        if requested["GITLAB"][0]:
+            raise ProjectError("DELIVERY_SYSTEM_CONFLICT", "A switch to GitHub cannot also link GitLab")
+        if not reference:
+            raise ProjectError("GITHUB_LINK_REQUIRED", "Choose the GitHub repository to switch to")
+        # The connection check comes first: a failed check leaves the GitLab link untouched.
+        self._verified(session, probe_id, target, _github_reference((payload.github_token_ref or "").strip(), reference))
+        result = delivery_switch.retire_gitlab(session, str(project.id), current, now)
+        existing["GITLAB"] = current
+        session.add(AuditEvent(
+            id=str(uuid4()), project_id=project.id, actor_type="USER", actor_id=actor_id,
+            event_type="project.delivery_switched", entity_type="project", entity_id=project.id,
+            details={"from": "GITLAB", "to": target, "previous": result["previous"], "open_issues": result["open_issues"], "moved_rows": result["moved_rows"]},
+            created_at=now,
+        ))
 
 
 class ProjectTeamService:

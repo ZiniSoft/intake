@@ -27,6 +27,7 @@ import {
 } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  UsersRound,
   ArrowLeft,
   ArrowDown,
   ArrowRight,
@@ -85,13 +86,15 @@ import {
   GripVertical,
   Circle,
   X,
+  ExternalLink,
 } from 'lucide-react'
 import { api, ApiError, AUTH_EXPIRED_EVENT, formatError } from './api'
 import { clearCursorPagination, readCursorPagination, writeCursorPagination } from './list-url'
 import { ALL_HINTS, ALL_INTROS, type HintKey, type PageIntroKey } from './hints'
 import { useLocale } from './i18n'
-import { GuideContent, PublicGuidePage } from './guide'
+import { AccessResultList, GuideContent, PublicGuidePage, TokenGuide } from './guide'
 import { movePlanningProject, orderPlanningProjects, type PlanningProjectOrder } from './planning-order'
+import { MemberPlanPage } from './member-plan'
 import { addDays, CHANNEL_NAMES, CHANNEL_ORDER, CHANNEL_SHORT, CHANNEL_VERSION_LABELS, dayOfStamp, FORMAT_LABELS, POST_COLUMNS, POST_STATUS_LABELS, POST_WORDS, postColumnOf, stampOf, timeOfStamp, type UiMode } from './words'
 import { dismissPendingSync, leaveRecording, resetRecording, resumePendingRecordings, rewriteRecording, startRecording, stopRecording, uploadRecording, usePendingSync, useRecording, type RecordingState } from './recording'
 import type { RecordingSource } from './recording'
@@ -194,6 +197,7 @@ import type {
   PlanningRunSyncStatus,
   PlanningSlot,
   Priority,
+  DeliverySwitchPreview,
   Project,
   Account,
   AgentCommand,
@@ -212,7 +216,9 @@ import type {
   PlanningAddWorkResult,
   ProjectKind,
   SetupState,
+  AccessResult,
   GithubTokenRow,
+  GitlabConnection,
   ShowcaseCatalog,
   ShowcaseItem,
   IntegrationProbe,
@@ -1108,6 +1114,18 @@ function EvidenceBlock({ item, canAdd }: { item: AcceptanceItem; canAdd: boolean
   )
 }
 
+// Why a Project Owner's "done" still waits for the CTO (FR-PLAN-41). SELF and NOT_OWNER depend on who clicks and are
+// only known after the click; the card shows the ones that do not.
+const poFinalBlockerText: Record<string, string> = {
+  POLICY: 'dự án này để CTO nghiệm thu mọi việc',
+  HARD: 'CTO đã đánh dấu việc khó',
+  P0: 'việc P0',
+  EVIDENCE: 'chưa đủ bằng chứng theo luật của dự án',
+  SELF: 'anh chị là người làm hoặc người báo xong',
+  REJECTED_BEFORE: 'việc từng bị trả lại',
+  NOT_OWNER: 'anh chị không phải Project Owner của dự án',
+}
+
 function AcceptanceCard({ item, isCto, onDecide, busy }: { item: AcceptanceItem; isCto: boolean; onDecide: (item: AcceptanceItem, decision: 'accept' | 'reject') => void; busy: boolean }) {
   const traces = [
     item.evidence.commits > 0 ? `${item.evidence.commits} commit nhắc Issue` : null,
@@ -1115,6 +1133,8 @@ function AcceptanceCard({ item, isCto, onDecide, busy }: { item: AcceptanceItem;
     item.evidence.pipeline ? `pipeline ${item.evidence.pipeline === 'success' ? 'xanh' : item.evidence.pipeline === 'failed' ? 'đỏ' : item.evidence.pipeline}` : null,
   ].filter(Boolean)
   const open = item.decision === 'PENDING' && (isCto || !item.po_decision)
+  const blockers = item.po_final_blockers || []
+  const poFinal = item.final_by === 'PO'
   return (
     <li className={`acceptance-card decision-${item.decision.toLowerCase()} level-${item.level_name.toLowerCase()}`}>
       <div className="acceptance-head">
@@ -1136,9 +1156,11 @@ function AcceptanceCard({ item, isCto, onDecide, busy }: { item: AcceptanceItem;
       {item.acceptance.length > 0 && <ul className="verification-acceptance">{item.acceptance.map((line, index) => <li key={index}>{line}</li>)}</ul>}
       <EvidenceBlock item={item} canAdd={open} />
       {item.evidence_missing_reason && <p className="acceptance-reported evidence-missing-note">Nghiệm thu không bằng chứng: {item.evidence_missing_reason}</p>}
-      {!isCto && item.needs_cto_acceptance && item.decision === 'PENDING' && <p className="acceptance-reported">Việc khó do CTO đánh dấu: bạn xác nhận phần mình, CTO là người nghiệm thu cuối và đóng Issue.</p>}
-      {item.po_decision && <p className={`acceptance-po ${item.po_decision === 'ACCEPTED' ? 'is-ok' : 'is-no'}`}>Project Owner{item.po_decided_by_name ? ` (${item.po_decided_by_name})` : ''}: {item.po_decision === 'ACCEPTED' ? 'xác nhận xong' : `chưa xong: ${item.po_reason}`}</p>}
-      {item.decision !== 'PENDING' && (
+      {item.po_decision && <p className={`acceptance-po ${item.po_decision === 'ACCEPTED' ? 'is-ok' : 'is-no'}`}>Project Owner{item.po_decided_by_name ? ` (${item.po_decided_by_name})` : ''}: {item.po_decision === 'ACCEPTED' ? (poFinal ? 'đúng là xong' : 'xác nhận xong, chờ CTO nghiệm thu') : `chưa xong: ${item.po_reason}`}{poFinal && item.decided_at ? ` · ${formatDate(item.decided_at)}` : ''}
+        {poFinal && item.sync_status ? ` · ${syncText[item.sync_status] || item.sync_status}${item.sync_error && item.sync_status !== 'DONE' ? ` (${item.sync_error})` : ''}` : ''}</p>}
+      {open && !isCto && <p className="field-help acceptance-policy-note">{blockers.length === 0 ? 'Việc rủi ro thấp: anh chị xác nhận là nghiệm thu xong, Intake ghi chú và đóng Issue.' : `Anh chị xác nhận xong thì việc vẫn chờ CTO nghiệm thu: ${blockers.map((code) => poFinalBlockerText[code] || code).join('; ')}.`}</p>}
+      {open && isCto && item.needs_cto_acceptance && <p className="field-help acceptance-policy-note">Việc khó: chỉ CTO nghiệm thu.</p>}
+      {item.decision !== 'PENDING' && !poFinal && (
         <p className={`acceptance-cto ${item.decision === 'ACCEPTED' ? 'is-ok' : 'is-no'}`}>
           CTO{item.decided_by_name ? ` (${item.decided_by_name})` : ''}: {item.decision === 'ACCEPTED' ? 'đúng là xong' : `chưa xong: ${item.reason}`}{item.decided_at ? ` · ${formatDate(item.decided_at)}` : ''}
           {item.decision === 'ACCEPTED' && item.sync_status ? ` · ${syncText[item.sync_status] || item.sync_status}${item.sync_error && item.sync_status !== 'DONE' ? ` (${item.sync_error})` : ''}` : ''}
@@ -1210,6 +1232,11 @@ function AcceptancePage() {
   })
   const more = useMutation({ mutationFn: () => api<{ added: number }>('/acceptance/sample?extra=5', { method: 'POST' }), onSuccess: refresh, onError: setError })
   const collect = useMutation({ mutationFn: () => api<{ from_reports: number; from_closed: number }>('/acceptance/collect', { method: 'POST' }), onSuccess: refresh, onError: setError })
+  const policy = useMutation({
+    mutationFn: ({ projectId, value }: { projectId: string; value: 'CTO_ALWAYS' | 'PO_FINAL_LOW_RISK' }) => api(`/planning/projects/${projectId}/acceptance-policy`, { method: 'PUT', body: JSON.stringify({ acceptance_policy: value }) }),
+    onMutate: () => setError(undefined), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['projects'] }); refresh() }, onError: setError,
+  })
+  const filteredProject = (projectList.data ?? []).find((project) => project.id === projectFilter)
   const reviewWorkLog = useMutation({
     mutationFn: ({ item, decision, why }: { item: AcceptanceWorkLog; decision: 'CONFIRMED' | 'RETURNED'; why?: string }) => api<IntakeWorkLog>(`/intakes/${item.intake_id}/work-log/${item.id}/review`, { method: 'POST', body: JSON.stringify({ decision, note: why || null }) }),
     onMutate: () => setError(undefined),
@@ -1234,8 +1261,9 @@ function AcceptancePage() {
         'Việc phát sinh ngoài kế hoạch do người hoặc agent ghi trong Lịch sử xử lý cũng hiện đủ ở đây để anh xác nhận hoặc trả lại.',
         'Mỗi ngày hệ thống chọn năm việc cho anh: P0/P1 trước, việc không có dấu vết code, dự án và người lâu chưa được xem. Muốn xem thêm thì bấm "Thêm 5 việc".',
         '"Đúng là xong": Intake ghi chú lên Issue và đóng Issue. "Chưa xong": việc về kế hoạch đang mở dưới dạng "Làm lại", kèm lý do.',
+        'Chọn một dự án để đổi ai chốt nghiệm thu: CTO mọi việc, hoặc Project Owner chốt việc rủi ro thấp (việc khó và P0 vẫn về anh).',
       ] : [
-        'Việc báo "xong" của người trong dự án anh chị chờ xác nhận ở đây. Xác nhận của Project Owner được ghi cạnh nghiệm thu của CTO.',
+        'Việc báo "xong" của người trong dự án anh chị chờ xác nhận ở đây. Nếu dự án cho Project Owner chốt việc rủi ro thấp, xác nhận của anh chị đóng Issue luôn; việc khó, P0, thiếu bằng chứng hay anh chị tự làm thì vẫn chờ CTO.',
         '"Chưa xong" kèm lý do: việc về kế hoạch đang mở dưới dạng "Làm lại".',
       ]} action={isCto ? <button type="button" className="button button-secondary" disabled={collect.isPending} title="Gom mọi việc báo xong và Issue đóng gần đây thành việc chờ nghiệm thu ngay, không đợi 07:00" onClick={() => collect.mutate()}>{collect.isPending ? 'Đang gom…' : 'Gom việc mới'}</button> : undefined} />
       <div className="toolbar-row">
@@ -1246,6 +1274,14 @@ function AcceptancePage() {
           </select>
         </label>
         {projectFilter && <span className="field-help">{projectName ? `Đang lọc ${projectName}.` : 'Đang lọc theo dự án.'} <Link to="/nghiem-thu">Xem mọi dự án</Link></span>}
+        {isCto && filteredProject && (
+          <label className="inline-field" title="Project Owner chốt: việc không bị đánh dấu khó, không phải P0, đủ bằng chứng, chưa từng bị trả lại và Project Owner không tự làm thì xác nhận của Project Owner đóng Issue luôn.">Ai chốt nghiệm thu
+            <select aria-label="Ai chốt nghiệm thu" value={filteredProject.acceptance_policy || 'CTO_ALWAYS'} disabled={policy.isPending} onChange={(event) => policy.mutate({ projectId: filteredProject.id, value: event.target.value as 'CTO_ALWAYS' | 'PO_FINAL_LOW_RISK' })}>
+              <option value="CTO_ALWAYS">CTO nghiệm thu mọi việc</option>
+              <option value="PO_FINAL_LOW_RISK">Project Owner chốt việc rủi ro thấp</option>
+            </select>
+          </label>
+        )}
       </div>
       {error != null && <ErrorNotice error={error} />}
       {queue.error != null && <ErrorNotice error={queue.error} onRetry={() => { void queue.refetch() }} />}
@@ -1388,7 +1424,7 @@ function WeekPage() {
                   <tbody>
                     {data.people.map((person) => (
                       <tr key={person.member_id}>
-                        <td className="board-project"><strong>{person.display_name}</strong></td>
+                        <td className="board-project"><Link to={`/ke-hoach-nguoi?member=${person.member_id}&date=${data.week_start}&view=tuan`} title="Xem kế hoạch của người này trong tuần"><strong>{person.display_name}</strong></Link></td>
                         <td className={person.hours.planned > person.hours.available + 0.01 ? 'board-overdue' : person.hours.planned < person.hours.available * 0.5 ? 'board-attn' : undefined}>{weekHours(person.hours.planned)}/{weekHours(person.hours.available)}</td>
                         <td>{weekHours(person.hours.reported)}</td>
                         <td>{person.done_reported}/{person.items.reported}</td>
@@ -1489,6 +1525,7 @@ function QuickSearch() {
     { key: 'p-reports', group: 'Trang', label: 'Báo cáo ngày', to: '/reports', icon: <FileText size={15} /> },
     { key: 'p-approvals', group: 'Trang', label: 'Chờ phê duyệt', to: '/approvals', icon: <ClipboardCheck size={15} /> },
     { key: 'p-planning', group: 'Trang', label: 'Daily Planning', hint: 'Kế hoạch sáng, chiều', to: '/planning', icon: <CalendarDays size={15} /> },
+    { key: 'p-person-plan', group: 'Trang', label: 'Kế hoạch theo người', hint: 'Một người, qua mọi dự án, theo ngày, tuần, tháng', to: '/ke-hoach-nguoi', icon: <UsersRound size={15} /> },
     { key: 'p-week', group: 'Trang', label: 'Tuần qua', hint: 'Kế hoạch, báo cáo, xong thật, quy trình', to: '/tuan-qua', icon: <CalendarRange size={15} /> },
     { key: 'p-acceptance', group: 'Trang', label: 'Nghiệm thu', hint: 'Việc báo xong, đúng là xong chưa', to: '/nghiem-thu', icon: <BadgeCheck size={15} /> },
     { key: 'p-intakes', group: 'Trang', label: 'Tất cả Intake', to: '/intakes', icon: <List size={15} /> },
@@ -1605,7 +1642,7 @@ function ProtectedLayout() {
   const { pathname, search } = location
   // A Developer's workspace is the terminal: the web shows only their account and how to connect an agent.
   const marketing = user.mode === 'MARKETING'
-  if (user.role === 'DEVELOPER' && !pathname.startsWith('/settings/account') && !pathname.startsWith('/viec-rieng') && !pathname.startsWith('/viec-cua-toi') && !pathname.startsWith('/viec') && !pathname.startsWith('/tuan-nay') && !pathname.startsWith('/gop-y') && !pathname.startsWith('/huong-dan')) return <Navigate to={marketing ? '/tuan-nay' : '/viec-cua-toi'} replace />
+  if (user.role === 'DEVELOPER' && !pathname.startsWith('/settings/account') && !pathname.startsWith('/viec-rieng') && !pathname.startsWith('/viec-cua-toi') && !pathname.startsWith('/viec') && !pathname.startsWith('/tuan-nay') && !pathname.startsWith('/ke-hoach-nguoi') && !pathname.startsWith('/gop-y') && !pathname.startsWith('/huong-dan')) return <Navigate to={marketing ? '/tuan-nay' : '/viec-cua-toi'} replace />
   if (user.role === 'CTO' && setupState.data && !setupState.data.completed && !pathname.startsWith('/setup') && !pathname.startsWith('/settings')) return <Navigate to="/setup" replace />
   // A marketing-only account lands on the week, not on the day of a software team (FR-MKT-03).
   if (marketing && pathname === '/') return <Navigate to="/tuan-nay" replace />
@@ -1638,6 +1675,7 @@ function ProtectedLayout() {
       { to: '/viec-cua-toi', icon: <CalendarDays size={17} />, label: 'Việc của tôi', active: pathname.startsWith('/viec-cua-toi') },
       { to: '/viec-rieng', icon: <ListChecks size={17} />, label: 'Việc riêng', active: pathname.startsWith('/viec-rieng') },
       { to: '/viec', icon: <Columns3 size={17} />, label: 'Việc', active: pathname.startsWith('/viec') && !pathname.startsWith('/viec-') },
+      { to: '/ke-hoach-nguoi', icon: <UsersRound size={17} />, label: 'Kế hoạch theo người', active: pathname.startsWith('/ke-hoach-nguoi') },
       { to: '/gop-y', icon: <MessageSquarePlus size={17} />, label: 'Góp ý', active: pathname.startsWith('/gop-y') },
       { to: '/huong-dan', icon: <CircleHelp size={17} />, label: 'Hướng dẫn', active: pathname.startsWith('/huong-dan') },
       { to: '/settings/account', icon: <UserRound size={17} />, label: 'Tài khoản và agent', active: pathname.startsWith('/settings') },
@@ -1650,6 +1688,7 @@ function ProtectedLayout() {
         { to: '/reports', icon: <FileText size={17} />, label: text('Báo cáo ngày', 'Daily reports'), active: pathname.startsWith('/reports'), count: 'reports' },
         { to: '/approvals', icon: <ClipboardCheck size={17} />, label: text('Chờ phê duyệt', 'Pending approval'), active: pathname.startsWith('/approvals'), count: 'approvals' },
         { to: '/planning', icon: <CalendarDays size={17} />, label: 'Daily Planning', active: pathname.startsWith('/planning') },
+        { to: '/ke-hoach-nguoi', icon: <UsersRound size={17} />, label: text('Kế hoạch theo người', 'Plan by person'), active: pathname.startsWith('/ke-hoach-nguoi') },
         { to: '/nghiem-thu', icon: <BadgeCheck size={17} />, label: text('Nghiệm thu', 'Acceptance'), active: pathname.startsWith('/nghiem-thu') },
         { to: '/viec', icon: <Columns3 size={17} />, label: text('Việc', 'Work'), active: pathname.startsWith('/viec') && !pathname.startsWith('/viec-') },
         // An owner or the CTO who is also a member has their own day, like any Developer.
@@ -1859,7 +1898,7 @@ function PeopleBoard({ day }: { day: string }) {
         <tbody>
           {rows.map((person) => (
             <tr key={person.member_id} className={person.state === 'OVER' ? 'is-p0' : undefined}>
-              <td className="board-project"><strong>{person.display_name}</strong></td>
+              <td className="board-project"><Link to={`/ke-hoach-nguoi?member=${person.member_id}&date=${day}&view=tuan`} title="Xem kế hoạch của người này qua các ngày"><strong>{person.display_name}</strong></Link></td>
               <td><span className={`people-state people-${person.state.toLowerCase()}`}>{peopleStateText[person.state]}{person.state === 'FREE' ? ` ${hours(person.free_hours)} giờ` : person.state === 'OVER' ? ` +${hours(person.planned_hours - person.available_hours)}` : ''}</span></td>
               <td className={person.state === 'OVER' ? 'board-overdue' : undefined}>{hours(person.planned_hours)}/{hours(person.available_hours)} giờ</td>
               <td>{person.projects.length === 0 ? <span className="text-muted">chưa có việc</span> : person.projects.map((project) => <Link key={project.id} to={`/planning?project=${project.id}&date=${day}`} className="people-project">{project.name} {hours(project.hours)} giờ{project.run_status && ['DRAFT', 'REVIEW_REQUIRED'].includes(project.run_status) ? ' (nháp)' : ''}</Link>)}</td>
@@ -1869,6 +1908,16 @@ function PeopleBoard({ day }: { day: string }) {
       </table>
       <p className="field-help">Giờ đã xếp cộng qua mọi kế hoạch của ngày, kể cả nháp. "Quá giờ" là người được hai dự án xếp quá số giờ có; "Còn trống" là còn giờ chưa có việc.</p>
     </div>
+  )
+}
+
+// One person across projects and days (FR-PLAN-40); the page itself lives in member-plan.tsx.
+function MemberPlanRoute() {
+  return (
+    <>
+      <PageHeader title="Kế hoạch theo người" helper={['Chọn một người để xem việc được xếp ở mọi dự án, việc ở khu Việc, giờ việc riêng và ngày nghỉ.', 'Chỉ xem. Ở dự án bạn không chung với người đó, bạn chỉ thấy tên dự án và số giờ.']} />
+      <MemberPlanPage />
+    </>
   )
 }
 
@@ -3751,7 +3800,7 @@ function WorkLogSection({ intake, onChanged }: { intake: Intake; onChanged: () =
                     {row.details.cause && <><dt>Nguyên nhân</dt><dd>{row.details.cause}</dd></>}
                     {row.details.changes && row.details.changes.length > 0 && <><dt>Đã đổi</dt><dd>{list(row.details.changes)}</dd></>}
                     {row.details.tests && <><dt>Test</dt><dd>{row.details.tests}</dd></>}
-                    {(row.details.branch || row.details.commit) && <><dt>Nhánh · commit</dt><dd>{[row.details.branch, row.details.commit].filter(Boolean).join(' · ')}</dd></>}
+                    {(row.details.branch || row.details.commit) && <><dt>Nhánh · commit</dt><dd>{row.details.branch}{row.details.branch && row.details.commit ? ' · ' : ''}{row.details.commit && (row.commit_url ? <a href={row.commit_url} target="_blank" rel="noreferrer" title="Mở commit để review">{row.details.commit} <ExternalLink size={12} /></a> : row.details.commit)}</dd></>}
                     {row.details.verify_steps && row.details.verify_steps.length > 0 && <><dt>Cách kiểm</dt><dd>{list(row.details.verify_steps)}</dd></>}
                     {row.details.deploy_steps && row.details.deploy_steps.length > 0 && <><dt>Triển khai</dt><dd>{list(row.details.deploy_steps)}</dd></>}
                     {row.details.worked_on && <><dt>Ngày làm thực tế</dt><dd>{formatDay(row.details.worked_on)}</dd></>}
@@ -3906,9 +3955,15 @@ function IntakeJourney({ intakeId, refreshKey, humanWork, onChanged }: { intakeI
     {
       label: text('Nghiệm thu', 'Accepted'), state: data.accepted_at ? 'done' : pendingVerification || data.work || data.unlogged_evidence || (humanWork && latest) ? 'now' : noIssueRoute || stopped ? 'skip' : 'todo',
       text: data.accepted_at
-        ? `Đã nghiệm thu, đang đóng Issue · ${data.work?.latest_by || 'CTO'} · ${formatDate(data.accepted_at)}`
+        ? (data.verification?.final_by === 'PO'
+          ? `Project Owner đã nghiệm thu, đang đóng Issue · ${data.verification.accepted_by_name || data.verification.po_decided_by_name || 'Project Owner'} · ${formatDate(data.accepted_at)}`
+          : `Đã nghiệm thu, đang đóng Issue · ${data.verification?.accepted_by_name || data.work?.latest_by || 'CTO'} · ${formatDate(data.accepted_at)}`)
+        : pendingVerification && pendingVerification.po_decision === 'ACCEPTED'
+        ? `Project Owner đã xác nhận xong, chờ CTO nghiệm thu · ${pendingVerification.po_decided_by_name || 'Project Owner'} · ${formatDate(pendingVerification.po_decided_at || pendingVerification.created_at)}`
+        : pendingVerification && pendingVerification.po_decision === 'REJECTED'
+        ? `Project Owner đã trả lại · ${pendingVerification.po_decided_by_name || 'Project Owner'} · ${formatDate(pendingVerification.po_decided_at || pendingVerification.created_at)}`
         : pendingVerification
-        ? `${latest?.member_name || 'Dev'} đã báo xong, chờ CTO nghiệm thu · ${formatDate(pendingVerification.created_at)}`
+        ? `${latest?.member_name || 'Dev'} đã báo xong, chờ nghiệm thu · ${formatDate(pendingVerification.created_at)}`
         : data.verification?.decision === 'REJECTED'
         ? `CTO đã trả lại: ${data.verification.reason || 'chưa đạt yêu cầu'}`
         : data.work?.latest_decision === 'PENDING'
@@ -6705,7 +6760,10 @@ const projectKinds: { value: ProjectKind; label: string; hint: string; gitlab: b
 const projectKindLabels: Record<string, string> = { IDEA: 'Ý tưởng', NON_CODE: 'Marketing và nội dung', SOFTWARE: 'Phần mềm' }
 const probeErrors: Record<string, string> = {
   QUEUE_UNAVAILABLE: 'Hàng đợi đang không nhận việc. Thử lại sau ít phút.',
-  GITLAB_NOT_CONFIGURED: 'GitLab chưa được cấu hình trên máy chủ.',
+  GITLAB_NOT_CONFIGURED: 'GitLab chưa được nối. CTO nối ở Dự án > Kết nối GitLab.',
+  GITLAB_UNAVAILABLE: 'Không gọi được GitLab. Kiểm tra địa chỉ GitLab và mạng của máy chủ.',
+  GITHUB_UNAVAILABLE: 'Không gọi được GitHub. Thử lại sau ít phút.',
+  GITHUB_REPOSITORY_INVALID: 'Repository phải có dạng chủ-sở-hữu/tên.',
   GITLAB_AUTH_FAILED: 'Token GitLab không có quyền truy cập.',
   GITLAB_MAPPING_NOT_FOUND: 'Không tìm thấy dự án GitLab này, hoặc token không thấy nó.',
   GITHUB_MAPPING_NOT_FOUND: 'Không tìm thấy repository GitHub này, hoặc token không có quyền với nó.',
@@ -6718,7 +6776,7 @@ const probeErrors: Record<string, string> = {
 type LinkSystem = 'GITLAB' | 'GITHUB'
 const linkTitles: Record<LinkSystem, string> = { GITLAB: 'GitLab', GITHUB: 'GitHub' }
 
-async function runProbe(system: LinkSystem, action: 'LIST' | 'CHECK' | 'MEMBERS' | 'TOKENS', reference?: string, tokenRef?: string): Promise<IntegrationProbe> {
+async function runProbe(system: LinkSystem, action: IntegrationProbe['action'], reference?: string, tokenRef?: string): Promise<IntegrationProbe> {
   let probe = await api<IntegrationProbe>('/projects/integration-probes', { method: 'POST', body: JSON.stringify({ system, action, reference: reference || null, token_ref: tokenRef || null }) })
   for (let attempt = 0; probe.status === 'PENDING' && attempt < 30; attempt += 1) {
     await new Promise((resolve) => window.setTimeout(resolve, 1000))
@@ -6727,6 +6785,32 @@ async function runProbe(system: LinkSystem, action: 'LIST' | 'CHECK' | 'MEMBERS'
   if (probe.status === 'PENDING') throw new Error(probeErrors.PROBE_TIMEOUT)
   if (probe.status === 'FAILED') throw new Error(probeErrors[probe.error_code || ''] || `Không kết nối được (${probe.error_code}).`)
   return probe
+}
+
+// Which permissions a token has and which it lacks (FR-INTG-23): the worker asks GitLab/GitHub, the list names each gap.
+function AccessCheckButton({ system, reference, tokenRef, disabled, label }: { system: LinkSystem; reference?: string; tokenRef?: string; disabled?: boolean; label?: string }) {
+  const { text } = useLocale()
+  const check = useMutation({ mutationFn: () => runProbe(system, 'ACCESS', reference?.trim() || undefined, tokenRef) })
+  const result = check.data?.result as AccessResult | undefined
+  return (
+    <div className="access-check">
+      <button className="button button-secondary button-small" type="button" disabled={disabled || check.isPending} onClick={() => check.mutate()}>
+        {check.isPending ? text('Đang kiểm tra quyền…', 'Checking permissions…') : label || text('Kiểm tra quyền', 'Check permissions')}
+      </button>
+      {check.error != null && <ErrorNotice error={check.error} />}
+      {result && Array.isArray(result.checks) && !check.isPending && <AccessResultList system={system} ok={result.ok} checks={result.checks} />}
+    </div>
+  )
+}
+
+function TokenHelp({ system, gitlabBase, open }: { system: LinkSystem; gitlabBase?: string; open?: boolean }) {
+  const { text } = useLocale()
+  return (
+    <details className="token-help" open={open}>
+      <summary>{system === 'GITLAB' ? text('Cách tạo token GitLab và quyền cần có', 'How to create the GitLab token and which permissions it needs') : text('Cách tạo token GitHub cho khách và quyền cần có', 'How to create a customer GitHub token and which permissions it needs')}</summary>
+      <TokenGuide system={system} gitlabBase={gitlabBase} compact />
+    </details>
+  )
 }
 
 interface VerifiedLink { reference: string; probeId: string; name: string; url: string | null; tokenRef?: string }
@@ -6799,6 +6883,8 @@ function LinkPicker({ system, required, value, onChange, initialToken }: { syste
             <button className="button button-primary button-small" type="button" disabled={busy || needsToken || !reference.trim()} onClick={() => check.mutate()}>{check.isPending ? 'Đang kiểm tra…' : 'Kiểm tra kết nối'}</button>
           </div>
           {error != null && <ErrorNotice error={error} />}
+          <AccessCheckButton system={system} reference={reference} tokenRef={tokenRef} disabled={busy || needsToken || (system === 'GITHUB' && !reference.trim())} />
+          <TokenHelp system={system} />
         </>
       )}
     </section>
@@ -6948,7 +7034,15 @@ function ProjectEditPage() {
   const [github, setGithub] = useState<VerifiedLink>()
   const [chosenDelivery, setChosenDelivery] = useState<'GITLAB' | 'GITHUB'>('GITLAB')
   const [changing, setChanging] = useState<{ GITLAB?: boolean; GITHUB?: boolean }>({})
+  // CTO only: move a GitLab project to a GitHub repository for new work (FR-PRJ-13).
+  const [switching, setSwitching] = useState(false)
   const [error, setError] = useState<unknown>()
+  const isCto = useAuth().user?.role === 'CTO'
+  const switchPreview = useQuery({
+    queryKey: ['delivery-switch', code],
+    queryFn: () => api<DeliverySwitchPreview>(`/projects/${code}/delivery-switch`),
+    enabled: switching,
+  })
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => api<Project>(`/projects/${code}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -6964,7 +7058,8 @@ function ProjectEditPage() {
   const finalStatus = status ?? project.status
   const rule = projectKinds.find((entry) => entry.value === finalKind)!
   // A project keeps the delivery system it already has; a project without one chooses here.
-  const delivery = (project.delivery_system as 'GITLAB' | 'GITHUB' | null) ?? chosenDelivery
+  const canSwitch = isCto && rule.gitlab && project.delivery_system === 'GITLAB' && Boolean(project.gitlab_project_id)
+  const delivery = switching && canSwitch ? 'GITHUB' : (project.delivery_system as 'GITLAB' | 'GITHUB' | null) ?? chosenDelivery
   const hasDelivery = delivery === 'GITHUB' ? Boolean(github || project.github_repository) : Boolean(gitlab || project.gitlab_project_id)
   const missing = [rule.gitlab && !hasDelivery ? linkTitles[delivery] : null].filter(Boolean)
   const body: Record<string, unknown> = {}
@@ -6973,6 +7068,7 @@ function ProjectEditPage() {
   if (finalStatus !== project.status) body.status = finalStatus
   if (gitlab && rule.gitlab && delivery === 'GITLAB') { body.gitlab_project_path = gitlab.reference; body.gitlab_probe_id = gitlab.probeId }
   if (github && rule.gitlab && delivery === 'GITHUB') { body.github_repository = github.reference; body.github_token_ref = github.tokenRef; body.github_probe_id = github.probeId }
+  if (switching && canSwitch && github) body.switch_delivery = 'GITHUB'
   const dirty = Object.keys(body).length > 0
   const isCatchAll = project.code === 'other'
 
@@ -7019,9 +7115,26 @@ function ProjectEditPage() {
             {isCatchAll && <p className="field-help">"Dự án khác" là nơi gom việc ngoài các dự án đã khai báo, nên giữ loại Ý tưởng và luôn hoạt động.</p>}
           </fieldset>
           {rule.gitlab && !project.delivery_system && <DeliveryChoice value={chosenDelivery} onChange={setChosenDelivery} />}
+          {switching && canSwitch && (
+            <div className="notice notice-warn">
+              <p><strong>Chuyển dự án sang GitHub.</strong> Yêu cầu duyệt sau khi chuyển sẽ tạo Issue trên GitHub. Liên kết GitLab được giữ nhưng ngừng đồng bộ; Issue cũ vẫn mở được qua liên kết của nó.</p>
+              {switchPreview.isLoading && <p>Đang đếm Issue GitLab còn mở…</p>}
+              {switchPreview.data && (switchPreview.data.open_issues > 0
+                ? <p>Còn {switchPreview.data.open_issues} Issue GitLab đang mở. Các Issue này ở lại GitLab, không được chép sang GitHub.</p>
+                : <p>Không còn Issue GitLab nào đang mở.</p>)}
+              {switchPreview.error != null && <ErrorNotice error={switchPreview.error} />}
+              <button className="button button-secondary button-small" type="button" onClick={() => { setSwitching(false); setGithub(undefined) }}>Thôi, giữ GitLab</button>
+            </div>
+          )}
+          {project.previous_delivery && delivery === 'GITHUB' && (
+            <p className="field-help">Đã chuyển từ GitLab {project.previous_delivery.project_url ? <a href={project.previous_delivery.project_url} target="_blank" rel="noreferrer">{project.previous_delivery.project_external_id ?? 'dự án cũ'}</a> : project.previous_delivery.project_external_id} ngày {new Date(project.previous_delivery.switched_at).toLocaleDateString('vi-VN')}. Issue cũ vẫn ở GitLab.</p>
+          )}
           {delivery === 'GITHUB'
             ? linkSection('GITHUB', rule.gitlab, true, project.github_repository, project.github_project_url, project.github_enabled, github, setGithub)
             : linkSection('GITLAB', rule.gitlab, true, project.gitlab_project_id, project.gitlab_project_url, project.gitlab_enabled, gitlab, setGitlab)}
+          {canSwitch && !switching && (
+            <div><button className="button button-secondary button-small" type="button" onClick={() => { setSwitching(true); setGitlab(undefined); setChanging({}) }}>Chuyển sang GitHub</button></div>
+          )}
           {!isCatchAll && (
             <label>Trạng thái
               <select value={finalStatus} onChange={(e) => setStatus(e.target.value)}>
@@ -7036,7 +7149,7 @@ function ProjectEditPage() {
         </div>
         <footer className="wizard-foot">
           <Link className="button button-secondary" to="/settings/projects">Hủy</Link>
-          <button className="button button-primary" type="button" disabled={!dirty || missing.length > 0 || !finalName.trim() || save.isPending} onClick={() => { if (body.status === 'INACTIVE' && !window.confirm(`Ngừng hoạt động dự án "${project.name}"? Dự án sẽ không nhận Intake, cuộc họp hay kế hoạch mới.`)) return; setError(undefined); save.mutate(body) }}>{save.isPending ? 'Đang lưu…' : 'Lưu thay đổi'}</button>
+          <button className="button button-primary" type="button" disabled={!dirty || missing.length > 0 || !finalName.trim() || save.isPending} onClick={() => { if (body.switch_delivery && !window.confirm(`Chuyển dự án "${project.name}" sang GitHub ${github?.reference ?? ''}? Liên kết GitLab sẽ ngừng đồng bộ, Issue GitLab đang mở không được chép sang.`)) return; if (body.status === 'INACTIVE' && !window.confirm(`Ngừng hoạt động dự án "${project.name}"? Dự án sẽ không nhận Intake, cuộc họp hay kế hoạch mới.`)) return; setError(undefined); save.mutate(body) }}>{save.isPending ? 'Đang lưu…' : 'Lưu thay đổi'}</button>
         </footer>
       </section>
       <ProjectBriefPanel project={project} />
@@ -8873,18 +8986,22 @@ function SetupPage() {
   return <SetupPageClassic />
 }
 
+type SetupStep = 1 | 2 | 3 | 4
+
 function SetupWizard({ state }: { state: SetupState }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   // Step 1 only offers the demo next to the key; with no demo to offer it would be a one-button screen, so it is skipped.
   const hasStart = state.demo_available
-  const [step, setStep] = useState<1 | 2 | 3>(state.ai_ready || state.has_demo ? 3 : hasStart ? 1 : 2)
+  const { text } = useLocale()
+  const [step, setStep] = useState<SetupStep>(state.ai_ready || state.has_demo ? 4 : hasStart ? 1 : 2)
+  const [tracker, setTracker] = useState<LinkSystem>('GITLAB')
   const [error, setError] = useState<unknown>()
   const refresh = (next: SetupState) => { queryClient.setQueryData(['setup'], next); void queryClient.invalidateQueries({ queryKey: ['projects'] }) }
-  const demo = useMutation({ mutationFn: () => api<SetupState>('/setup/demo-project', { method: 'POST' }), onSuccess: (next) => { setError(undefined); refresh(next); setStep(3) }, onError: setError })
+  const demo = useMutation({ mutationFn: () => api<SetupState>('/setup/demo-project', { method: 'POST' }), onSuccess: (next) => { setError(undefined); refresh(next); setStep(4) }, onError: setError })
   const finish = useMutation({ mutationFn: () => api<SetupState>('/setup/complete', { method: 'POST' }), onSuccess: (next) => { refresh(next); navigate('/') }, onError: setError })
   const sample = useMutation({ mutationFn: () => api<SetupState>('/setup/private-sample', { method: 'POST' }), onSuccess: refresh, onError: setError })
-  const titles = ['Bắt đầu', 'Khóa AI', 'Xong']
+  const titles = ['Bắt đầu', 'Khóa AI', 'GitLab/GitHub', 'Xong']
   return (
     <>
       <SectionHeader title="Thiết lập lần đầu" />
@@ -8892,7 +9009,7 @@ function SetupWizard({ state }: { state: SetupState }) {
         <ol className="setup-steps" aria-label="Các bước thiết lập">
           {titles.map((title, index) => !hasStart && index === 0 ? null : (
             <li key={title} className={step === index + 1 ? 'is-current' : step > index + 1 ? 'is-done' : undefined} aria-current={step === index + 1 ? 'step' : undefined}>
-              <button type="button" className="setup-step-button" onClick={() => setStep((index + 1) as 1 | 2 | 3)}>
+              <button type="button" className="setup-step-button" onClick={() => setStep((index + 1) as SetupStep)}>
                 <span className="setup-step-dot">{step > index + 1 ? <Check size={13} aria-hidden="true" /> : hasStart ? index + 1 : index}</span>{title}
               </button>
             </li>
@@ -8931,14 +9048,32 @@ function SetupWizard({ state }: { state: SetupState }) {
           )}
           {step === 3 && (
             <>
+              <h2>{text('Nối GitLab hoặc GitHub (không bắt buộc)', 'Connect GitLab or GitHub (optional)')}</h2>
+              <p>{text('Để Intake tạo Issue trên tracker của đội và đọc tệp ngữ cảnh dự án. Có thể để sau: làm ở Dự án > Kết nối GitLab hoặc Token GitHub bất cứ lúc nào.', 'So Intake can create Issues on the team\'s tracker and read the project context file. You can do it later under Projects > GitLab connection or GitHub tokens at any time.')}</p>
+              <div className="segmented" role="tablist" aria-label={text('Nơi giao việc', 'Where work goes')}>
+                <button type="button" role="tab" aria-selected={tracker === 'GITLAB'} className={tracker === 'GITLAB' ? 'active' : undefined} onClick={() => setTracker('GITLAB')}>{text('GitLab của công ty', 'Company GitLab')}</button>
+                <button type="button" role="tab" aria-selected={tracker === 'GITHUB'} className={tracker === 'GITHUB' ? 'active' : undefined} onClick={() => setTracker('GITHUB')}>{text('GitHub của khách', 'Customer GitHub')}</button>
+              </div>
+              {tracker === 'GITLAB' ? <GitlabConnectionPanel /> : <GithubTokenPanel />}
+              <div className="setup-actions">
+                <button type="button" className="button button-secondary" onClick={() => setStep(2)}>{text('Quay lại', 'Back')}</button>
+                <button type="button" className="button button-secondary" onClick={() => setStep(4)}>{text('Để sau', 'Later')}</button>
+                <button type="button" className="button button-primary" onClick={() => setStep(4)}>{text('Tiếp tục', 'Continue')}</button>
+              </div>
+            </>
+          )}
+          {step === 4 && (
+            <>
               <h2>Xong, vào làm việc</h2>
               <ul className="setup-summary">
                 <li>{state.ai_ready ? 'Đã nối khóa AI.' : 'Chưa nối khóa AI: thêm sau trong Cài đặt > AI để Intake tự chuẩn hóa yêu cầu thật.'}</li>
+                <li>{text('GitLab/GitHub: nối hoặc kiểm quyền token ở Dự án > Kết nối GitLab và Token GitHub.', 'GitLab/GitHub: connect or check token permissions under Projects > GitLab connection and GitHub tokens.')}</li>
                 {state.has_demo && <li>Dự án mẫu đã sẵn sàng; dữ liệu hư cấu, không gửi gì ra ngoài.</li>}
               </ul>
               <div className="setup-actions">
                 <button type="button" className="button button-primary" disabled={finish.isPending} onClick={() => finish.mutate()}>{finish.isPending ? 'Đang lưu…' : 'Vào trang Hôm nay'}</button>
                 <button type="button" className="button button-secondary" onClick={() => setStep(2)}>Quay lại chỉnh khóa AI</button>
+                <button type="button" className="button button-secondary" onClick={() => setStep(3)}>{text('Nối GitLab/GitHub', 'Connect GitLab/GitHub')}</button>
                 {state.has_demo && <Link className="button button-secondary" to="/intakes?project=demo">Mở dự án mẫu</Link>}
               </div>
               <details className="setup-optional">
@@ -10444,7 +10579,7 @@ function ProjectPeopleSection({ project }: { project: Project }) {
       </div>
       {notice && <p className="notice notice-success" role="status">{notice}</p>}
       {(team.error != null || remove.error != null) && <ErrorNotice error={team.error || remove.error} onRetry={team.error ? () => { void team.refetch() } : undefined} />}
-      {team.isLoading ? <LoadingBlock /> : members.length === 0 ? <p className="field-help">Chưa có ai trong dự án này.</p> : members.map((member) => (
+      {team.isLoading ? <LoadingBlock /> : members.length === 0 ? <p className="field-help project-people-empty">Chưa có ai trong dự án này.</p> : members.map((member) => (
         <Fragment key={member.member_id}>
           <div className="member-row">
             <div><strong>{member.display_name}{member.is_owner && <span className="capacity-owner">Project Owner</span>}</strong><small>{member.email || 'Chưa có email'}</small></div>
@@ -10600,11 +10735,92 @@ function GithubTokenPanel() {
         <button type="submit" className="button button-primary" disabled={save.isPending || !label.trim() || !value.trim()}>{save.isPending ? 'Đang lưu…' : 'Lưu token'}</button>
       </form>
       <p className="field-help">Token được mã hóa khi lưu và chỉ hiện 4 ký tự cuối; không đọc lại được. Cùng tên với token trong .env.github thì token lưu ở đây được dùng trước.</p>
+      <GithubTokenCheck names={(rows.data || []).map((row) => row.name)} />
+      <TokenHelp system="GITHUB" />
+    </div>
+  )
+}
+
+// Check one saved token against the customer repository it is meant for (FR-INTG-23).
+function GithubTokenCheck({ names }: { names: string[] }) {
+  const { text } = useLocale()
+  const [tokenRef, setTokenRef] = useState('')
+  const [repository, setRepository] = useState('')
+  const chosen = tokenRef || names[0] || ''
+  if (names.length === 0) return null
+  return (
+    <div className="token-check-form">
+      <strong>{text('Kiểm tra quyền của một token', 'Check one token\'s permissions')}</strong>
+      <div>
+        <select value={chosen} onChange={(event) => setTokenRef(event.target.value)} aria-label={text('Token cần kiểm tra', 'Token to check')}>
+          {names.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+        <input value={repository} onChange={(event) => setRepository(event.target.value)} placeholder={text('ten-khach/ten-repository', 'customer/repository')} aria-label={text('Repository của khách', 'Customer repository')} />
+      </div>
+      <AccessCheckButton key={`${chosen}|${repository.trim()}`} system="GITHUB" reference={repository} tokenRef={chosen} disabled={!chosen || !repository.trim()} />
+    </div>
+  )
+}
+
+// The company GitLab connected on a screen (FR-INTG-22): address and one personal access token, encrypted on save.
+function GitlabConnectionPanel({ onSaved }: { onSaved?: () => void }) {
+  const { text } = useLocale()
+  const queryClient = useQueryClient()
+  const connection = useQuery({ queryKey: ['gitlab-connection'], queryFn: () => api<GitlabConnection>('/integrations/gitlab-connection') })
+  const [baseUrl, setBaseUrl] = useState<string>()
+  const [token, setToken] = useState('')
+  const [projectPath, setProjectPath] = useState('')
+  const [saved, setSaved] = useState<GitlabConnection>()
+  const current = connection.data
+  const address = baseUrl ?? (current?.base_url || 'https://gitlab.com')
+  const save = useMutation({
+    mutationFn: () => api<GitlabConnection>('/integrations/gitlab-connection', { method: 'PUT', body: JSON.stringify({ base_url: address.trim(), token: token.trim() || null }) }),
+    onSuccess: (data) => { setSaved(data); setToken(''); setBaseUrl(undefined); queryClient.setQueryData(['gitlab-connection'], data); void queryClient.invalidateQueries({ queryKey: ['projects'] }); onSaved?.() },
+  })
+  const remove = useMutation({
+    mutationFn: () => api<void>('/integrations/gitlab-connection', { method: 'DELETE' }),
+    onSuccess: () => { setSaved(undefined); void queryClient.invalidateQueries({ queryKey: ['gitlab-connection'] }) },
+  })
+  if (connection.isLoading) return <LoadingBlock />
+  if (connection.error) return <ErrorNotice error={connection.error} onRetry={() => { void connection.refetch() }} />
+  const source = current?.source || 'NONE'
+  return (
+    <div className="gitlab-connection">
+      <p className={`notice ${source === 'NONE' ? 'notice-warn' : 'notice-info'}`}>
+        {source === 'APP' && text(`Đã nối ${current?.base_url} bằng token kết thúc …${current?.key_hint}.`, `Connected to ${current?.base_url} with a token ending …${current?.key_hint}.`)}
+        {source === 'ENV' && text('Đang dùng GITLAB_TOKEN trong .env của máy chủ. Lưu một token ở đây để thay mà không phải sửa tệp; token trong .env vẫn là dự phòng.', 'Using GITLAB_TOKEN from the server\'s .env. Save a token here to replace it without editing the file; the .env token stays as the fallback.')}
+        {source === 'NONE' && text('Chưa nối GitLab. Không bắt buộc nếu đội chỉ giao việc qua GitHub của khách hoặc chưa cần tracker.', 'GitLab is not connected. Not needed if the team only delivers to customers\' GitHub or does not use a tracker yet.')}
+        {current && current.linked_projects > 0 && text(` ${current.linked_projects} dự án đang liên kết GitLab.`, ` ${current.linked_projects} projects are linked to GitLab.`)}
+      </p>
+      <form className="gitlab-connection-form" onSubmit={(event) => { event.preventDefault(); if (address.trim() && (token.trim() || current?.configured)) save.mutate() }}>
+        <label>{text('Địa chỉ GitLab', 'GitLab address')}
+          <input value={address} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://gitlab.example.com" />
+        </label>
+        <label>Personal access token
+          <input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)}
+            placeholder={current?.configured ? text(`Để trống để giữ token …${current.key_hint}`, `Leave empty to keep the token …${current.key_hint}`) : text('Dán token GitLab (glpat-…)', 'Paste the GitLab token (glpat-…)')} />
+        </label>
+        <div className="link-actions">
+          <button type="submit" className="button button-primary button-small" disabled={save.isPending || !address.trim() || (!token.trim() && !current?.configured)}>{save.isPending ? text('Đang lưu…', 'Saving…') : text('Lưu kết nối', 'Save connection')}</button>
+          {current?.configured && <button type="button" className="button button-secondary button-small" disabled={remove.isPending}
+            onClick={() => { if (window.confirm(text('Xóa token GitLab đã lưu? Intake sẽ quay về token trong .env nếu có.', 'Delete the saved GitLab token? Intake falls back to the .env token if there is one.'))) remove.mutate() }}><Trash2 size={13} /> {text('Xóa token', 'Delete token')}</button>}
+        </div>
+      </form>
+      {save.error != null && <ErrorNotice error={save.error} />}
+      {remove.error != null && <ErrorNotice error={remove.error} />}
+      {saved && <p className="notice notice-success">{text('Đã lưu.', 'Saved.')}{saved.projects_enabled ? text(` Đã bật đồng bộ lại cho ${saved.projects_enabled} dự án.`, ` Sync turned back on for ${saved.projects_enabled} projects.`) : ''} {text('Bấm Kiểm tra quyền để chắc token đủ quyền.', 'Click Check permissions to make sure the token has what it needs.')}</p>}
+      <div className="token-check-form">
+        <strong>{text('Kiểm tra quyền', 'Check permissions')}</strong>
+        <input value={projectPath} onChange={(event) => setProjectPath(event.target.value)} placeholder={text('Tùy chọn: nhóm/dự-án để kiểm vai trò', 'Optional: group/project to check the role')} aria-label={text('Dự án GitLab để kiểm vai trò', 'GitLab project to check the role on')} />
+        <AccessCheckButton key={`${current?.key_hint}|${current?.base_url}|${projectPath.trim()}`} system="GITLAB" reference={projectPath} disabled={source === 'NONE'} />
+      </div>
+      <TokenHelp system="GITLAB" gitlabBase={address} open={source === 'NONE'} />
     </div>
   )
 }
 
 function ProjectsPage() {
+  const { text } = useLocale()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
   const link = (label: string, id: string | null, url: string | null, enabled: boolean) => (
     id ? <span className="project-link">{url ? <a href={url} target="_blank" rel="noreferrer">{label} <ArrowUpRight size={12} /></a> : label}{!enabled && <small>chưa bật đồng bộ</small>}</span> : <span className="muted">Không liên kết</span>
@@ -10614,7 +10830,7 @@ function ProjectsPage() {
       <SectionHeader title="Dự án" helper="Loại dự án quyết định liên kết: Ý tưởng và Không code chỉ dùng Intake (việc trên bảng Việc), Phần mềm dùng thêm một nơi giao việc (GitLab của công ty hoặc GitHub của khách hàng) và được lập kế hoạch hằng ngày." action={<Link className="button button-primary" to="/settings/projects/new"><Plus size={16} /> Tạo dự án</Link>} />
       {projects.error && <ErrorNotice error={projects.error} onRetry={() => { void projects.refetch() }} />}
       {projects.isLoading ? <LoadingBlock /> : (
-        <section className="panel">
+        <section className="panel projects-page-panel">
           <table className="project-table">
             <thead><tr><th>Dự án</th><th>Loại</th><th>Project Owner</th><th>Nơi giao việc</th><th>Nhóm Telegram</th><th>Daily Planning</th><th><span className="sr-only">Thao tác</span></th></tr></thead>
             <tbody>
@@ -10634,12 +10850,18 @@ function ProjectsPage() {
         </section>
       )}
       {useAuth().user?.role === 'CTO' && (
-        <section className="panel">
+        <section className="panel projects-page-panel padded" id="gitlab-connection">
+          <SectionHeader title={text('Kết nối GitLab', 'GitLab connection')} helper={text('GitLab của công ty: một personal access token (scope api và read_repository) để Intake tạo Issue và đọc tệp ngữ cảnh dự án.', 'The company GitLab: one personal access token (scopes api and read_repository) for Intake to create Issues and read the project context file.')} />
+          <GitlabConnectionPanel />
+        </section>
+      )}
+      {useAuth().user?.role === 'CTO' && (
+        <section className="panel projects-page-panel padded">
           <SectionHeader title="Token GitHub" helper="Mỗi khách một token riêng để Intake tạo Issue vào repo của khách. Thêm ở đây thay vì sửa file trên máy chủ." />
           <GithubTokenPanel />
         </section>
       )}
-      <section className="panel">
+      <section className="panel projects-page-panel padded">
         <SectionHeader title="Dự án mẫu và open source" helper="Bật để thêm vào Intake một dự án mẫu hoặc dự án open source của tác giả. Tắt chỉ lưu trữ, dữ liệu được giữ." />
         <ShowcaseList />
       </section>
@@ -10990,6 +11212,10 @@ const workEventWords: Record<string, string> = {
 }
 const workErrorWords: Record<string, string> = {
   STALE_VERSION: 'Việc này vừa được người khác đổi. Bảng đã tải lại, hãy thử lại.',
+  FILE_TYPE_UNSUPPORTED: 'Chỉ nhận ảnh (JPG, PNG, WebP) và tệp PDF.',
+  FILE_TYPE_MISMATCH: 'Nội dung tệp không khớp với loại tệp. Hãy chọn lại ảnh hoặc PDF thật.',
+  FILE_TOO_LARGE: 'Tệp lớn hơn 5 MB.',
+  FILE_EMPTY: 'Tệp trống.',
   NOTE_REQUIRED: 'Bỏ một việc thì phải ghi lý do.',
   WORK_LOCKED_BY_ISSUE: 'Việc này đã thành Issue, theo dõi tiếp ở GitLab/GitHub.',
   WORK_CLOSED: 'Việc đã Xong hoặc đã Bỏ; đưa về cột mở trước khi sửa.',
@@ -12298,6 +12524,8 @@ function WorkDetailPanel({ workId, decides, members, onChanged, onDone, onOpen, 
   const [comment, setComment] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
   const [linkNote, setLinkNote] = useState('')
+  const [linkFile, setLinkFile] = useState<File | null>(null)
+  const linkFileInput = useRef<HTMLInputElement>(null)
   const [askingIssue, setAskingIssue] = useState(false)
   const [error, setError] = useState<unknown>()
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['work-detail', workId] }); onChanged() }
@@ -12336,6 +12564,17 @@ function WorkDetailPanel({ workId, decides, members, onChanged, onDone, onOpen, 
   const link = useMutation({
     mutationFn: () => api<WorkDetail>(`/work/${workId}/links`, { method: 'POST', body: JSON.stringify({ url: linkUrl.trim(), note: linkNote.trim() || null }) }),
     onMutate: () => setError(undefined), onSuccess: () => { setLinkUrl(''); setLinkNote(''); refresh() }, onError: setError,
+  })
+  const uploadLinkFile = useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      if (linkNote.trim()) form.append('note', linkNote.trim())
+      return api<WorkDetail>(`/work/${workId}/links/file`, { method: 'POST', body: form })
+    },
+    onMutate: () => setError(undefined),
+    onSuccess: () => { setLinkFile(null); setLinkNote(''); if (linkFileInput.current) linkFileInput.current.value = ''; refresh() },
+    onError: setError,
   })
   const unlink = useMutation({
     mutationFn: (linkId: string) => api<void>(`/work/${workId}/links/${linkId}`, { method: 'DELETE' }),
@@ -12429,11 +12668,13 @@ function WorkDetailPanel({ workId, decides, members, onChanged, onDone, onOpen, 
       {error != null && <ErrorNotice error={new Error(workErrorText(error))} />}
       <section className="work-links">
         <h3>Liên kết <small>{row.links.length}</small> <Hint k="work.links" /></h3>
-        {row.links.length === 0 ? <p className="field-help">Thư mục Drive, thiết kế Canva, bản cắt, bài đã đăng: dán link, Intake không giữ tệp.</p> : (
+        {row.links.length === 0 ? <p className="field-help">Thư mục Drive, thiết kế Canva, bản cắt, bài đã đăng: dán link. Ảnh hoặc PDF trên máy: chọn tệp (tối đa 5 MB).</p> : (
           <ul className="work-link-list">
             {row.links.map((line) => (
               <li key={line.id}>
-                <a href={line.url} target="_blank" rel="noreferrer"><Link2 size={13} aria-hidden="true" />{line.note || line.url.replace(/^https?:\/\//, '').slice(0, 60)}</a>
+                {line.file_name
+                  ? <a href={line.url} download={line.file_name}><Paperclip size={13} aria-hidden="true" />{line.note ? `${line.note} · ${line.file_name}` : line.file_name}<small> ({Math.max(1, Math.round((line.size_bytes || 0) / 1024))} KB)</small></a>
+                  : <a href={line.url} target="_blank" rel="noreferrer"><Link2 size={13} aria-hidden="true" />{line.note || line.url.replace(/^https?:\/\//, '').slice(0, 60)}</a>}
                 <small>{dotted([line.source === 'AGENT' ? `agent của ${line.added_by_name || 'ai đó'}` : line.added_by_name || 'ai đó', formatDate(line.created_at)])}</small>
                 {(line.mine || user?.role === 'CTO') && <button type="button" className="icon-button" aria-label="Gỡ link" title="Gỡ link" disabled={unlink.isPending} onClick={() => unlink.mutate(line.id)}><Trash2 size={13} /></button>}
               </li>
@@ -12445,6 +12686,11 @@ function WorkDetailPanel({ workId, decides, members, onChanged, onDone, onOpen, 
           <input value={linkNote} onChange={(event) => setLinkNote(event.target.value)} maxLength={300} placeholder="Link này là gì" aria-label="Ghi chú link" />
           <button type="submit" className="button button-secondary button-small" disabled={link.isPending || !/^https?:\/\//i.test(linkUrl.trim())}>{link.isPending ? 'Đang thêm…' : 'Thêm link'}</button>
         </form>
+        <div className="work-link-file">
+          <input ref={linkFileInput} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" aria-label="Chọn ảnh hoặc PDF từ máy tính" onChange={(event) => setLinkFile(event.target.files?.[0] || null)} />
+          <button type="button" className="button button-secondary button-small" disabled={!linkFile || uploadLinkFile.isPending} onClick={() => { if (linkFile) uploadLinkFile.mutate(linkFile) }}>{uploadLinkFile.isPending ? 'Đang tải lên…' : 'Tải tệp lên'}</button>
+          <small className="field-help">Ảnh JPG, PNG, WebP hoặc PDF, tối đa 5 MB. Ô "Link này là gì" ở trên dùng làm ghi chú cho tệp.</small>
+        </div>
       </section>
       <section className="work-discussion">
         <h3>Thảo luận <small>{row.comments.length}</small> <Hint k="work.discussion" /></h3>
@@ -12609,6 +12855,7 @@ export default function App() {
           <Route path="nghiem-thu" element={<AcceptancePage />} />
           <Route path="viec-rieng" element={<PersonalTasksPage />} />
           <Route path="viec-cua-toi" element={<MyDayPage />} />
+          <Route path="ke-hoach-nguoi" element={<MemberPlanRoute />} />
           <Route path="gop-y" element={<FeedbackPage />} />
           <Route element={<BetaOnly />}>
             <Route path="viec" element={<WorkBoardPage />} />

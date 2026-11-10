@@ -83,6 +83,7 @@ def test_work_is_logged_reviewed_and_read_back_by_issue_number() -> None:
         assert logged["review_decision"] == "PENDING" and logged["public_id"] == request["public_id"]
         rows = cto.get(f"/api/v1/intakes/{request['id']}/work-log").json()["data"]
         assert len(rows) == 1 and rows[0]["agent_name"] == "claude-code" and rows[0]["details"]["commit"] == "abc1234" and rows[0]["details"]["changes"][0].endswith("intake_service.py")
+        assert rows[0]["commit_url"] == "https://gitlab.example.test/commit/abc1234", "the commit opens on the Issue's repository for review"
         assert rows[0]["details"]["worked_on"] == worked_on and rows[0]["details"]["actual_minutes"] == 95 and rows[0]["details"]["deployed"] is True
         assert cto.get(f"/api/v1/intakes/{request['id']}/journey").json()["data"]["work"] == {
             "entries": 1, "latest_id": rows[0]["id"], "latest_decision": "PENDING", "latest_at": rows[0]["created_at"],
@@ -116,10 +117,17 @@ def test_work_is_logged_reviewed_and_read_back_by_issue_number() -> None:
         # A person logs by hand through the API; the CTO confirms it.
         manual = cto.post(f"/api/v1/intakes/{request['id']}/work-log", json={"summary": "Sửa lại bộ lọc dự án", "details": {"commit": "def5678"}})
         assert manual.status_code == 201 and manual.json()["data"]["agent_name"] is None and manual.json()["data"]["actor_name"]
+        assert manual.json()["data"]["commit_url"] == "https://gitlab.example.test/commit/def5678"
         confirmed = cto.post(f"/api/v1/intakes/{request['id']}/work-log/{manual.json()['data']['id']}/review", json={"decision": "CONFIRMED", "note": "Đã deploy 10/10"})
         assert confirmed.json()["data"]["review_decision"] == "CONFIRMED"
         journey = cto.get(f"/api/v1/intakes/{request['id']}/journey").json()["data"]["work"]
         assert journey["entries"] == 2 and journey["latest_decision"] == "CONFIRMED"
+        pasted = cto.post(f"/api/v1/intakes/{request['id']}/work-log", json={"summary": "Dán link commit", "details": {"commit": "https://example.test/c/1"}})
+        assert pasted.json()["data"]["commit_url"] == "https://example.test/c/1", "a pasted address is kept as the link"
+        no_commit = cto.post(f"/api/v1/intakes/{request['id']}/work-log", json={"summary": "Không có commit"})
+        assert no_commit.json()["data"]["commit_url"] is None
+        listed = {row["summary"]: row["commit_url"] for row in cto.get(f"/api/v1/intakes/{request['id']}/work-log").json()["data"]}
+        assert listed["Sửa lại bộ lọc dự án"] == "https://gitlab.example.test/commit/def5678" and listed["Không có commit"] is None
         assert cto.post(f"/api/v1/intakes/{request['id']}/work-log", json={"summary": "x"}).status_code == 422
         with get_session() as session:
             kinds = {row.event_type for row in session.scalars(select(AuditEvent).where(AuditEvent.entity_id == request["id"])).all()}

@@ -441,6 +441,7 @@ class IntakeWorkLogOut(BaseModel):
     reviewed_by_name: str | None = None
     reviewed_at: datetime | None = None
     created_at: datetime
+    commit_url: str | None = None
 
 
 class IntakeFixHints(BaseModel):
@@ -982,7 +983,6 @@ class AcceptanceItemOut(BaseModel):
     evidence_fetched_at: datetime | None = None
     intake_id: str | None = None
     intake_public_id: str | None = None
-    needs_cto_acceptance: bool = False
     acceptance: list[str] = Field(default_factory=list)
     picked_on: date | None = None
     decision: str
@@ -993,6 +993,10 @@ class AcceptanceItemOut(BaseModel):
     po_reason: str | None = None
     po_decided_at: datetime | None = None
     po_decided_by_name: str | None = None
+    final_by: str | None = None
+    acceptance_policy: str = "CTO_ALWAYS"
+    needs_cto_acceptance: bool = False
+    po_final_blockers: list[str] = Field(default_factory=list)
     sync_status: str | None = None
     # What was written when the work was set aside as done already (FR-PLAN-34).
     source_note: str | None = None
@@ -1078,6 +1082,11 @@ class VerificationDecisionRequest(BaseModel):
 
 class ProjectDoneEvidenceUpdate(BaseModel):
     done_evidence: Literal["COMMIT", "MR"]
+
+
+class ProjectAcceptancePolicyUpdate(BaseModel):
+    # CTO_ALWAYS: the CTO closes every acceptance. PO_FINAL_LOW_RISK: the Project Owner closes low-risk work (FR-PLAN-41).
+    acceptance_policy: Literal["CTO_ALWAYS", "PO_FINAL_LOW_RISK"]
 
 
 class ProjectAgentReadyUpdate(BaseModel):
@@ -2285,7 +2294,10 @@ class ProjectOut(BaseModel):
     owner_member_id: str | None = None
     owner_name: str | None = None
     done_evidence: str = "COMMIT"
+    acceptance_policy: str = "CTO_ALWAYS"
     agent_ready: bool = False
+    # The tracker the project left, kept for old Issue links (FR-PRJ-13): system, project_external_id, project_url, switched_at.
+    previous_delivery: dict[str, object] | None = None
 
 
 class ProjectCreate(BaseModel):
@@ -2313,11 +2325,20 @@ class ProjectUpdate(BaseModel):
     github_repository: str | None = Field(default=None, max_length=512)
     github_token_ref: str | None = Field(default=None, max_length=64)
     github_probe_id: str | None = Field(default=None, max_length=36)
+    # CTO moves delivery from GitLab to GitHub for new work; the GitHub link above must be checked (FR-PRJ-13).
+    switch_delivery: str | None = Field(default=None, pattern="^GITHUB$")
+
+
+class DeliverySwitchOut(BaseModel):
+    from_system: str
+    to_system: str
+    # GitLab Issues still open: they stay on GitLab and are not copied.
+    open_issues: int
 
 
 class IntegrationProbeCreate(BaseModel):
     system: str = Field(..., pattern="^(GITLAB|GITHUB)$")
-    action: str = Field(..., pattern="^(LIST|CHECK|MEMBERS|TOKENS)$")
+    action: str = Field(..., pattern="^(LIST|CHECK|MEMBERS|TOKENS|ACCESS)$")
     # GitHub only: the name of the environment variable that holds this project's token.
     token_ref: str | None = Field(default=None, max_length=64)
     reference: str | None = Field(default=None, max_length=512)
@@ -2835,6 +2856,11 @@ class IntakeJourneyVerification(BaseModel):
     source: str
     created_at: datetime
     reason: str | None = None
+    po_decision: str | None = None
+    po_decided_at: datetime | None = None
+    po_decided_by_name: str | None = None
+    final_by: str | None = None
+    accepted_by_name: str | None = None
 
 
 class IntakeJourneyOut(BaseModel):
@@ -3137,6 +3163,9 @@ class WorkLinkOut(BaseModel):
     added_by_name: str | None = None
     mine: bool = False
     created_at: datetime
+    file_name: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = None
 
 
 class WorkHistoryOut(BaseModel):

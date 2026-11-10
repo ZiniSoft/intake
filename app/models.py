@@ -313,6 +313,8 @@ class IssueVerification(Base):
     po_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     po_decided_by: Mapped[str | None] = mapped_column(ID, ForeignKey("users.id"), nullable=True)
     po_decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Whose word made the acceptance final: CTO, or PO when the project's policy let the Project Owner close it (FR-PLAN-41).
+    final_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
     sync_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -863,7 +865,7 @@ class IntegrationProbe(Base):
     __tablename__ = "integration_probes"
     __table_args__ = (
         CheckConstraint("system IN ('GITLAB', 'GITHUB')", name="ck_integration_probe_system"),
-        CheckConstraint("action IN ('LIST', 'CHECK', 'MEMBERS', 'TOKENS')", name="ck_integration_probe_action"),
+        CheckConstraint("action IN ('LIST', 'CHECK', 'MEMBERS', 'TOKENS', 'ACCESS')", name="ck_integration_probe_action"),
         CheckConstraint("status IN ('PENDING', 'DONE', 'FAILED')", name="ck_integration_probe_status"),
     )
 
@@ -1349,6 +1351,21 @@ class GithubToken(Base):
     __tablename__ = "github_tokens"
 
     name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    token_enc: Mapped[str] = mapped_column(Text, nullable=False)
+    key_hint: Mapped[str] = mapped_column(String(8), default="", nullable=False)
+    updated_by: Mapped[str | None] = mapped_column(ID, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class GitlabConnection(Base):
+    """The company GitLab connected on a screen: one row, token encrypted, never read back (FR-INTG-22, ADR-0080)."""
+
+    __tablename__ = "gitlab_connection"
+    __table_args__ = (CheckConstraint("id = 'default'", name="ck_gitlab_connection_single"),)
+
+    id: Mapped[str] = mapped_column(String(16), primary_key=True, default="default")
+    base_url: Mapped[str] = mapped_column(String(255), nullable=False)
     token_enc: Mapped[str] = mapped_column(Text, nullable=False)
     key_hint: Mapped[str] = mapped_column(String(8), default="", nullable=False)
     updated_by: Mapped[str | None] = mapped_column(ID, ForeignKey("users.id"), nullable=True)
@@ -1963,6 +1980,11 @@ class WorkLink(Base):
     source: Mapped[str] = mapped_column(String(16), default="USER", nullable=False)
     added_by: Mapped[str | None] = mapped_column(ID, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    # A file from the computer instead of an address (FR-WRK-10): the bytes sit in object storage, `url` is the download path.
+    object_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class UserHintDismissal(Base):

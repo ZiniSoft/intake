@@ -27,6 +27,7 @@ from app.modules.planning.gitlab_read_model import LEVEL_ACCEPTED, LEVEL_NAMES, 
 from app.modules.planning.overview import LOCAL_TZ
 from app.modules.planning.service import MUTABLE_RUN_STATES, planning_service
 from app.modules.reports.service import usable_for_planning
+from app.modules.projects.delivery_switch import is_moved
 from app.queue.celery_app import celery_app
 
 SAMPLE_PER_DAY = 5
@@ -34,6 +35,12 @@ REPORT_WINDOW = timedelta(days=14)
 CLOSED_WINDOW = timedelta(days=7)
 DECIDED_WINDOW = timedelta(days=7)
 ACCEPT_TASK = "intake.integrations.accept-issue"
+# Per-project acceptance policy (FR-PLAN-41, ADR-0082): the CTO always closes, or the Project Owner closes low-risk work.
+POLICY_CTO_ALWAYS = "CTO_ALWAYS"
+POLICY_PO_FINAL = "PO_FINAL_LOW_RISK"
+ACCEPTANCE_POLICIES = (POLICY_CTO_ALWAYS, POLICY_PO_FINAL)
+# Only P0 counts as hard on its own; anything else is hard only when the CTO flagged it (FR-PLAN-39).
+HARD_PRIORITIES = ("P0",)
 
 
 def _today() -> date:
@@ -140,6 +147,72 @@ def _priority_of(session, row: IssueVerification) -> str:
     return planning_service._priority_from_labels(list(snapshot.labels or [])) if snapshot is not None else "P3"
 
 
+def acceptance_policy_of(session, project_id: str) -> str:
+    project = session.get(Project, project_id)
+    value = str(((project.project_settings if project else None) or {}).get("acceptance_policy") or POLICY_CTO_ALWAYS)
+    return value if value in ACCEPTANCE_POLICIES else POLICY_CTO_ALWAYS
+
+
+def _intake_of(session, row: IssueVerification) -> IntakeItem | None:
+    link = session.scalar(select(ExternalLink).where(
+        ExternalLink.project_id == row.project_id, ExternalLink.target_system.in_(("GITLAB", "GITHUB")), ExternalLink.external_id == row.issue_external_id,
+    ).order_by(ExternalLink.created_at.desc()))
+    return session.get(IntakeItem, link.intake_id) if link is not None else None
+
+
+def _assignee_of(session, row: IssueVerification, issue: GitLabIssueSnapshot | None) -> str | None:
+    for external in ((issue.assignee_external_ids or []) if issue is not None else []):
+        member_id = session.scalar(select(WorkforceProjectMembership.member_id).where(
+            WorkforceProjectMembership.project_id == row.project_id, WorkforceProjectMembership.gitlab_user_external_id == str(external),
+        ))
+        if member_id:
+            return str(member_id)
+    return None
+
+
+def po_final_blockers(session, row: IssueVerification, actor_id: str | None, check: dict | None = None) -> list[str]:
+    """Why a Project Owner's "done" on this row would still go to the CTO; empty means the Owner's word is final.
+
+    Codes: POLICY (the project keeps the CTO on every acceptance), HARD (flagged by the CTO), P0, EVIDENCE (the
+    project's evidence rule is not met), SELF (the Owner did or reported the work), REJECTED_BEFORE (someone already
+    said "not done" once), NOT_OWNER (the person is not this project's Owner)."""
+    reasons: list[str] = []
+    project_id = str(row.project_id)
+    if acceptance_policy_of(session, project_id) != POLICY_PO_FINAL:
+        reasons.append("POLICY")
+    intake = _intake_of(session, row)
+    if intake is not None and intake.needs_cto_acceptance:
+        reasons.append("HARD")
+    issue = _snapshot(session, project_id, row.issue_external_id)
+    priority = (intake.approved_priority if intake is not None and intake.approved_priority else None) or _priority_of(session, row)
+    if priority in HARD_PRIORITIES:
+        reasons.append("P0")
+    if check is None:
+        check = ev.assess(planning_service._done_evidence_of(session, project_id), evidence_summary(issue.evidence if issue else None),
+                          ev.links_for(session, project_id, row.issue_external_id))
+    if check["status"] != "OK":
+        reasons.append("EVIDENCE")
+    project = session.get(Project, project_id)
+    user = session.get(User, actor_id) if actor_id else None
+    member_id = str(user.member_id) if user is not None and user.member_id else None
+    if actor_id is not None and (project is None or not project.owner_member_id or member_id != str(project.owner_member_id)):
+        reasons.append("NOT_OWNER")
+    workers = {value for value in (str(row.member_id) if row.member_id else None, _assignee_of(session, row, issue)) if value}
+    if member_id and member_id in workers:
+        reasons.append("SELF")
+    rejected = session.scalar(select(IssueVerification.id).where(
+        IssueVerification.project_id == row.project_id, IssueVerification.issue_external_id == row.issue_external_id,
+        or_(IssueVerification.decision == "REJECTED", IssueVerification.po_decision == "REJECTED"),
+    ).limit(1))
+    if rejected is None and intake is not None:
+        rejected = session.scalar(select(IntakeWorkLog.id).where(
+            IntakeWorkLog.intake_id == intake.id, IntakeWorkLog.review_decision == "RETURNED",
+        ).limit(1))
+    if rejected is not None:
+        reasons.append("REJECTED_BEFORE")
+    return reasons
+
+
 def sample(day: date | None = None, extra: int = 0) -> int:
     """Put up to five pending acceptances into the CTO's sample for the day (more when the CTO asks for more)."""
     day = day or _today()
@@ -183,10 +256,7 @@ def sample(day: date | None = None, extra: int = 0) -> int:
 def _dict(session, row: IssueVerification, names: dict[str, str], projects: dict[str, str], users: dict[str, str]) -> dict[str, object]:
     issue = _snapshot(session, str(row.project_id), row.issue_external_id)
     rule = planning_service._done_evidence_of(session, str(row.project_id))
-    link = session.scalar(select(ExternalLink).where(
-        ExternalLink.project_id == row.project_id, ExternalLink.target_system.in_(("GITLAB", "GITHUB")), ExternalLink.external_id == row.issue_external_id,
-    ))
-    intake = session.get(IntakeItem, link.intake_id) if link is not None else None
+    intake = _intake_of(session, row)
     acceptance = [str(item) for item in ((intake.normalized_details or {}).get("acceptance") or []) if str(item).strip()] if intake else []
     accepted = row.decision == "ACCEPTED"
     auto = evidence_summary(issue.evidence if issue is not None else None)
@@ -195,14 +265,8 @@ def _dict(session, row: IssueVerification, names: dict[str, str], projects: dict
     # The CTO's word is the top of the ladder whatever the tracker says; the tracker catches up when the write lands.
     level = LEVEL_ACCEPTED if accepted else (done_level(issue.state, issue.evidence, rule) if issue is not None else row.evidence_level)
     item = session.get(ReportItem, row.report_item_id) if row.report_item_id else None
-    assignee = None
-    if issue is not None:
-        for external in (issue.assignee_external_ids or []):
-            assignee = session.scalar(select(WorkforceProjectMembership.member_id).where(
-                WorkforceProjectMembership.project_id == row.project_id, WorkforceProjectMembership.gitlab_user_external_id == str(external),
-            ))
-            if assignee:
-                break
+    assignee = _assignee_of(session, row, issue)
+    pending_for_po = row.decision == "PENDING" and row.po_decision is None
     return {
         "id": str(row.id), "source": row.source or "CLOSED", "project_id": str(row.project_id), "project_name": projects.get(str(row.project_id)),
         "issue_external_id": row.issue_external_id, "title": issue.title if issue is not None else (item.title if item else f"Issue #{row.issue_external_id}"),
@@ -216,11 +280,15 @@ def _dict(session, row: IssueVerification, names: dict[str, str], projects: dict
         "evidence": auto, "evidence_fetched_at": issue.evidence_fetched_at if issue is not None else None,
         "evidence_links": links, "evidence_check": check, "evidence_missing_reason": row.evidence_missing_reason,
         "intake_id": str(intake.id) if intake else None, "intake_public_id": intake.public_id if intake else None, "acceptance": acceptance[:12],
-        "needs_cto_acceptance": bool(intake.needs_cto_acceptance) if intake else False,
         "picked_on": row.picked_on, "decision": row.decision, "reason": row.reason, "decided_at": row.decided_at,
         "decided_by_name": users.get(str(row.decided_by)) if row.decided_by else None,
         "po_decision": row.po_decision, "po_reason": row.po_reason, "po_decided_at": row.po_decided_at,
         "po_decided_by_name": users.get(str(row.po_decided_by)) if row.po_decided_by else None,
+        "final_by": row.final_by or ("CTO" if accepted or row.decision == "REJECTED" else None),
+        "acceptance_policy": acceptance_policy_of(session, str(row.project_id)),
+        "needs_cto_acceptance": bool(intake.needs_cto_acceptance) if intake is not None else False,
+        # Why a Project Owner's "done" would still wait for the CTO (actor-independent reasons only).
+        "po_final_blockers": po_final_blockers(session, row, None, check) if pending_for_po else [],
         "sync_status": row.sync_status, "sync_error": row.sync_error, "synced_at": row.synced_at, "created_at": row.created_at,
         "source_note": row.source_note,
     }
@@ -349,7 +417,7 @@ def accept_intake_work(session, intake_id: str, *, actor_id: str, note: str | No
             decision="PENDING", source="WORK_LOG", created_at=now,
         )
         session.add(row)
-    row.decision, row.decided_by, row.decided_at = "ACCEPTED", actor_id, now
+    row.decision, row.decided_by, row.decided_at, row.final_by = "ACCEPTED", actor_id, now, "CTO"
     row.reason = " ".join((note or "").split())[:1000] or None
     row.source_note = row.reason
     row.picked_on = now.astimezone(LOCAL_TZ).date()
@@ -390,7 +458,8 @@ def queue_acceptance(verification_id: str) -> bool:
 def decide(verification_id: str, *, decision: str, reason: str | None, actor_id: str, role: str, allowed_project_ids: frozenset[str] | None,
            evidence_missing_reason: str | None = None) -> dict[str, object]:
     """A person looked at the work: done, or not done (with a reason). The CTO's word closes the Issue; the Project
-    Owner's word is recorded beside it. "Not done" from either sends the work back to the open plan as rework.
+    Owner's word closes it too when the project's policy allows and nothing marks the work as risky (ADR-0082),
+    otherwise it is recorded beside the CTO's. "Not done" from either sends the work back to the open plan as rework.
     "Done" with nothing behind it needs a line that says why (FR-PLAN-36)."""
     now = datetime.now(timezone.utc)
     reason = (reason or "").strip() or None
@@ -403,6 +472,7 @@ def decide(verification_id: str, *, decision: str, reason: str | None, actor_id:
             raise KeyError("verification")
         if (row.decision != "PENDING") if role == "CTO" else (row.po_decision is not None or row.decision != "PENDING"):
             raise AcceptanceError("VERIFICATION_DECIDED")
+        check = None
         if decision == "ACCEPTED":
             snapshot = _snapshot(session, str(row.project_id), row.issue_external_id)
             check = ev.assess(planning_service._done_evidence_of(session, str(row.project_id)), evidence_summary(snapshot.evidence if snapshot else None),
@@ -411,31 +481,41 @@ def decide(verification_id: str, *, decision: str, reason: str | None, actor_id:
                 raise AcceptanceError("EVIDENCE_REASON_REQUIRED")
             if check["status"] != "OK" and not row.evidence_missing_reason:
                 row.evidence_missing_reason = missing_reason
+        po_final, blockers = False, []
         if role == "CTO":
             if row.decision != "PENDING":
                 raise AcceptanceError("VERIFICATION_DECIDED")
             row.decision, row.reason, row.decided_by, row.decided_at = decision, reason, actor_id, now
+            row.final_by = "CTO"
             if row.picked_on is None:
                 row.picked_on = _today()
         else:
             if row.po_decision is not None or row.decision != "PENDING":
                 raise AcceptanceError("VERIFICATION_DECIDED")
+            blockers = po_final_blockers(session, row, actor_id, check) if decision == "ACCEPTED" else []
             row.po_decision, row.po_reason, row.po_decided_by, row.po_decided_at = decision, reason, actor_id, now
+            po_final = decision == "ACCEPTED" and not blockers
+            if po_final:
+                # ADR-0082: low-risk work the Owner accepts is accepted; the CTO is not asked again.
+                row.decision, row.reason, row.decided_by, row.decided_at, row.final_by = "ACCEPTED", reason, actor_id, now, "PO"
         issue = _snapshot(session, str(row.project_id), row.issue_external_id)
         if decision == "REJECTED":
             _send_back(session, row, issue, reason or "", actor_id, now)
-        if decision == "ACCEPTED" and role == "CTO":
-            row.sync_status = "PENDING"
+        closes = decision == "ACCEPTED" and (role == "CTO" or po_final)
+        if closes:
+            row.sync_status, row.sync_error = "PENDING", None
+        details = {"issue": row.issue_external_id, "decision": decision, "level_at_pick": row.evidence_level, "reason": reason, "source": row.source}
+        if role != "CTO" and decision == "ACCEPTED":
+            details.update({"final": po_final, "blockers": blockers})
         session.add(AuditEvent(
             id=str(uuid4()), project_id=row.project_id, actor_type="USER", actor_id=actor_id,
             event_type="planning.issue.verified" if role == "CTO" else "planning.issue.po-verified", entity_type="issue_verification", entity_id=row.id,
-            details={"issue": row.issue_external_id, "decision": decision, "level_at_pick": row.evidence_level, "reason": reason, "source": row.source},
-            created_at=now,
+            details=details, created_at=now,
         ))
         session.commit()
         row_id = str(row.id)
         queued = None
-        if decision == "ACCEPTED" and role == "CTO":
+        if closes:
             queued = queue_acceptance(row_id)
             session.expire(row)
         names = {str(member.id): member.display_name for member in session.scalars(select(WorkforceMember)).all()}
@@ -443,6 +523,7 @@ def decide(verification_id: str, *, decision: str, reason: str | None, actor_id:
         users = {str(user.id): (user.display_name or user.auth_subject) for user in session.scalars(select(User)).all()}
         result = _dict(session, row, names, projects, users)
         result["sync_queued"] = queued
+        result["po_final_blockers"] = blockers
         return result
 
 
@@ -514,9 +595,15 @@ def sync_target(verification_id: str) -> dict[str, object] | None:
             row.sync_status, row.sync_error, row.synced_at = "SKIPPED", "Dự án không có tracker đang bật", datetime.now(timezone.utc)
             session.commit()
             return None
+        if is_moved(row.issue_external_id):
+            # An Issue of the GitLab project the project left (FR-PRJ-13): accepted here, never written to GitHub.
+            row.sync_status, row.sync_error, row.synced_at = "SKIPPED", "Issue thuộc GitLab cũ, đã ngừng đồng bộ khi chuyển sang GitHub", datetime.now(timezone.utc)
+            session.commit()
+            return None
         issue = _snapshot(session, str(row.project_id), row.issue_external_id)
         decided = _utc(row.decided_at) or datetime.now(timezone.utc)
-        note = f"Intake: CTO đã nghiệm thu ngày {decided.astimezone(LOCAL_TZ):%d/%m/%Y}: đúng là xong."
+        who = "Project Owner" if row.final_by == "PO" else "CTO"
+        note = f"Intake: {who} đã nghiệm thu ngày {decided.astimezone(LOCAL_TZ):%d/%m/%Y}: đúng là xong."
         if row.reason:
             note += f" {row.reason}"
         if row.source_note:

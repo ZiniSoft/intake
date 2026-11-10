@@ -353,3 +353,93 @@ def test_github_issue_payload_and_token_handling() -> None:
     for bad in ("GITLAB_TOKEN", "github_token_x", "GITHUB_TOKEN_", "GITHUB_TOKEN_MISSING"):
         with pytest.raises(github.GitHubPermanentError):
             github._headers(bad)
+
+
+def test_cto_switches_a_gitlab_project_to_github_for_new_work(monkeypatch) -> None:
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    from app.models import GitLabIssueSnapshot, IssueEvidenceLink, IssueVerification
+    from app.modules.integrations import github
+
+    code = "switch-gh-test"
+    gitlab_probe = _checked(monkeypatch, "GITLAB", "2026/switch-gh-test", {"id": "2026/switch-gh-test", "name": "Switch", "url": "https://gitlab.test/2026/switch-gh-test"})
+    created = client.post("/api/v1/projects", json={
+        "name": "Thử chuyển GitHub", "code": code, "intake_key": "SWG", "kind": "SOFTWARE",
+        "gitlab_project_path": "2026/switch-gh-test", "gitlab_probe_id": gitlab_probe,
+    })
+    assert created.status_code == 201, created.text
+    project_id = created.json()["data"]["id"]
+    assert created.json()["data"]["delivery_system"] == "GITLAB"
+
+    # Old GitLab work: one open Issue, one closed and accepted, with its evidence.
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        for number, state in (("5", "opened"), ("6", "closed")):
+            session.add(GitLabIssueSnapshot(
+                id=str(uuid4()), project_id=project_id, issue_external_id=number, title=f"Việc cũ {number}", state=state,
+                labels=[], assignee_external_ids=[], web_url=f"https://gitlab.test/2026/switch-gh-test/-/issues/{number}",
+                payload_hash=f"h{number}", is_current=True, fetched_at=now, last_seen_at=now, created_at=now,
+            ))
+        session.add(IssueVerification(
+            id=str(uuid4()), project_id=project_id, issue_external_id="6", evidence_level=2, decision="ACCEPTED", source="CLOSED", created_at=now,
+        ))
+        session.add(IssueEvidenceLink(
+            id=str(uuid4()), project_id=project_id, issue_external_id="6", kind="COMMIT", ref="abc1234", source="WORK_LOG", created_at=now,
+        ))
+        session.commit()
+
+    preview = client.get(f"/api/v1/projects/{code}/delivery-switch")
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["data"] == {"from_system": "GITLAB", "to_system": "GITHUB", "open_issues": 1}
+
+    async def fake_repositories(token_ref, search=None, repository=None):
+        return [{"id": "acme/switched", "name": "acme/switched", "url": "https://github.com/acme/switched"}]
+
+    _queue(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN_SWITCH", "secret-value")
+    monkeypatch.setattr(github, "repositories", fake_repositories)
+    check = client.post("/api/v1/projects/integration-probes", json={
+        "system": "GITHUB", "action": "CHECK", "reference": "acme/switched", "token_ref": "GITHUB_TOKEN_SWITCH",
+    }).json()["data"]
+    link = {"github_repository": "acme/switched", "github_token_ref": "GITHUB_TOKEN_SWITCH", "github_probe_id": check["id"]}
+
+    # Without the explicit switch the old rule still holds; the check has to pass first.
+    assert "DELIVERY_SYSTEM_CONFLICT" in client.patch(f"/api/v1/projects/{code}", json=link).text
+    unchecked = client.patch(f"/api/v1/projects/{code}", json={**link, "switch_delivery": "GITHUB"})
+    assert unchecked.status_code == 422 and "GITHUB_LINK_NOT_VERIFIED" in unchecked.text
+    assert "GITHUB_LINK_REQUIRED" in client.patch(f"/api/v1/projects/{code}", json={"switch_delivery": "GITHUB"}).text
+    assert integration_tasks.run_integration_probe(check["id"]) == "DONE"
+
+    switched = client.patch(f"/api/v1/projects/{code}", json={**link, "switch_delivery": "GITHUB"})
+    assert switched.status_code == 200, switched.text
+    project = switched.json()["data"]
+    assert project["delivery_system"] == "GITHUB" and project["github_repository"] == "acme/switched"
+    assert project["gitlab_project_id"] is None and project["gitlab_enabled"] is False
+    assert project["previous_delivery"]["system"] == "GITLAB"
+    assert project["previous_delivery"]["project_external_id"] == "2026/switch-gh-test"
+    assert project["previous_delivery"]["project_url"] == "https://gitlab.test/2026/switch-gh-test"
+    assert "secret-value" not in switched.text
+
+    with get_session() as session:
+        gitlab = session.scalar(select(ProjectIntegration).where(ProjectIntegration.project_id == project_id, ProjectIntegration.system == "GITLAB"))
+        assert gitlab.enabled is False and gitlab.project_external_id is None
+        # Old Issue numbers move aside so GitHub #5 and #6 never read GitLab's history as their own.
+        snapshots = session.scalars(select(GitLabIssueSnapshot).where(GitLabIssueSnapshot.project_id == project_id)).all()
+        assert sorted(row.issue_external_id for row in snapshots) == ["gitlab:5", "gitlab:6"]
+        assert not any(row.is_current for row in snapshots)
+        assert session.scalar(select(IssueVerification.issue_external_id).where(IssueVerification.project_id == project_id)) == "gitlab:6"
+        assert session.scalar(select(IssueEvidenceLink.issue_external_id).where(IssueEvidenceLink.project_id == project_id)) == "gitlab:6"
+        event = session.scalar(select(AuditEvent).where(AuditEvent.event_type == "project.delivery_switched", AuditEvent.entity_id == project_id))
+        assert event is not None and event.details["open_issues"] == 1 and event.details["to"] == "GITHUB"
+
+    # Once on GitHub there is nothing left to switch.
+    again = client.patch(f"/api/v1/projects/{code}", json={**link, "switch_delivery": "GITHUB"})
+    assert again.status_code == 422 and "DELIVERY_SWITCH_NOT_APPLICABLE" in again.text
+    assert "DELIVERY_SWITCH_NOT_APPLICABLE" in client.get(f"/api/v1/projects/{code}/delivery-switch").text
+
+    with get_session() as session:
+        for model in (IssueVerification, IssueEvidenceLink, GitLabIssueSnapshot):
+            for row in session.scalars(select(model).where(model.project_id == project_id)).all():
+                session.delete(row)
+        session.commit()
