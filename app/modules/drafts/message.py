@@ -139,4 +139,4 @@ def draft_blocks(source: dict[str, object]) -> list[dict[str, object]]:
 
 def build_draft_message(source: dict[str, object]) -> str:
     """One text for the model: what the post is for, who writes and how, then the idea."""
-    return "\n\n".join("\n".join(block["lines"]) for block in draft_blocks(source)).strip()
+    return "\n\n".join("\n".join(block["lines"]).strip() for block in draft_blocks(source)).strip()
