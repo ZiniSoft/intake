@@ -10,6 +10,10 @@ Công cụ riêng tư để CTO tiếp nhận yêu cầu của khách từ chat,
 
 Intake giữ yêu cầu gốc, quyết định của con người, nơi giao việc và kế hoạch ngày trong cùng một hành trình. AI đề xuất bản yêu cầu có cấu trúc; con người vẫn quyết định bước tiếp theo.
 
+[![Xem video walkthrough Intake dài 55 giây trên YouTube](assets/intake-demo-poster.en.svg)](https://youtu.be/oQ6YxKqJsuo)
+
+[Xem walkthrough public trên YouTube](https://youtu.be/oQ6YxKqJsuo). Video sử dụng giao diện và lời thuyết minh tiếng Anh.
+
 Bộ demo public có [storyboard](demo/storyboard.md), [lời đọc](demo/narration.en.md), [phụ đề](demo/captions.en.vtt) và [runbook quay an toàn](demo/recording-runbook.md). Toàn bộ dùng dữ liệu hư cấu và một repo demo chỉ cấp quyền tối thiểu.
 
 ## Chạy thử

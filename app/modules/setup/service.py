@@ -14,8 +14,8 @@ from app.db import get_session
 from app.models import AiProvider, AiRoute, AppSetting, AuditEvent, Project, User
 from app.modules.identity.service import identity_service
 from app.modules.private_space.service import private_project_ids, private_space_service
-from app.modules.projects.service import OTHER_PROJECT_CODE
-from app.modules.setup.demo import DEMO_BUNDLE, DEMO_FLAG, DemoError, load_demo_project
+from app.modules.projects.service import OTHER_PROJECT_CODE, project_catalog_service
+from app.modules.setup.demo import DEMO_BUNDLE, DEMO_BUNDLE_EN, DEMO_FLAG, DemoError, load_demo_project
 
 SETUP_KEY = "setup_completed"
 BOOTSTRAP_KEY = "bootstrap_completed"
@@ -83,7 +83,7 @@ class SetupService:
             raise SetupError("PASSWORD_TOO_SHORT", f"{label}: the password needs at least {MIN_PASSWORD_LENGTH} characters")
         return {"email": email, "display_name": name, "password": password}
 
-    def bootstrap(self, cto: dict[str, str], owner: dict[str, str] | None) -> str:
+    def bootstrap(self, cto: dict[str, str], owner: dict[str, str] | None, locale: str = "en") -> str:
         """Create the first CTO (and optionally a Project Owner) on a fresh install; returns the CTO's auth subject.
         Open only while the installer's flag is on and nobody has done it yet (FR-SETUP-06, ADR-0071)."""
         if not get_settings().first_run_wizard:
@@ -127,13 +127,14 @@ class SetupService:
                 ))
             session.add(AuditEvent(
                 id=str(uuid4()), actor_type="SYSTEM", actor_id="bootstrap", event_type="setup.bootstrap", entity_type="user",
-                entity_id=cto_id, details={"owner_created": owner_id is not None}, created_at=now,
+                entity_id=cto_id, details={"owner_created": owner_id is not None, "locale": locale}, created_at=now,
             ))
             try:
                 session.commit()
             except IntegrityError as error:
                 session.rollback()
                 raise SetupError("EMAIL_TAKEN", "An account already uses one of these emails") from error
+        project_catalog_service.localize_system_projects(locale)
         return subject
 
     def load_private_sample(self, actor_id: str) -> dict[str, object]:
@@ -146,13 +147,14 @@ class SetupService:
         except SystemExit as error:
             raise SetupError("SAMPLE_INVALID", str(error)) from error
 
-    def load_demo_project(self, actor_id: str) -> dict[str, object]:
+    def load_demo_project(self, actor_id: str, locale: str = "en") -> dict[str, object]:
         if not get_settings().first_run_wizard:
             raise SetupError("NOT_FOUND", "Not found")
         try:
-            result = load_demo_project(actor_id)
+            result = load_demo_project(actor_id, DEMO_BUNDLE if locale == "vi" else DEMO_BUNDLE_EN)
         except DemoError as error:
             raise SetupError(error.code, error.message) from error
+        project_catalog_service.localize_system_projects(locale)
         # Trying the demo is a way of finishing setup; without this the app's guard would bounce the person back to /setup.
         self._mark_done(actor_id)
         return result
@@ -168,11 +170,14 @@ class SetupService:
                 row.value, row.updated_by, row.updated_at = 1, actor_id, now
             session.commit()
 
-    def complete(self, actor_id: str) -> dict[str, object]:
+    def complete(self, actor_id: str, locale: str = "en") -> dict[str, object]:
         state = self.state()
+        wizard = get_settings().first_run_wizard
         # Someone who tried the demo project may finish without a key; the UI keeps reminding them (FR-SETUP-12).
-        if get_settings().first_run_wizard and not state["ai_ready"] and not state["has_demo"]:
+        if wizard and not state["ai_ready"] and not state["has_demo"]:
             raise SetupError("AI_KEY_REQUIRED", "Add an AI provider and choose a model before finishing setup")
+        if wizard:
+            project_catalog_service.localize_system_projects(locale)
         self._mark_done(actor_id)
         return self.state()
 

@@ -73,7 +73,7 @@ async function newSession(viewport) {
     await route.fulfill({ status: 202, contentType: 'application/json', body: envelope({ status: 'processing_queued' }) })
   })
 
-  await page.goto(`${baseUrl}/login`, { waitUntil: 'networkidle' })
+  await page.goto(`${baseUrl}/login?lang=vi`, { waitUntil: 'networkidle' })
   await page.getByLabel('Tài khoản').fill('cto')
   await page.getByLabel('Mật khẩu').fill(env.CTO_INITIAL_PASSWORD)
   await page.getByRole('button', { name: 'Đăng nhập an toàn' }).click()

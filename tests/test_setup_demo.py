@@ -12,6 +12,7 @@ from app.models import (
     AppSetting, DailyCapacity, IntakeItem, PlanningAssignment, PlanningRun, PlanningSyncJob, Project, ProjectIntegration,
     SyncJob, WorkforceMember, WorkforceProjectMembership,
 )
+from app.modules.projects.service import OTHER_PROJECT_CODE
 from app.modules.setup import demo as demo_module
 from app.modules.setup.service import SETUP_KEY, SetupService
 
@@ -56,7 +57,10 @@ def fresh(monkeypatch):
     """A fresh install: wizard flag on, no real project, setup not yet completed; the demo is removed afterwards."""
     monkeypatch.setattr(get_settings(), "first_run_wizard", True)
     monkeypatch.setattr(SetupService, "_real_projects", staticmethod(lambda session: 0))
+    other_state = None
     with get_session() as session:
+        other = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+        other_state = (other.name, other.updated_at) if other is not None else None
         row = session.get(AppSetting, SETUP_KEY)
         if row:
             session.delete(row)
@@ -65,6 +69,9 @@ def fresh(monkeypatch):
     yield
     _remove_demo()
     with get_session() as session:
+        other = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+        if other is not None and other_state is not None:
+            other.name, other.updated_at = other_state
         row = session.get(AppSetting, SETUP_KEY)
         if row:
             session.delete(row)
@@ -88,8 +95,15 @@ def test_demo_project_content(fresh):
     assert cto.post("/api/v1/setup/demo-project").status_code == 200
     with get_session() as session:
         project = session.scalar(select(Project).where(Project.code == "demo"))
+        assert project.name == "Sample project"
         assert project.kind == "SOFTWARE" and project.project_settings["demo"] is True
         assert project.project_settings["demo_repo_url"] == "https://github.com/ZiniSoft/minigames"
+        members = session.scalars(select(WorkforceMember).join(WorkforceProjectMembership).where(
+            WorkforceProjectMembership.project_id == project.id
+        )).all()
+        assert {member.display_name for member in members} == {"Maya Sample", "Noah Sample", "Avery Sample"}
+        other = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+        assert other is not None and other.name == "Other project"
         items = session.scalars(select(IntakeItem).where(IntakeItem.project_id == project.id)).all()
         assert len(items) == 4 and all(i.public_id.startswith("DEM-") for i in items)
         assert {i.status for i in items} == {"PENDING_APPROVAL", "NEEDS_INFORMATION", "APPROVED"}
@@ -98,6 +112,28 @@ def test_demo_project_content(fresh):
         run = session.scalar(select(PlanningRun).where(PlanningRun.project_scope == [str(project.id)]))
         assert run is not None
         assert session.scalars(select(PlanningAssignment).where(PlanningAssignment.planning_run_id == run.id)).all()
+
+
+def test_demo_project_uses_the_requested_browser_locale(fresh):
+    assert cto.post("/api/v1/setup/demo-project?locale=vi").status_code == 200
+    with get_session() as session:
+        project = session.scalar(select(Project).where(Project.code == "demo"))
+        assert project.name == "Dự án mẫu"
+        members = session.scalars(select(WorkforceMember).join(WorkforceProjectMembership).where(
+            WorkforceProjectMembership.project_id == project.id
+        )).all()
+        assert {member.display_name for member in members} == {"Linh Mẫu", "Bình Mẫu", "Châu Mẫu"}
+        other = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+        assert other is not None and other.name == "Dự án khác"
+        titles = [row.normalized_title for row in session.scalars(
+            select(IntakeItem).where(IntakeItem.project_id == project.id)
+        ).all()]
+        assert "Thêm nút tắt tiếng nhạc nền" in titles
+
+
+def test_demo_project_rejects_an_unknown_locale(fresh):
+    response = cto.post("/api/v1/setup/demo-project?locale=fr")
+    assert response.status_code == 422
 
 
 def test_demo_sends_nothing_outside(fresh):
@@ -117,11 +153,13 @@ def test_demo_sends_nothing_outside(fresh):
 
 def test_demo_does_not_touch_other_projects(fresh):
     with get_session() as session:
-        before = {p.code: (p.name, p.owner_member_id, p.updated_at) for p in session.scalars(select(Project)).all()}
+        before = {p.code: (p.name, p.owner_member_id, p.updated_at) for p in session.scalars(select(Project)).all() if p.code != OTHER_PROJECT_CODE}
         items_before = _count(session, IntakeItem)
     assert cto.post("/api/v1/setup/demo-project").status_code == 200
     with get_session() as session:
-        after = {p.code: (p.name, p.owner_member_id, p.updated_at) for p in session.scalars(select(Project)).all()}
+        after = {p.code: (p.name, p.owner_member_id, p.updated_at) for p in session.scalars(select(Project)).all() if p.code not in {"demo", OTHER_PROJECT_CODE}}
+        other = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+        assert other is not None and other.name == "Other project"
         assert {k: v for k, v in after.items() if k != "demo"} == before
         assert _count(session, IntakeItem) == items_before + 4
 

@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir --requirement requirements.txt
 COPY app ./app
 COPY scripts ./scripts
 COPY CHANGELOG.md ./CHANGELOG.md
+COPY CHANGELOG.en.md ./CHANGELOG.en.md
 COPY .claude/commands/fix-issue.md ./.claude/commands/fix-issue.md
 COPY docs/stable/agent-context-template.md ./docs/stable/agent-context-template.md
 

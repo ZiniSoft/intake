@@ -4,13 +4,17 @@ A private intake tool for engineering leads. Customer requests arrive from chat,
 
 > Status: pilot-grade, used by a small team. The core public walkthrough is available in English with `?lang=en`; other screens are still primarily Vietnamese. The documentation under `docs/` is in English, with a Vietnamese version next to each file (`X.vi.md`).
 
-**User guide**: every role, feature, page and button, in English and Vietnamese, at [zinisoft.github.io/intake](https://zinisoft.github.io/intake/?lang=en). The same guide is public at `/huong-dan` on any running instance. <!-- export-gate: allow (public Pages URL) -->
+**User guide**: every role, feature, page and button, in English and Vietnamese, at [zinisoft.github.io/intake](https://zinisoft.github.io/intake/?lang=en). The same guide is public at `/guide` on any running instance; the legacy `/huong-dan` URL redirects there. <!-- export-gate: allow (public Pages URL) -->
 
 ## How a request becomes work
 
 ![Intake turns a raw request into accepted work through six traceable steps](assets/intake-lifecycle.en.svg)
 
 Intake keeps the original request, the human decision, the delivery target and the daily plan connected. AI proposes a structured version of the request; a person still decides what happens next.
+
+[![Watch the 55-second Intake walkthrough on YouTube](assets/intake-demo-poster.en.svg)](https://youtu.be/oQ6YxKqJsuo)
+
+[Watch the public walkthrough on YouTube](https://youtu.be/oQ6YxKqJsuo).
 
 The reproducible public demo kit includes the [storyboard](demo/storyboard.md), [narration](demo/narration.en.md), [captions](demo/captions.en.vtt) and [recording safety runbook](demo/recording-runbook.md). It uses fictional data and a narrowly scoped demo repository.
 

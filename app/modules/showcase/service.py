@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 
 from app.db import get_session
 from app.models import AuditEvent, IntakeItem, Project, ShowcaseEnabled, SourceMessage
-from app.modules.setup.demo import DEMO_FLAG, DemoError, is_demo, load_demo_project
+from app.modules.setup.demo import DEMO_BUNDLE, DEMO_BUNDLE_EN, DEMO_FLAG, DemoError, is_demo, load_demo_project
 from app.services.raw_crypto import encrypt
 
 CATALOG = Path(__file__).resolve().parents[2] / "resources" / "showcase.json"
@@ -40,13 +40,20 @@ def read_catalog() -> dict:
         return {"version": 0, "groups": {}, "items": []}
 
 
-def _item_view(item: dict, row: ShowcaseEnabled | None, project: Project | None, samples: int) -> dict[str, object]:
+def _localized(item: dict, field: str, locale: str) -> str:
+    if locale == "en":
+        return str(item.get(f"{field}_en") or item.get(field) or "")
+    return str(item.get(field) or "")
+
+
+def _item_view(item: dict, row: ShowcaseEnabled | None, project: Project | None, samples: int, locale: str) -> dict[str, object]:
     state = "off"
     if project is not None:
         state = "on" if project.status == "ACTIVE" else "archived"
     return {
-        "key": item["key"], "kind": item["kind"], "group": item["group"], "name": item["name"], "summary": item["summary"],
-        "repo_url": item["repo_url"], "languages": item["languages"], "license": item["license"],
+        "key": item["key"], "kind": item["kind"], "group": item["group"], "name": _localized(item, "name", locale),
+        "summary": _localized(item, "summary", locale), "repo_url": item["repo_url"], "languages": item["languages"],
+        "license": _localized(item, "license", locale),
         "state": state, "project_code": project.code if project is not None else None, "sample_requests": samples,
         "in_catalog": True,
     }
@@ -71,14 +78,14 @@ def _count_samples(session, project: Project | None) -> int:
     return sum(1 for details in rows if isinstance(details, dict) and details.get(TEST_DATA_FLAG))
 
 
-def list_items() -> dict[str, object]:
+def list_items(locale: str = "en") -> dict[str, object]:
     catalog = read_catalog()
     keys = {item["key"] for item in catalog["items"]}
     with get_session() as session:
         views = []
         for item in catalog["items"]:
             row, project = _project_of(session, item["key"])
-            views.append(_item_view(item, row, project, _count_samples(session, project)))
+            views.append(_item_view(item, row, project, _count_samples(session, project), locale))
         # An item switched on that a later release dropped from the catalogue stays listed so it can still be archived.
         for row in session.scalars(select(ShowcaseEnabled).where(ShowcaseEnabled.item_key.not_in(keys) if keys else True)).all():
             project = session.get(Project, row.project_id)
@@ -89,7 +96,8 @@ def list_items() -> dict[str, object]:
                 "languages": [], "license": "", "state": "on" if project.status == "ACTIVE" else "archived",
                 "project_code": project.code, "sample_requests": _count_samples(session, project), "in_catalog": False,
             })
-    return {"version": catalog["version"], "groups": catalog["groups"], "items": views}
+    groups = catalog.get("groups_en", catalog["groups"]) if locale == "en" else catalog["groups"]
+    return {"version": catalog["version"], "groups": groups, "items": views}
 
 
 def _find_item(key: str) -> dict:
@@ -99,15 +107,15 @@ def _find_item(key: str) -> dict:
     raise ShowcaseError("NOT_FOUND", "This item is not in the catalogue")
 
 
-def set_enabled(key: str, enabled: bool, actor_id: str) -> dict[str, object]:
+def set_enabled(key: str, enabled: bool, actor_id: str, locale: str = "en") -> dict[str, object]:
     catalog = read_catalog()
     now = datetime.now(timezone.utc)
     with get_session() as session:
         row, project = _project_of(session, key)
         if row is None and project is None and not enabled:
-            return list_items()
+            return list_items(locale)
         if project is None:
-            project = _create_project(session, _find_item(key), actor_id, now)
+            project = _create_project(session, _find_item(key), actor_id, now, locale)
         project.status = "ACTIVE" if enabled else "INACTIVE"
         project.updated_at = now
         if row is None:
@@ -120,14 +128,14 @@ def set_enabled(key: str, enabled: bool, actor_id: str) -> dict[str, object]:
             entity_id=project.id if project is not None else key, details={"item": key}, created_at=now,
         ))
         session.commit()
-    return list_items()
+    return list_items(locale)
 
 
-def _create_project(session, item: dict, actor_id: str, now: datetime) -> Project:
+def _create_project(session, item: dict, actor_id: str, now: datetime, locale: str) -> Project:
     if item["kind"] == "demo":
         session.commit()  # the demo loader opens its own session
         try:
-            result = load_demo_project(actor_id)
+            result = load_demo_project(actor_id, DEMO_BUNDLE if locale == "vi" else DEMO_BUNDLE_EN)
         except DemoError as error:
             raise ShowcaseError(error.code, error.message) from error
         project = session.get(Project, result["project_id"])
@@ -143,7 +151,7 @@ def _create_project(session, item: dict, actor_id: str, now: datetime) -> Projec
     from app.services.intake_service import intake_store
 
     project = Project(
-        id=str(uuid4()), code=code, intake_key=intake_key, name=item["name"], kind="SOFTWARE", status="ACTIVE",
+        id=str(uuid4()), code=code, intake_key=intake_key, name=_localized(item, "name", locale), kind="SOFTWARE", status="ACTIVE",
         project_settings={"showcase": item["key"], "repo_url": item["repo_url"]}, created_at=now, updated_at=now,
     )
     session.add(project)

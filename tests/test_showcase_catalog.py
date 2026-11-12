@@ -4,16 +4,21 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 CATALOG = Path(__file__).resolve().parents[1] / "app" / "resources" / "showcase.json"
-REQUIRED = {"key", "kind", "group", "name", "summary", "repo_url", "languages", "license", "default_enabled", "sample_requests"}
+REQUIRED = {
+    "key", "kind", "group", "name", "name_en", "summary", "summary_en", "repo_url", "languages", "license", "license_en",
+    "default_enabled", "sample_requests",
+}
 
 
 def test_showcase_catalog_is_well_formed():
     data = json.loads(CATALOG.read_text(encoding="utf-8"))
     assert data["version"] >= 1
+    assert set(data["groups_en"]) == set(data["groups"])
     keys = [item["key"] for item in data["items"]]
     assert len(keys) == len(set(keys))
     for item in data["items"]:
         assert REQUIRED <= set(item), item["key"]
+        assert item["name_en"] and item["summary_en"] and item["license_en"]
         assert item["group"] in data["groups"]
         assert item["kind"] in {"demo", "real"}
         if item["kind"] == "real":

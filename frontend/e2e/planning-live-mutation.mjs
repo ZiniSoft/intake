@@ -47,7 +47,7 @@ const title = `E2E Planning Quick Add ${new Date().toISOString()}`
 let evidence = { planning_live_mutation: 'started', plan_date: planDate, title }
 
 try {
-  await page.goto(`${baseUrl}/login`, { waitUntil: 'networkidle' })
+  await page.goto(`${baseUrl}/login?lang=vi`, { waitUntil: 'networkidle' })
   await page.getByLabel('Tài khoản').fill('cto')
   await page.getByLabel('Mật khẩu').fill(env.CTO_INITIAL_PASSWORD)
   await page.getByRole('button', { name: 'Đăng nhập an toàn' }).click()

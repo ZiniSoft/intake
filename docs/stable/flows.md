@@ -10,7 +10,7 @@ The diagrams describe the target flow. Since ADR-0066 and migration 057, Plane i
 
 ```mermaid
 flowchart LR
-    C[Khách hàng gửi Zalo/WhatsApp] --> CTO[CTO copy text và upload file]
+    C[Customer sends a Zalo/WhatsApp message] --> CTO[CTO copies text and uploads files]
     CTO --> API[Intake API]
     API --> DB[(PostgreSQL)]
     API --> OBJ[(SeaweedFS quarantine)]
@@ -18,15 +18,15 @@ flowchart LR
     OUT --> Q[Redis/Celery]
     Q --> PIPE[Scan, extract, normalize]
     PIPE --> REV[CTO review]
-    REV -->|Thiếu thông tin| NEED[Needs information]
-    REV -->|Reject/defer| STOP[Audit và dừng]
+    REV -->|Missing information| NEED[Needs information]
+    REV -->|Reject/defer| STOP[Audit and stop]
     REV -->|Approve| SNAP[Immutable snapshot]
-    SNAP -->|Route Work| WORK[Việc nội bộ]
-    WORK --> READY[Sẵn sàng tạo Issue]
-    SNAP -->|Route GitLab/GitHub| SYNCG[CTO bấm Sync]
+    SNAP -->|Route Work| WORK[Internal work]
+    WORK --> READY[Ready to create an Issue]
+    SNAP -->|Route GitLab/GitHub| SYNCG[CTO clicks Sync]
     READY --> ISSUE[GitLab/GitHub Issue]
     SYNCG --> ISSUE
-    ISSUE --> STAFF[Nhân sự chọn Issue theo priority]
+    ISSUE --> STAFF[Team member selects an Issue by priority]
     STAFF --> MR[Branch, MR, CI, review, release]
 ```
 
@@ -34,15 +34,15 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A[Normalized intake] --> B{Đủ thông tin?}
-    B -->|Không| N[NEEDS_INFO]
-    B -->|Có| T{Loại yêu cầu}
-    T -->|Feature hoặc scope change| P[PLANE]
-    T -->|Bug hoặc task trong scope| G{Có evidence và AC?}
-    T -->|Câu hỏi/phản hồi đơn giản| R[RESPONSE draft]
-    G -->|Có| GL[GITLAB]
-    G -->|Không| N
-    P --> H[CTO quyết định]
+    A[Normalized intake] --> B{Enough information?}
+    B -->|No| N[NEEDS_INFO]
+    B -->|Yes| T{Request type}
+    T -->|Feature or scope change| P[PLANE]
+    T -->|Bug or in-scope task| G{Has evidence and acceptance criteria?}
+    T -->|Simple question or feedback| R[RESPONSE draft]
+    G -->|Yes| GL[GITLAB]
+    G -->|No| N
+    P --> H[CTO decides]
     GL --> H
     R --> H
 ```
@@ -58,19 +58,19 @@ sequenceDiagram
     participant Worker
     participant External as Plane/GitLab
 
-    CTO->>UI: Sửa payload và Approve
+    CTO->>UI: Edit payload and Approve
     UI->>API: approve(expected_version, payload)
     API->>DB: transaction action + immutable snapshot
-    API-->>UI: APPROVED, chưa external write
-    CTO->>UI: Bấm Sync
+    API-->>UI: APPROVED, no external write yet
+    CTO->>UI: Click Sync
     UI->>API: sync(snapshot_id)
     API->>DB: validate snapshot + mapping + idempotency; create job/outbox
     API-->>UI: 202 SYNC_PENDING
-    Worker->>DB: claim job bằng lease
-    Worker->>External: create với idempotency marker
+    Worker->>DB: claim job with a lease
+    Worker->>External: create with an idempotency marker
     External-->>Worker: external ID + URL
     Worker->>DB: external_link + job SUCCEEDED
-    UI->>API: đọc trạng thái
+    UI->>API: read status
     API-->>UI: SYNCED
 ```
 
@@ -83,22 +83,22 @@ flowchart TD
     I[Accepted intake] --> O[Outbox]
     O --> D[Dispatcher]
     D --> S{Source type}
-    S -->|Text| TXT[Decrypt in memory và canonicalize]
-    S -->|Image/PDF| SCAN[Quarantine và kiểm tra file]
-    SCAN -->|Không đạt| REJ[Reject file và audit]
-    SCAN -->|Đạt, image| VIS[OCR trên máy nội bộ, không cloud vision]
-    SCAN -->|Đạt, PDF| PDF[Text layer; OCR local trang scan]
+    S -->|Text| TXT[Decrypt in memory and canonicalize]
+    S -->|Image/PDF| SCAN[Quarantine and validate file]
+    SCAN -->|Checks failed| REJ[Reject file and audit]
+    SCAN -->|Passed, image| VIS[OCR on an internal machine, no cloud vision]
+    SCAN -->|Passed, PDF| PDF[Text layer; local OCR for scanned pages]
     TXT --> EV[Evidence bundle]
     VIS --> EV
     PDF --> EV
     EV --> AI[UModelVerse]
-    AI -->|Transient/invalid schema| RT[Retry tới AI_TASK_MAX_RETRIES]
-    RT -->|Hết lượt| FAIL[Run FAILED, CTO xử lý]
+    AI -->|Transient/invalid schema| RT[Retry up to AI_TASK_MAX_RETRIES]
+    RT -->|Attempts exhausted| FAIL[Run FAILED, CTO handles it]
     RT --> AI
     AI --> VAL[Schema + deterministic validation]
-    VAL -->|Đủ| REVIEW[REVIEW_REQUIRED]
-    VAL -->|Thiếu| INFO[NEEDS_INFORMATION]
-    VAL -->|Một phần| PART[PARTIAL + warning]
+    VAL -->|Complete| REVIEW[REVIEW_REQUIRED]
+    VAL -->|Missing information| INFO[NEEDS_INFORMATION]
+    VAL -->|Partial| PART[PARTIAL + warning]
 ```
 
 The pilot only calls UModelVerse; the OpenRouter fallback is postponed until after the pilot per ADR-0011. File checks cover magic bytes, size, page count and rejection of encrypted PDFs or PDFs with embedded files; the pilot does not use malware scanning. OCR runs in an isolated container on a separate machine on the same LAN; only the OCR text goes into the evidence bundle sent to UModelVerse, and the original file is not sent to the cloud (ADR-0015).
@@ -116,16 +116,16 @@ sequenceDiagram
     participant CTO
     participant Sync as Integration worker
 
-    Worker->>Mail: Fetch unread/new UID qua TLS
-    Worker->>DB: Dedupe và lưu encrypted email
-    Report->>DB: 23:30 parse report/revision và lưu warning
+    Worker->>Mail: Fetch unread/new UID over TLS
+    Worker->>DB: Dedupe and store encrypted email
+    Report->>DB: 23:30 parse report/revision and store warnings
     Planner->>DB: 06:45 refresh report + capacity
-    Planner->>GL: Đọc Issue/state/assignee/milestone/due date/MR/CI
+    Planner->>GL: Read Issue/state/assignee/milestone/due date/MR/CI
     Planner->>Planner: GitLab delivery truth + email context/conflict
-    Planner->>DB: 07:00 tạo run + sáng/chiều + warning
+    Planner->>DB: 07:00 create run + morning/afternoon + warnings
     CTO->>DB: Review priority/assignee/milestone/due date
     CTO->>DB: Approve expected version + immutable snapshot
-    DB->>Sync: Enqueue một update job cho mỗi GitLab Issue
+    DB->>Sync: Enqueue one update job per GitLab Issue
     Sync->>GL: Update assignee/milestone/due date idempotent
     Sync->>DB: Per-Issue SUCCEEDED/RETRY/FAILED; run SYNCED/PARTIAL
 ```
@@ -138,14 +138,14 @@ A missing, late or malformed report does not stop the Planner. On weekends the s
 
 ```mermaid
 flowchart TD
-    E[Daily Report] --> C{Có GitLab Issue?}
-    C -->|Không| U[UNTRACKED_WORK / tạo Intake]
-    C -->|Có| X[Đối chiếu field]
+    E[Daily Report] --> C{Has a GitLab Issue?}
+    C -->|No| U[UNTRACKED_WORK / create Intake]
+    C -->|Yes| X[Compare fields]
     G[GitLab read model] --> X
-    X -->|Khớp| P[Planning candidate]
-    X -->|Email DONE, GitLab chưa Done| M[STATUS_MISMATCH + carry-over]
-    X -->|Email có blocker| B[Blocker warning dù GitLab còn Doing]
-    X -->|GitLab Doing, email thiếu| R[MISSING_REPORT warning + giữ candidate]
+    X -->|Match| P[Planning candidate]
+    X -->|Email DONE, GitLab not Done| M[STATUS_MISMATCH + carry-over]
+    X -->|Email has a blocker| B[Blocker warning even when GitLab is Doing]
+    X -->|GitLab Doing, email missing| R[MISSING_REPORT warning + keep candidate]
     M --> P
     B --> P
     R --> P
@@ -157,11 +157,11 @@ GitLab decides the Issue, delivery state, assignee, milestone and due date. Prio
 
 ```mermaid
 flowchart LR
-    D{Ngày trong tuần?} -->|T2-T6| W[Base 8h]
-    D -->|T7-CN| Z[Base 0h]
-    W --> O[Áp dụng CTO override]
+    D{Day of week?} -->|Monday-Friday| W[Base 8h]
+    D -->|Saturday-Sunday| Z[Base 0h]
+    W --> O[Apply CTO override]
     Z --> O
-    O --> S[Trừ meeting/review/support/fixed]
+    O --> S[Subtract meeting/review/support/fixed]
     S --> A[Available capacity]
     A --> AM[Morning assignments]
     A --> PM[Afternoon assignments]
@@ -173,20 +173,20 @@ Each person has only one distinct primary development Issue in `Doing`, except f
 
 ```mermaid
 flowchart TD
-    Q[Quick Add] --> E{Nguồn}
+    Q[Quick Add] --> E{Source}
     E -->|Existing| S[Search GitLab/Intake/Plane]
-    E -->|Quick form| N[Tạo MANUAL/MEETING Intake]
-    E -->|Paste| P[Tạo Intake từ chat/email/meeting note]
-    S --> V{Đã có GitLab Issue?}
+    E -->|Quick form| N[Create MANUAL/MEETING Intake]
+    E -->|Paste| P[Create Intake from chat/email/meeting note]
+    S --> V{Already has a GitLab Issue?}
     N --> T[Normalize + dedupe + CTO triage]
     P --> T
     T --> R{Route}
     R -->|Feature/discovery| PL[Plane -> Ready for Delivery]
-    R -->|Bug/task| GI[Tạo GitLab Issue]
+    R -->|Bug/task| GI[Create GitLab Issue]
     PL --> GI
     GI --> V
-    V -->|Có| C[Planning candidate]
-    V -->|Không| H[Không cho approve]
+    V -->|Yes| C[Planning candidate]
+    V -->|No| H[Approval blocked]
 ```
 
 `report@example.com` only receives Daily Reports and is not used as a Quick Add mailbox. P0 uses Emergency Add: when the CTO confirms with a reason, Intake immediately creates a minimal GitLab Issue through the integration worker, without going through the two steps `Approve` then `Sync`, and records an audit entry (ADR-0012). That Issue becomes a candidate; planning approval is still a separate step.
@@ -199,18 +199,18 @@ For Quick Add form/paste, the transaction that creates Intake + candidate must c
 
 ```mermaid
 flowchart TD
-    M[Thư ở report@] --> P{Đọc theo mẫu được?}
-    P -->|Được| U[Task dùng được ngay]
-    P -->|Không| A[AI đọc lại, tối đa 5 thư mỗi lượt]
-    A --> R[CTO đối chiếu ở trang Báo cáo ngày]
-    R -->|Xác nhận đúng| U
-    R -->|Loại, có hỏi lại| X[Task bị gỡ khỏi Planning]
-    U --> S{Trạng thái task}
-    S -->|DONE, CANCELLED| N[Không đưa sang]
-    S -->|PLANNED, IN_PROGRESS, PENDING_REVIEW, BLOCKED| C[Candidate nguồn REPORT trong Planning Run]
-    C --> I{Có GitLab Issue đang mở?}
-    I -->|Có| RD[READY]
-    I -->|Không| T[PENDING_TRIAGE: CTO gắn Issue rồi mới promote]
+    M[Email in report@] --> P{Matches the template?}
+    P -->|Yes| U[Task ready to use]
+    P -->|No| A[AI rereads, up to 5 emails per batch]
+    A --> R[CTO compares it on the Daily Report page]
+    R -->|Confirm correct| U
+    R -->|Exclude, with confirmation| X[Task removed from Planning]
+    U --> S{Task status}
+    S -->|DONE, CANCELLED| N[Do not include]
+    S -->|PLANNED, IN_PROGRESS, PENDING_REVIEW, BLOCKED| C[REPORT-sourced candidate in Planning Run]
+    C --> I{Has an open GitLab Issue?}
+    I -->|Yes| RD[READY]
+    I -->|No| T[PENDING_TRIAGE: CTO links an Issue before promotion]
 ```
 
 Candidates are created when the run is generated (07:00) and each time the CTO reopens a run that is still editable, so a report confirmed late still gets into the same day's plan. The report used is the one from each member's most recent working day. The signature after the `--` line is not shown in the original email (collapsed) and is not sent to AI.
@@ -220,24 +220,24 @@ Candidates are created when the run is generated (07:00) and each time the CTO r
 ```mermaid
 sequenceDiagram
     participant CTO
-    participant Web as Trình duyệt
+    participant Web as Browser
     participant API
     participant GW as meeting-gateway
     participant EL as ElevenLabs
     participant AI as AI worker (UModelVerse)
 
-    CTO->>Web: Chọn dự án (bắt buộc) và nguồn âm
-    Web->>API: Tạo cuộc họp
+    CTO->>Web: Select project (required) and audio source
+    Web->>API: Create meeting
     Web->>GW: WebSocket PCM 16 kHz
-    GW->>EL: Realtime, kèm thuật ngữ của dự án
-    EL-->>Web: Chữ hiện dần (chưa có người nói)
-    Web->>API: Audio từng đoạn, mã hóa trước khi lưu
-    CTO->>API: Kết thúc
-    GW->>EL: Chuyển chữ lại, tách người nói
-    GW->>EL: Xóa bản sao phía nhà cung cấp
-    AI->>AI: Tạo meeting note từ bản chữ
-    CTO->>API: Đặt tên người nói, sửa note
-    CTO->>API: Tạo Intake kênh MEETING từ một mục
+    GW->>EL: Realtime, with the project glossary
+    EL-->>Web: Live transcript (no speaker labels yet)
+    Web->>API: Audio chunks, encrypted before storage
+    CTO->>API: Finish
+    GW->>EL: Retranscribe and separate speakers
+    GW->>EL: Delete the provider-side copy
+    AI->>AI: Create meeting note from the transcript
+    CTO->>API: Name speakers and edit the note
+    CTO->>API: Create a MEETING Intake from one item
 ```
 
 The "upload an existing file" ("tải file có sẵn") source skips the realtime step. Audio only goes to ElevenLabs; UModelVerse only receives the transcript. Every note item belongs to the meeting's project; the Intakes created go through the pipeline and approval like any Intake.
@@ -247,12 +247,12 @@ The "upload an existing file" ("tải file có sẵn") source skips the realtime
 ```mermaid
 flowchart TB
     IN[Intake request] --> PID[Resolve project_id]
-    PID --> SAV[Dự án A data + mapping]
-    PID --> KIN[Dự án B data + mapping]
-    SAV --> SQ[Dự án A queues/jobs]
-    KIN --> KQ[Dự án B queues/jobs]
-    SQ --> SG[Đúng tracker của dự án A/GitLab]
-    KQ --> KG[Đúng tracker của dự án B/GitLab]
+    PID --> SAV[Project A data + mapping]
+    PID --> KIN[Project B data + mapping]
+    SAV --> SQ[Project A queues/jobs]
+    KIN --> KQ[Project B queues/jobs]
+    SQ --> SG[Correct tracker for Project A/GitLab]
+    KQ --> KG[Correct tracker for Project B/GitLab]
 ```
 
 Workers always load the project/mapping from the job/intake in the database. Routing by a default project in the environment is not allowed.

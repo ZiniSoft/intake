@@ -13,6 +13,7 @@ from app.models import Project, ProjectIntegration, WorkforceMember
 OTHER_ID = "10000000-0000-4000-8000-000000000003"
 # Catch-all for Daily Report work outside any real project; it has no delivery mapping.
 OTHER_PROJECT_CODE = "other"
+OTHER_PROJECT_NAMES = {"en": "Other project", "vi": "Dự án khác"}
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,7 @@ class ProjectCatalogService:
                         id=OTHER_ID,
                         code=OTHER_PROJECT_CODE,
                         intake_key="OTH",
-                        name="Dự án khác",
+                        name=OTHER_PROJECT_NAMES["en"],
                         kind="IDEA",
                         status="ACTIVE",
                         project_settings={},
@@ -67,6 +68,18 @@ class ProjectCatalogService:
             else:
                 project.intake_key = "OTH"
             session.commit()
+
+    def localize_system_projects(self, locale: str) -> None:
+        """Use the install language for system-owned seed data; later UI language switches do not rename data."""
+        if locale not in OTHER_PROJECT_NAMES:
+            raise ValueError(f"Unsupported locale: {locale}")
+        now = datetime.now(timezone.utc)
+        with get_session() as session:
+            project = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+            if project is not None:
+                project.name = OTHER_PROJECT_NAMES[locale]
+                project.updated_at = now
+                session.commit()
 
     def list_projects(self) -> list[ProjectView]:
         with get_session() as session:

@@ -165,6 +165,9 @@ def test_daily_scheduler_uses_vietnam_timezone_and_required_slots() -> None:
         "board-snapshot-2355",
         "personal-nightly-2358",
     }
+    scheduled_tasks = {entry["task"] for entry in celery_app.conf.beat_schedule.values()}
+    assert scheduled_tasks <= set(celery_app.conf.task_routes)
+    assert celery_app.conf.task_routes["intake.reports.issue-suggest"] == {"queue": "ai.normalize"}
 
 
 FREE_TEXT_BODY = """Chào anh,

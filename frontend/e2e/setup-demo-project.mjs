@@ -15,24 +15,27 @@ const state = () => ({ completed: hasDemo, has_project: false, has_private_space
 
 const browser = await chromium.launch({ executablePath: chromePath, headless: true })
 const page = await (await browser.newContext({ locale: 'vi-VN', viewport: { width: 1440, height: 1100 } })).newPage()
+page.on('pageerror', (error) => console.log('pageerror:', error.stack || error.message))
 
 try {
-  await page.route('**/api/v1/**', (r) => r.fulfill({ contentType: 'application/json', body: envelope(r.request().url().endsWith('/changelog') ? { entries: [], build: { sha: '' } } : r.request().url().includes('/planning/overview/') ? { plan_date: '2026-11-04', generated_at: '2026-11-04T01:00:00Z', gitlab_snapshot_at: null, missing_projects: 0, overdue_total: 0, projects: [], cto_time: null } : []) }))
+  await page.route('**/api/v1/**', (r) => r.fulfill({ contentType: 'application/json', body: envelope(r.request().url().includes('/changelog') ? { entries: [], build: { sha: '' } } : r.request().url().includes('/planning/overview/') ? { plan_date: '2026-11-04', generated_at: '2026-11-04T01:00:00Z', gitlab_snapshot_at: null, missing_projects: 0, overdue_total: 0, projects: [], cto_time: null } : []) }))
   await page.route('**/api/v1/auth/agent-commands', (r) => r.fulfill({ contentType: 'application/json', body: envelope({ commands: [] }) }))
   await page.route('**/api/v1/auth/me', (r) => r.fulfill({ contentType: 'application/json', body: envelope({ subject: 'cto', email: 'cto@example.test', display_name: 'CTO', role: 'CTO', can_view_raw: true, can_approve: true, mfa_enabled: false, project_ids: null, must_change_password: false, member_id: null }) }))
-  await page.route('**/api/v1/setup', (r) => r.fulfill({ contentType: 'application/json', body: envelope(state()) }))
+  await page.route(/\/api\/v1\/setup(?:\?.*)?$/, (r) => r.fulfill({ contentType: 'application/json', body: envelope(state()) }))
+  await page.route('**/api/v1/showcase?*', (r) => r.fulfill({ contentType: 'application/json', body: envelope({ version: 2, groups: {}, items: [] }) }))
   await page.route('**/api/v1/projects', (r) => r.fulfill({ contentType: 'application/json', body: envelope(hasDemo ? [{ id: 'p-demo', code: 'demo', intake_key: 'DEM', name: 'Dự án mẫu', status: 'ACTIVE', kind: 'SOFTWARE', gitlab_enabled: false, github_enabled: false, telegram_linked: false, agent_ready: false }] : []) }))
   await page.route('**/api/v1/intakes?**', (r) => r.fulfill({ contentType: 'application/json', body: envelope({ items: hasDemo ? [{ id: 'i1', public_id: 'DEM-1', project_id: 'p-demo', status: 'PENDING_APPROVAL', normalized_title: 'Mẫu', lifecycle_stage: 'REVIEW', suggested_priority: 'P2', approved_priority: null, sync_targets: [], created_at: '2026-11-04T01:00:00Z', updated_at: '2026-11-04T01:00:00Z' }] : [], next_cursor: null, limit: 10, summary: { total_items: 0, p0_attention: 0, p1_attention: 0, pending_approval: 0, sync_failed: 0 } }) }))
-  await page.route('**/api/v1/setup/demo-project',(r) => { calls.push(r.request().method()); hasDemo = true; return r.fulfill({ contentType: 'application/json', body: envelope(state()) }) })
+  await page.route(/\/api\/v1\/setup\/demo-project(?:\?.*)?$/,(r) => { calls.push({ method: r.request().method(), url: r.request().url() }); hasDemo = true; return r.fulfill({ contentType: 'application/json', body: envelope(state()) }) })
 
-  await page.goto(`${baseUrl}/setup`, { waitUntil: 'networkidle' })
+  await page.goto(`${baseUrl}/setup?lang=vi`, { waitUntil: 'networkidle' })
   // Step 1 offers the demo; no key exists, so step 2 would keep "Tiếp tục" closed.
   await page.getByRole('button', { name: /Nối khóa AI của tôi/ }).click()
   assert(await page.getByRole('button', { name: 'Tiếp tục' }).isDisabled(), 'continue must wait for a key')
   await page.getByRole('button', { name: 'Quay lại' }).click()
   await page.getByRole('button', { name: /Dùng thử với dự án mẫu/ }).click()
   await page.getByRole('heading', { name: 'Xong, vào làm việc' }).waitFor({ timeout: 4000 })
-  assert(calls.join() === 'POST', `expected one POST, got ${calls.join()}`)
+  assert(calls.length === 1 && calls[0].method === 'POST', `expected one POST, got ${JSON.stringify(calls)}`)
+  assert(new URL(calls[0].url).searchParams.get('locale') === 'vi', `demo seed must receive the selected Vietnamese locale, got ${calls[0].url}`)
   await page.getByRole('link', { name: 'Mở dự án mẫu' }).click()
   await page.waitForURL(/\/intakes\?project=demo/)
   await page.getByText('Đây là dữ liệu mẫu.').waitFor({ timeout: 4000 }).catch(async (e) => { console.log(page.url(), (await page.locator('main').innerText()).slice(0, 500)); throw e })
@@ -54,6 +57,9 @@ try {
   await page.reload({ waitUntil: 'networkidle' })
   assert(await page.getByRole('region', { name: 'Bắt đầu' }).count() === 0, 'the card must stay hidden')
   console.log('setup-demo-project: ok')
+} catch (error) {
+  console.log(page.url(), (await page.locator('body').innerText()).slice(0, 1200))
+  throw error
 } finally {
   await browser.close()
 }

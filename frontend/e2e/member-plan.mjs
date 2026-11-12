@@ -83,7 +83,7 @@ try {
   // 1. The CTO opens a week: assignments, work items, hidden projects, someone else's personal hours, a day off.
   {
     const { context, page, requests } = await open(browser, 'CTO')
-    await page.goto(`${baseUrl}/ke-hoach-nguoi?member=${ANH}&date=${DAY}`, { waitUntil: 'networkidle' })
+    await page.goto(`${baseUrl}/people-planning?member=${ANH}&date=${DAY}&lang=vi`, { waitUntil: 'networkidle' })
     await page.getByText('ZTEST sửa trang đăng nhập').waitFor()
     const last = requests.at(-1)
     assert(last.memberId === ANH && last.from === monday && last.to === plus(monday, 6), `week range: ${JSON.stringify(last)}`)
@@ -129,7 +129,7 @@ try {
     results.picker = true
 
     // 5. Someone the viewer may not see: a plain sentence, no retry.
-    await page.goto(`${baseUrl}/ke-hoach-nguoi?member=${HIDDEN}&date=${DAY}`, { waitUntil: 'networkidle' })
+    await page.goto(`${baseUrl}/people-planning?member=${HIDDEN}&date=${DAY}`, { waitUntil: 'networkidle' })
     await page.getByText('Bạn không xem được kế hoạch của người này.').waitFor()
     results.not_visible = true
 
@@ -147,7 +147,7 @@ try {
     await page.waitForLoadState('networkidle')
     const nameLink = page.getByRole('link', { name: 'ZTEST Anh' })
     await nameLink.first().click()
-    await page.waitForURL(new RegExp(`/ke-hoach-nguoi\\?member=${ANH}`))
+    await page.waitForURL(new RegExp(`/people-planning\\?member=${ANH}`))
     await page.locator('.mp-week').waitFor()
     results.people_board_link = true
     await context.close()
@@ -156,7 +156,7 @@ try {
   // 7. A Developer reaches the page from the menu and starts on their own plan.
   {
     const { context, page, requests } = await open(browser, 'DEVELOPER')
-    await page.goto(`${baseUrl}/ke-hoach-nguoi`, { waitUntil: 'networkidle' })
+    await page.goto(`${baseUrl}/people-planning?lang=vi`, { waitUntil: 'networkidle' })
     await page.locator('.mp-week').waitFor()
     const menuLink = page.getByRole('link', { name: 'Kế hoạch theo người' })
     assert(await menuLink.count() === 1 && await menuLink.getAttribute('aria-current') === 'page', 'the Developer menu has the page')
@@ -169,12 +169,31 @@ try {
   // 8. A phone: the week stacks, nothing scrolls sideways.
   {
     const { context, page } = await open(browser, 'CTO', { width: 390, height: 844 })
-    await page.goto(`${baseUrl}/ke-hoach-nguoi?member=${ANH}&date=${DAY}`, { waitUntil: 'networkidle' })
+    await page.goto(`${baseUrl}/people-planning?member=${ANH}&date=${DAY}&lang=vi`, { waitUntil: 'networkidle' })
     await page.getByText('ZTEST sửa trang đăng nhập').waitFor()
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     assert(overflow <= 0, `page scrolls sideways by ${overflow}px`)
     await shot(page, 'member-plan-mobile')
     results.mobile = true
+    await context.close()
+  }
+  // 9. English locale translates the complete page chrome while preserving source data.
+  {
+    const { context, page } = await open(browser, 'CTO')
+    await page.goto(`${baseUrl}/people-planning?member=${ANH}&date=${DAY}&lang=en`, { waitUntil: 'networkidle' })
+    await page.getByRole('heading', { name: 'Plan by person' }).waitFor()
+    await page.getByLabel('Person').waitFor()
+    await page.getByRole('button', { name: 'Week', exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Today', exact: true }).waitFor()
+    await page.locator('.mp-projects', { hasText: 'By project:' }).waitFor()
+    await page.locator('.mp-projects', { hasText: 'Plan assignments:' }).waitFor()
+    await page.locator('.mp-projects', { hasText: 'Work board items:' }).waitFor()
+    await page.getByText('ZTEST Beta: 5 hours').waitFor()
+    await page.getByText('Personal: 2 hours').waitFor()
+    for (const vietnameseChrome of ['Kế hoạch theo người', 'Người', 'Ngày', 'Tuần', 'Tháng', 'Hôm nay', 'Theo dự án:', 'Việc trong kế hoạch:', 'Việc ở khu Việc:']) {
+      assert(await page.getByText(vietnameseChrome, { exact: true }).count() === 0, `English member plan still shows Vietnamese UI text: ${vietnameseChrome}`)
+    }
+    results.english = true
     await context.close()
   }
   console.log(JSON.stringify({ member_plan: 'passed', ...results }))

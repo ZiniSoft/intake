@@ -1,8 +1,8 @@
 """What changed, for the people using the app (FR-UI-14).
 
-The source is CHANGELOG.md at the repository root, written by hand in Vietnamese with every commit. This reads it
-into entries: a date heading, an entry heading with the commit hashes in backticks and an optional {cto} mark, a
-"Tham chiếu:" line with the FR and ADR codes, and the bullets the user sees.
+The sources are CHANGELOG.md in Vietnamese and CHANGELOG.en.md in English at the repository root. This reads one
+of them into entries: a date heading, an entry heading with the commit hashes in backticks and an optional {cto}
+mark, a "Tham chiếu:" or "References:" line with the FR and ADR codes, and the bullets the user sees.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from app.config import get_settings
 
 ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG_PATH = ROOT / "CHANGELOG.md"
+CHANGELOG_EN_PATH = ROOT / "CHANGELOG.en.md"
 HASH = re.compile(r"`([0-9a-f]{7,40})`")
 DATE = re.compile(r"^## (\d{4}-\d{2}-\d{2})\s*$")
 CTO_MARK = "{cto}"
@@ -41,16 +42,16 @@ def parse_changelog(text: str) -> list[dict[str, object]]:
             continue
         if entry is None:
             continue
-        if line.lower().startswith("tham chiếu:"):
+        if line.lower().startswith(("tham chiếu:", "references:")):
             entry["refs"] = [part.strip() for part in line.split(":", 1)[1].split(",") if part.strip()]
         elif line.startswith("- "):
             entry["bullets"].append(line[2:].strip())
     return entries
 
 
-@lru_cache(maxsize=1)
-def _load(mtime: float) -> list[dict[str, object]]:
-    return parse_changelog(CHANGELOG_PATH.read_text(encoding="utf-8"))
+@lru_cache(maxsize=2)
+def _load(path: Path, mtime: float) -> list[dict[str, object]]:
+    return parse_changelog(path.read_text(encoding="utf-8"))
 
 
 def entries_behind(entries: list[dict[str, object]], running_sha: str | None) -> int | None:
@@ -67,17 +68,22 @@ def entries_behind(entries: list[dict[str, object]], running_sha: str | None) ->
     return None
 
 
-def changelog(include_cto: bool) -> dict[str, object]:
+def changelog(include_cto: bool, lang: str = "vi") -> dict[str, object]:
     settings = get_settings()
+    display_path = CHANGELOG_EN_PATH if lang == "en" else CHANGELOG_PATH
     try:
-        entries = _load(CHANGELOG_PATH.stat().st_mtime)
+        entries = _load(display_path, display_path.stat().st_mtime)
     except FileNotFoundError:
         entries = []
+    try:
+        canonical_entries = _load(CHANGELOG_PATH, CHANGELOG_PATH.stat().st_mtime)
+    except FileNotFoundError:
+        canonical_entries = []
     visible = [row for row in entries if include_cto or not row["cto_only"]]
     return {
         "build": {"sha": settings.git_sha or "dev", "built_at": settings.build_time or None},
         "latest": visible[0]["date"] if visible else None,
         "entries": visible,
         # Only the CTO deploys, so only the CTO is told how far the running build is behind (FR-UI-15).
-        "behind": entries_behind(entries, settings.git_sha) if include_cto else None,
+        "behind": entries_behind(canonical_entries, settings.git_sha) if include_cto else None,
     }

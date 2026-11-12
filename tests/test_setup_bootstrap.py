@@ -10,7 +10,8 @@ from sqlalchemy import delete, select
 from app.config import get_settings
 from app.db import get_session
 from app.main import app
-from app.models import AiProvider, AiRoute, AppSetting, AuditEvent, User
+from app.models import AiProvider, AiRoute, AppSetting, AuditEvent, Project, User
+from app.modules.projects.service import OTHER_PROJECT_CODE
 
 MARKERS = ("bootstrap_completed", "setup_completed")
 CTO_FIELDS = ("email", "display_name", "password_hash", "must_change_password", "auth_version")
@@ -24,6 +25,8 @@ def wizard(monkeypatch):
         saved = {name: getattr(cto, name) for name in CTO_FIELDS}
         markers = {row.key: row.value for row in session.scalars(select(AppSetting).where(AppSetting.key.in_(MARKERS)))}
         before_ids = set(session.scalars(select(User.id)).all())
+        other = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+        other_state = (other.name, other.updated_at) if other is not None else None
         session.execute(delete(AppSetting).where(AppSetting.key.in_(MARKERS)))
         session.commit()
     yield
@@ -38,6 +41,9 @@ def wizard(monkeypatch):
             setattr(cto, name, value)
         for key, value in markers.items():
             session.add(AppSetting(key=key, value=value))
+        other = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+        if other is not None and other_state is not None:
+            other.name, other.updated_at = other_state
         session.commit()
 
 
@@ -87,6 +93,16 @@ def test_owner_is_optional(wizard) -> None:
     assert _post(_body(tag, owner=False)).status_code == 200
     with get_session() as session:
         assert len(session.scalars(select(User.id)).all()) == users_before
+
+
+@pytest.mark.parametrize(("locale", "expected"), [("en", "Other project"), ("vi", "Dự án khác")])
+def test_bootstrap_localizes_the_system_project(wizard, locale: str, expected: str) -> None:
+    body = _body(uuid4().hex[:8], owner=False)
+    body["locale"] = locale
+    assert _post(body).status_code == 200
+    with get_session() as session:
+        other = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+        assert other is not None and other.name == expected
 
 
 def test_invalid_input_is_rejected_and_leaves_the_door_open(wizard) -> None:
@@ -148,8 +164,11 @@ def test_complete_needs_an_ai_route_while_the_wizard_is_on(wizard) -> None:
     assert call("POST", "/api/v1/setup/complete").status_code == 422
     assert call("PUT", "/api/v1/ai/routes/default", {"provider_id": provider.json()["data"]["id"], "model": "test-model"}).status_code == 200
     assert call("GET", "/api/v1/setup").json()["data"]["ai_ready"] is True
-    done = call("POST", "/api/v1/setup/complete")
+    done = call("POST", "/api/v1/setup/complete?locale=vi")
     assert done.status_code == 200 and done.json()["data"]["completed"] is True
+    with get_session() as session:
+        other = session.scalar(select(Project).where(Project.code == OTHER_PROJECT_CODE))
+        assert other is not None and other.name == "Dự án khác"
 
 
 def test_complete_ignores_the_ai_requirement_when_the_flag_is_off() -> None:
