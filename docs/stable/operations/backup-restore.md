@@ -1,79 +1,81 @@
-# Backup và restore 1.3
+English | [Tiếng Việt](backup-restore.vi.md)
 
-## 1. Mục tiêu
+# Backup and restore 1.3
 
-- RPO: tối đa 24 giờ.
-- RTO: tối đa 4 giờ.
-- Backup đặt trên máy khác với workstation/SSD chạy Intake.
+## 1. Objectives
 
-## 2. Phạm vi backup
+- RPO: at most 24 hours.
+- RTO: at most 4 hours.
+- Backups are stored on a different machine from the workstation/SSD running Intake.
 
-- PostgreSQL logical dump gồm schema và data.
-- SeaweedFS master/filer metadata, volume data và S3 config cần thiết.
-- File cấu hình không chứa secret hoặc secret được backup bằng kênh mã hóa riêng.
-- Manifest gồm version ứng dụng, image digest, migration version và checksum backup.
-- Manifest phải ghi baseline tài liệu, danh sách version trong `schema_migrations` và số lượng 33 bảng hiện hành để phát hiện restore lệch schema.
+## 2. Backup scope
 
-Redis không cần backup như nguồn dữ liệu nghiệp vụ; outbox/job state nằm ở PostgreSQL.
+- PostgreSQL logical dump including schema and data.
+- SeaweedFS master/filer metadata, volume data and the required S3 config.
+- Configuration files without secrets, or secrets backed up through a separate encrypted channel.
+- Manifest including the application version, image digest, migration version and backup checksum.
+- The manifest must record the documentation baseline, the list of versions in `schema_migrations` and the count of the 33 current tables, to detect a restore with a mismatched schema.
 
-## 3. Lịch pilot
+Redis does not need to be backed up as a business data source; outbox/job state lives in PostgreSQL.
 
-- PostgreSQL: mỗi ngày.
-- SeaweedFS: mỗi ngày hoặc incremental theo công cụ backup được chọn.
-- Retention tối thiểu: 7 daily + 4 weekly trong pilot.
-- Backup job thất bại phải alert; file tồn tại nhưng không verify checksum không được tính là backup thành công.
+## 3. Pilot schedule
+
+- PostgreSQL: daily.
+- SeaweedFS: daily, or incremental depending on the chosen backup tool.
+- Minimum retention: 7 daily + 4 weekly during the pilot.
+- A failed backup job must raise an alert; a file that exists but whose checksum has not been verified does not count as a successful backup.
 
 ## 4. Restore drill
 
-1. Tạo môi trường restore cô lập.
-2. Khôi phục PostgreSQL và SeaweedFS từ cùng recovery point.
-3. Khởi động app bằng image/migration tương thích.
-4. Kiểm số lượng project/intake/source/attachment và random object checksum.
-5. Chạy smoke flow login, list, detail và tải attachment được phép.
-6. Chạy Planning read smoke: workforce, capacity, một run không external write và GitLab read-model count.
-7. Đo thời điểm backup gần nhất và tổng thời gian khôi phục.
-8. Lưu evidence đã redact trong gate report.
+1. Create an isolated restore environment.
+2. Restore PostgreSQL and SeaweedFS from the same recovery point.
+3. Start the app with a compatible image/migration.
+4. Check the counts of project/intake/source/attachment and the checksums of random objects.
+5. Run the smoke flow: login, list, detail and downloading an allowed attachment.
+6. Run the Planning read smoke: workforce, capacity, one run without external writes and the GitLab read-model count.
+7. Measure the time of the latest backup and the total restore time.
+8. Save redacted evidence in the gate report.
 
-Drill không đạt nếu mất liên kết DB-object, vượt RPO/RTO hoặc cần thao tác không được ghi trong runbook.
+The drill fails if a DB-object link is lost, RPO/RTO is exceeded, or a step not written in the runbook is needed.
 
-## 5. Encryption và access
+## 5. Encryption and access
 
-Backup chứa Restricted data phải mã hóa at rest, chỉ CTO có quyền giải mã trong pilot. Recovery key không đặt cùng máy và cùng thư mục với backup.
+Backups containing Restricted data must be encrypted at rest; only the CTO can decrypt them during the pilot. The recovery key is not stored on the same machine or in the same folder as the backups.
 
-### Trust boundary của file restore
+### Trust boundary of the restore file
 
-- Container `backup` tạo archive từ PostgreSQL và bucket đang chạy rồi ghi vào `BACKUP_DIR`. CTO đồng bộ thư mục này ra Google Drive, tự chọn file và chạy lệnh restore; không có API hay người dùng ứng dụng nào được khởi động restore.
-- Thư mục đồng bộ, tài khoản cloud, host và người có quyền Docker có thể thay hoặc chọn archive. File `.sha256` nằm cạnh archive chỉ phát hiện lỗi sao chép, không xác thực người tạo và không phải chữ ký. Vì vậy restore coi tar và `manifest.json` là dữ liệu không tin cậy ngay cả khi giải mã thành công.
-- `BACKUP_PASSPHRASE` nằm trong `.env`, được Docker Compose đưa vào container `backup`, và phải có một bản recovery riêng ngoài thư mục backup. Quản trị viên host, người có quyền đọc `.env` hoặc điều khiển Docker/container có thể lấy khóa. Các quyền này đã tương đương quyền vận hành nhạy cảm và phải giới hạn cho CTO.
-- Image `backup` hiện chạy lệnh restore bằng root trong container. Container có credential PostgreSQL đủ để thay database, credential S3 đủ để ghi bucket cấu hình, mount `/backups` đọc/ghi và hai mạng nội bộ `backend`, `storage`; nó không có route Internet. Root trong container không tự động là root host, nhưng có thể sửa file trong bind mount theo quyền mount.
-- Namespace object được phép là bucket `S3_BUCKET` của môi trường đích với key tương đối đã chuẩn hóa. Key tuyệt đối, thành phần `.` hoặc `..`, dấu phân cách Windows, ký tự điều khiển và key trùng bị từ chối trước khi upload.
+- The `backup` container builds an archive from the running PostgreSQL and bucket and writes it to `BACKUP_DIR`. The CTO syncs this folder to Google Drive, picks the file and runs the restore command; no API or application user can start a restore.
+- The synced folder, the cloud account, the host and anyone with Docker access can replace or choose the archive. The `.sha256` file next to the archive only detects copy errors; it does not authenticate the creator and is not a signature. Therefore the restore treats the tar and `manifest.json` as untrusted data even when decryption succeeds.
+- `BACKUP_PASSPHRASE` lives in `.env`, is passed by Docker Compose into the `backup` container, and must have a separate recovery copy outside the backup folder. The host administrator, anyone who can read `.env` or control Docker/containers can obtain the key. These permissions are already equivalent to sensitive operations permissions and must be limited to the CTO.
+- The `backup` image currently runs the restore command as root inside the container. The container has PostgreSQL credentials sufficient to replace the database, S3 credentials sufficient to write the configured bucket, a read/write `/backups` mount and the two internal networks `backend` and `storage`; it has no Internet route. Root inside the container is not automatically root on the host, but it can modify files in the bind mount according to the mount permissions.
+- The allowed object namespace is the target environment's `S3_BUCKET` bucket with normalized relative keys. Absolute keys, `.` or `..` components, Windows separators, control characters and duplicate keys are rejected before upload.
 
-Restore giải mã thành luồng tar và tự ghi từng member. Chỉ thư mục và regular file nằm trong `/tmp/restore-work` được nhận; symlink, hard link, device, FIFO, path tuyệt đối, path traversal, tên trùng và dấu phân cách không rõ nghĩa đều bị từ chối. Mọi đường dẫn do manifest chỉ định được resolve lại dưới thư mục tương ứng, không được chứa link và phải là regular file có đúng một hard link trước khi `pg_restore` hoặc upload đọc file.
+The restore decrypts into a tar stream and writes each member itself. Only directories and regular files inside `/tmp/restore-work` are accepted; symlinks, hard links, devices, FIFOs, absolute paths, path traversal, duplicate names and ambiguous separators are all rejected. Every path specified by the manifest is resolved again under the corresponding directory, must not contain links and must be a regular file with exactly one hard link before `pg_restore` or the upload reads the file.
 
-## 6. Công cụ pilot (ADR-0025)
+## 6. Pilot tooling (ADR-0025)
 
-Cấu hình trong `.env`:
+Configuration in `.env`:
 
-| Biến | Ý nghĩa |
+| Variable | Meaning |
 |---|---|
-| `BACKUP_DIR` | Thư mục trên máy chạy Intake nhận file sao lưu. Trỏ vào thư mục được đồng bộ lên Google Drive. |
-| `BACKUP_PASSPHRASE` | Từ 16 ký tự. Để trống thì không sao lưu. |
-| `BACKUP_TIME` | Giờ chạy hằng ngày, giờ Việt Nam, mặc định `01:30`. |
-| `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY` | Số bản giữ lại, mặc định 7 và 4. |
+| `BACKUP_DIR` | Folder on the machine running Intake that receives backup files. Point it at a folder synced to Google Drive. |
+| `BACKUP_PASSPHRASE` | At least 16 characters. Leave it empty to disable backups. |
+| `BACKUP_TIME` | Daily run time, Vietnam time, default `01:30`. |
+| `BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY` | Number of copies kept, default 7 and 4. |
 
-Sau khi sửa `.env`: `docker compose up -d backup`. Chạy ngay một bản: `docker compose run --rm -e BACKUP_RUN_ONCE=1 backup`.
+After editing `.env`: `docker compose up -d backup`. Run one backup right away: `docker compose run --rm -e BACKUP_RUN_ONCE=1 backup`.
 
-Giữ ở nơi khác thư mục sao lưu (ví dụ trình quản lý mật khẩu): passphrase và một bản `.env`. Thiếu passphrase thì không mở được file; thiếu `SECRET_KEY` trong `.env` thì nội dung gốc đã mã hóa trong database không đọc được.
+Keep these somewhere other than the backup folder (for example a password manager): the passphrase and a copy of `.env`. Without the passphrase the file cannot be opened; without `SECRET_KEY` in `.env` the encrypted original content in the database cannot be read.
 
-### Khôi phục
+### Restore
 
-Một lệnh, chạy trên máy đã có mã nguồn, `.env` (cùng `SECRET_KEY` và `BACKUP_PASSPHRASE` với máy cũ) và Docker:
+One command, run on a machine that has the source code, `.env` (with the same `SECRET_KEY` and `BACKUP_PASSPHRASE` as the old machine) and Docker:
 
-1. Khởi động hạ tầng trống: `docker compose up -d postgres seaweed-master seaweed-volume seaweed-filer seaweed-s3`.
-2. Chép file `intake-....tar.enc` và file `.sha256` vào thư mục `BACKUP_DIR`.
+1. Start empty infrastructure: `docker compose up -d postgres seaweed-master seaweed-volume seaweed-filer seaweed-s3`.
+2. Copy the `intake-....tar.enc` file and the `.sha256` file into the `BACKUP_DIR` folder.
 3. `docker compose run --rm backup python3 /opt/restore.py intake-YYYYMMDD-HHMMSS.tar.enc`
-4. `docker compose up -d`, rồi kiểm tra theo mục 4 (đăng nhập, danh sách, chi tiết, tải file đính kèm, nghe lại một bản ghi họp).
+4. `docker compose up -d`, then check according to section 4 (login, list, detail, download an attachment, play back a meeting recording).
 
-Lệnh ở bước 3 kiểm checksum, giải mã, đối chiếu từng thành phần với manifest, thay toàn bộ database bằng bản trong file, nạp lại mọi file đã lưu (tự tạo bucket nếu chưa có) và in số dòng các bảng chính. Nó từ chối chạy khi database đích đã có Intake, trừ khi thêm `--overwrite`.
+The command in step 3 checks the checksum, decrypts, matches each component against the manifest, replaces the whole database with the copy in the file, reloads every stored file (creating the bucket if it does not exist) and prints the row counts of the main tables. It refuses to run when the target database already contains Intake, unless `--overwrite` is added.
 
-Ngày 2026-10-06 lệnh này đã được chạy với bản sao lưu thật vào một database và một bucket tạm trên stack pilot: 42 bảng, 17 file, số dòng khớp dữ liệu đang chạy; các trường hợp sai passphrase, thiếu file và database đã có dữ liệu đều bị từ chối đúng. Chưa làm: khởi động ứng dụng trên bản khôi phục ở một máy khác.
+On 2026-10-06 this command was run with a real backup into a temporary database and bucket on the pilot stack: 42 tables, 17 files, row counts matching the live data; the cases of a wrong passphrase, a missing file and a database that already has data were all correctly rejected. Not done yet: starting the application on the restored copy on a different machine.

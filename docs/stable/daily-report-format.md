@@ -1,16 +1,18 @@
-# Định dạng báo cáo cuối ngày (Daily Report)
+English | [Tiếng Việt](daily-report-format.vi.md)
 
-Viết cho nhân sự của công ty. Thư báo cáo được bộ quy tắc của Intake đọc tự động; viết đúng khuôn thì task gắn đúng Issue, đúng giờ, vào thẳng kế hoạch ngày hôm sau mà không ai phải sửa tay.
+# End-of-day report format (Daily Report)
 
-## 1. Tiêu đề thư
+Written for company members. Report emails are read automatically by Intake's rule set; write them in the right format and each task is linked to the right Issue, with the right hours, straight into the next day's day plan without anyone fixing it by hand.
+
+## 1. Email subject
 
 ```
 DAILY REPORT | 2026-10-09 | Nguyen Van A | ORBIT-WEB
 ```
 
-Bốn phần, cách nhau bằng `|`: chữ `DAILY REPORT`, ngày `YYYY-MM-DD`, họ tên (như đã đăng ký trong Intake), mã dự án **viết hoa** (nhiều dự án thì cách nhau bằng dấu phẩy: `ORBIT-WEB, ORBIT-API`).
+Four parts separated by `|`: the words `DAILY REPORT`, the date `YYYY-MM-DD`, full name (as registered in Intake), project code in **uppercase** (several projects separated by commas: `ORBIT-WEB, ORBIT-API`).
 
-## 2. Thân thư
+## 2. Email body
 
 ```
 ORBIT-WEB | Ember Web
@@ -33,34 +35,34 @@ Vấn đề: Chờ API key của khách
 Tổng thời gian: 4.5 giờ
 ```
 
-Quy tắc:
-- Mỗi dự án một dòng tiêu đề `MÃ-DỰ-ÁN | Tên dự án` (mã viết hoa), rồi các task của dự án đó.
-- Mỗi task bắt đầu bằng **một trong sáu trạng thái** trong ngoặc vuông: `PLANNED`, `IN_PROGRESS`, `PENDING_REVIEW`, `DONE`, `BLOCKED`, `CANCELLED`.
-- Trên cùng dòng, sau tiêu đề task: `| Thời gian: X giờ | Tiến độ: N%`. Task `PLANNED` ghi `Thời gian dự kiến: X giờ` thay cho `Thời gian`. `DONE` thì `Tiến độ: 100%`.
-- **Số Issue trên một dòng riêng, dạng `GitLab #8`** (dự án dùng GitHub cũng ghi `GitLab #n` — Intake hiểu là Issue của dự án). Task phát triển nào cũng phải có; không có thì Intake cảnh báo và task không vào được kế hoạch.
-- Tùy chọn, mỗi thứ một dòng: `Bước tiếp theo: …`, `Vấn đề: …` (bắt buộc với `BLOCKED`), `Intake: KIN-26W41-007`, `Deadline/Milestone: …`, `Dependency: …`, link bằng chứng (dán nguyên URL). Dòng `Plane:` trong báo cáo cũ chỉ còn là dữ liệu lịch sử và không được parser dùng cho việc mới.
-- Cuối thư: `Tổng thời gian: X giờ` — bằng tổng giờ các task không phải `PLANNED`.
-- Chữ ký, lời chào để sau dòng `--`; mọi thứ sau `--` không được đọc.
+Rules:
+- Each project has one heading line `MÃ-DỰ-ÁN | Tên dự án` (project code | project name, code in uppercase), followed by that project's tasks.
+- Each task starts with **one of six statuses** in square brackets: `PLANNED`, `IN_PROGRESS`, `PENDING_REVIEW`, `DONE`, `BLOCKED`, `CANCELLED`.
+- On the same line, after the task title: `| Thời gian: X giờ | Tiến độ: N%` (time spent in hours, progress percent). `PLANNED` tasks write `Thời gian dự kiến: X giờ` (estimated time) instead of `Thời gian`. `DONE` means `Tiến độ: 100%`.
+- **The Issue number goes on its own line, as `GitLab #8`** (projects on GitHub also write `GitLab #n`; Intake treats it as the project's Issue). Every development task must have one; without it Intake warns and the task cannot enter the plan.
+- Optional, one line each: `Bước tiếp theo: …` (next step), `Vấn đề: …` (problem, required for `BLOCKED`), `Intake: KIN-26W41-007`, `Deadline/Milestone: …`, `Dependency: …`, evidence links (paste the full URL). The `Plane:` line in old reports is now only historical data and is not used by the parser for new work.
+- End of email: `Tổng thời gian: X giờ` (total time), equal to the sum of hours of all tasks that are not `PLANNED`.
+- Put the signature and greetings after a `--` line; anything after `--` is not read.
 
-## 3. Đúng và sai
+## 3. Right and wrong
 
-| ĐÚNG | SAI (Intake đọc nhầm hoặc bỏ qua) |
+| RIGHT | WRONG (Intake misreads or ignores it) |
 |---|---|
-| `DAILY REPORT \| 2026-10-09 \| Nguyen Van A \| ORBIT-WEB` | `Daily report 9/10` · thiếu ngày hoặc mã dự án · `orbit-web` viết thường trong thân thư |
-| `ORBIT-WEB \| Ember Web` trên dòng riêng trước các task | Không có dòng dự án → `PROJECT_SECTION_MISSING` |
-| `[DONE] Lập danh sách sửa trang hướng dẫn \| Thời gian: 1.5 giờ \| Tiến độ: 100%` | `Xong: Lập danh sách…` · `[Done]` không có `|` tách giờ · `[DONE]` mà `Tiến độ: 90%` |
-| `GitLab #8` trên dòng riêng ngay dưới task | `[#8 KIN-26W41-007] Lập danh sách…` · `Issue: https://gitlab…/work_items/17` · `Issue #8:` trong tiêu đề (Intake **đã học** đọc được ba dạng này, nhưng đó là dự phòng; không ghi gì cả là sai hẳn) |
-| `Thời gian: 1.5 giờ` (dấu chấm hoặc phẩy đều được) | `1h30`, `90 phút`, `1,5h` |
-| `[PLANNED] … \| Thời gian dự kiến: 4 giờ` | `[PLANNED] … \| Thời gian: 4 giờ` (bị tính thành giờ đã làm) |
-| `[BLOCKED] … ` + dòng `Vấn đề: Chờ API key của khách` | `[BLOCKED]` không nói vướng gì |
-| `Tổng thời gian: 4.5 giờ` bằng tổng các task | Thiếu dòng tổng → cảnh báo; tổng lệch quá 15 phút → cảnh báo |
-| Một task = một dòng trạng thái + vài dòng phụ | Gộp hai việc vào một `[DONE]` · ghi kết quả thành đoạn văn dài không có `[STATUS]` |
-| `Intake: KIN-26W41-007` khi task đến từ một yêu cầu Intake | Mã Intake viết trong ngoặc ở tiêu đề (đọc được, nhưng lẫn với số Issue) |
+| `DAILY REPORT \| 2026-10-09 \| Nguyen Van A \| ORBIT-WEB` | `Daily report 9/10` · missing date or project code · lowercase `orbit-web` in the body |
+| `ORBIT-WEB \| Ember Web` on its own line before the tasks | No project line → `PROJECT_SECTION_MISSING` |
+| `[DONE] Lập danh sách sửa trang hướng dẫn \| Thời gian: 1.5 giờ \| Tiến độ: 100%` | `Xong: Lập danh sách…` · `[Done]` without `|` separating the hours · `[DONE]` with `Tiến độ: 90%` |
+| `GitLab #8` on its own line right below the task | `[#8 KIN-26W41-007] Lập danh sách…` · `Issue: https://gitlab…/work_items/17` · `Issue #8:` in the title (Intake **has learned** to read these three forms, but that is a fallback; writing nothing at all is plainly wrong) |
+| `Thời gian: 1.5 giờ` (dot or comma both work) | `1h30`, `90 phút`, `1,5h` |
+| `[PLANNED] … \| Thời gian dự kiến: 4 giờ` | `[PLANNED] … \| Thời gian: 4 giờ` (counted as hours worked) |
+| `[BLOCKED] … ` + the line `Vấn đề: Chờ API key của khách` | `[BLOCKED]` without saying what is blocking |
+| `Tổng thời gian: 4.5 giờ` equal to the sum of the tasks | Missing total line → warning; total off by more than 15 minutes → warning |
+| One task = one status line + a few extra lines | Merging two jobs into one `[DONE]` · writing results as a long paragraph without `[STATUS]` |
+| `Intake: KIN-26W41-007` when the task comes from an Intake request | Intake ID written in brackets in the title (readable, but confused with the Issue number) |
 
-## 4. Gửi lại trong ngày
+## 4. Resending on the same day
 
-Gửi thư mới cho **cùng ngày báo cáo** thì bản mới **thay** bản cũ: bản cũ thành phiên bản trước (vẫn xem được, không dùng cho kế hoạch), bản mới về trạng thái chờ CTO xác nhận lại, kể cả khi bản cũ đã được xác nhận. Chỉ cùng một thư bị gửi lại (cùng Message-ID) mới bị bỏ qua; thư mới dù nội dung y hệt vẫn thành bản mới. Vì vậy: viết sai thì cứ gửi lại cả thư, không gửi thư "bổ sung" chỉ có vài task — thư bổ sung sẽ thay cả báo cáo.
+Sending a new email for **the same report date** **replaces** the old one: the old one becomes a previous version (still viewable, not used for planning), and the new one goes back to waiting for the CTO to confirm again, even if the old one was already confirmed. Only the same email sent again (same Message-ID) is ignored; a new email, even with identical content, becomes a new version. So: if you made a mistake, resend the whole email; do not send a "supplementary" email with only a few tasks, because it will replace the whole report.
 
-## 5. Hạn
+## 5. Deadline
 
-Gửi trước giờ chốt (23:30 theo cấu hình); sau giờ đó thư vẫn được đọc nhưng đánh dấu trễ. Cuối tuần chỉ cần báo cáo khi có OT hoặc có việc thật.
+Send before the cutoff time (23:30 per configuration); after that the email is still read but marked late. On weekends a report is only needed when there is OT or real work.

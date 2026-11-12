@@ -1,159 +1,162 @@
-# API và integration contracts
+English | [Tiếng Việt](interface-contracts.vi.md)
 
-_Target + runtime contract 1.2 | Đối chiếu OpenAPI ngày 2026-10-01_
+# API and integration contracts
 
-Các bảng ghi **runtime** chỉ liệt kê endpoint hiện có trong OpenAPI. Endpoint target chưa có code nằm ở mục 12; trạng thái kiểm chứng xem `PRODUCTION-READINESS.md`.
+_Target + runtime contract 1.2 | Checked against OpenAPI on 2026-10-01_
+
+Tables marked **runtime** list only endpoints that exist in OpenAPI. Target endpoints without code are in section 12; for verification status see `PRODUCTION-READINESS.md`.
 
 ## 1. Auth
 
-| Method | Path | Quyền | Kết quả |
+| Method | Path | Access | Result |
 |---|---|---|---|
-| POST | `/api/v1/auth/login` | Public; rate limit là target chưa triển khai | Password và optional OTP/recovery; đặt session + CSRF cookie, cùng hạn 7 ngày (`expires_in` = 604800; `ACCESS_TOKEN_TTL_MINUTES`, FR-ID-09) |
-| POST | `/api/v1/auth/password-reset/request` | Public; rate limit theo IP và cooldown theo tài khoản | Nhận username hoặc email; luôn trả 202 cùng thông báo. Nếu tài khoản active tồn tại, gửi link Mailgun một lần; không lộ account enumeration |
-| POST | `/api/v1/auth/password-reset/confirm` | Public + reset token | Nhận token và mật khẩu mới ≥8 ký tự; token lưu dạng hash, hết hạn 30 phút, chỉ dùng một lần; tăng `auth_version` để vô hiệu cookie cũ |
-| POST | `/api/v1/auth/logout` | Authenticated | Xóa session/CSRF cookie; persistent server-side revocation là target |
+| POST | `/api/v1/auth/login` | Public; rate limit is a target, not yet implemented | Password and optional OTP/recovery; sets session + CSRF cookie, both valid for 7 days (`expires_in` = 604800; `ACCESS_TOKEN_TTL_MINUTES`, FR-ID-09) |
+| POST | `/api/v1/auth/password-reset/request` | Public; rate limit per IP and cooldown per account | Accepts username or email; always returns 202 with a notice. If an active account exists, sends a one-time Mailgun link; no account enumeration leak |
+| POST | `/api/v1/auth/password-reset/confirm` | Public + reset token | Accepts the token and a new password of ≥8 characters; the token is stored hashed, expires in 30 minutes, single use; increments `auth_version` to invalidate old cookies |
+| POST | `/api/v1/auth/logout` | Authenticated | Clears session/CSRF cookie; persistent server-side revocation is a target |
 | GET | `/api/v1/auth/me` | Authenticated | Role-safe identity |
-| POST | `/api/v1/auth/mfa/setup` | Authenticated + step-up | Nhận mật khẩu hiện tại và OTP hiện tại khi MFA đã bật; tạo pending secret 10 phút mà không đổi factor đang hoạt động |
-| POST | `/api/v1/auth/mfa/confirm` | Authenticated | Xác nhận pending TOTP, đổi factor nguyên tử, tăng `auth_version`, thu hồi token cá nhân cũ và cấp lại cookie cho trình duyệt vừa xác minh |
-| POST | `/api/v1/auth/mfa/recovery-codes` | Authenticated + MFA đã bật + step-up | Nhận mật khẩu và OTP hiện tại; rotate recovery code đã hash |
+| POST | `/api/v1/auth/mfa/setup` | Authenticated + step-up | Accepts the current password, and the current OTP when MFA is already on; creates a 10-minute pending secret without changing the active factor |
+| POST | `/api/v1/auth/mfa/confirm` | Authenticated | Confirms the pending TOTP, swaps the factor atomically, increments `auth_version`, revokes old personal tokens and reissues cookies for the browser that just verified |
+| POST | `/api/v1/auth/mfa/recovery-codes` | Authenticated + MFA on + step-up | Accepts the current password and OTP; rotates the hashed recovery codes |
 
-### Phân quyền theo dự án (ADR-0022)
+### Per-project access (ADR-0022)
 
-- `GET /auth/me` trả `role`, `project_ids` (`null` với CTO, danh sách với Project Owner) và `must_change_password`. Khi `must_change_password` là true, mọi API nghiệp vụ trả 403 `PASSWORD_CHANGE_REQUIRED` cho tới khi gọi `POST /auth/password`.
-- Project Owner gọi một tài nguyên của dự án không được cấp nhận 404 như thể nó không tồn tại. Danh sách (`/intakes`, `/approvals`, `/meetings`, `/projects`) và phần `summary` chỉ tính trong phạm vi.
-- Chỉ CTO: `/users`, `/reports/*`, `/planning/*`, `/operations/*`, `POST`/`PATCH /projects`, `/projects/integration-probes`, thuật ngữ chung.
-- `PUT /projects/{code}/team` nhận `owner_member_id` (hoặc null) và `member_ids`; Owner tự được thêm vào Member. Khi việc chọn Owner tạo hoặc mở lại tài khoản, response có `issued` gồm tên đăng nhập và `temporary_password`, đúng một lần. Lỗi: `OWNER_EMAIL_REQUIRED`, `MEMBER_NOT_ACTIVE`. Owner là hồ sơ nhân sự của CTO thì `issued` là `null`, không tạo tài khoản, không cấp quyền thêm (FR-PLAN-37).
-- `POST /users/{id}/reset-password` cũng trả `temporary_password` một lần. `POST /users` và `PATCH /users/{id}` từ chối cấp dự án (`PROJECTS_ASSIGNED_ON_PROJECT`).
+- `GET /auth/me` returns `role`, `project_ids` (`null` for the CTO, a list for a Project Owner) and `must_change_password`. When `must_change_password` is true, every business API returns 403 `PASSWORD_CHANGE_REQUIRED` until `POST /auth/password` is called.
+- A Project Owner who calls a resource of a project they were not granted gets 404, as if it did not exist. Lists (`/intakes`, `/approvals`, `/meetings`, `/projects`) and the `summary` part count only within scope.
+- CTO only: `/users`, `/reports/*`, `/planning/*`, `/operations/*`, `POST`/`PATCH /projects`, `/projects/integration-probes`, shared glossary.
+- `PUT /projects/{code}/team` accepts `owner_member_id` (or null) and `member_ids`; the Owner is added to Member automatically. When choosing the Owner creates or reopens an account, the response has `issued` with the username and `temporary_password`, exactly once. Errors: `OWNER_EMAIL_REQUIRED`, `MEMBER_NOT_ACTIVE`. If the Owner is the CTO's member profile, `issued` is `null`, no account is created and no extra access is granted (FR-PLAN-37).
+- `POST /users/{id}/reset-password` also returns `temporary_password` once. `POST /users` and `PATCH /users/{id}` refuse project assignment (`PROJECTS_ASSIGNED_ON_PROJECT`).
 
 ## 2. Project catalog
 
-Runtime chỉ có `GET /api/v1/projects` cho CTO. Project và integration mapping hiện được seed/cấu hình bằng environment; CRUD/test API là target chưa triển khai.
+Runtime has only `GET /api/v1/projects` for the CTO. Projects and integration mappings are currently seeded/configured through the environment; the CRUD/test API is a target, not yet implemented.
 
-Từ 2026-10-05 (ADR-0020), chỉ CTO:
+From 2026-10-05 (ADR-0020), CTO only:
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/projects` | Danh sách kèm `kind`, liên kết GitLab/GitHub và trạng thái bật đồng bộ; không trả cấu hình Plane |
-| POST | `/api/v1/projects` | `name`, `code` (chữ thường, số, gạch nối), `intake_key` (2-8 chữ in hoa), `kind`; dự án phần mềm nhận GitLab hoặc GitHub đã probe. Trường cấu hình Plane bị từ chối `422`. |
-| PATCH | `/api/v1/projects/{code}` | Đổi tên, loại, trạng thái hoặc thêm liên kết; áp cùng quy tắc theo loại. Chỉ CTO: `switch_delivery: "GITHUB"` kèm `github_repository`, `github_token_ref`, `github_probe_id` đã kiểm chuyển dự án GitLab sang GitHub cho việc mới; `422 DELIVERY_SWITCH_NOT_APPLICABLE` khi dự án không phải phần mềm đang liên kết GitLab hoặc đã có GitHub, `GITHUB_LINK_REQUIRED`, `GITHUB_LINK_NOT_VERIFIED`, `DELIVERY_SYSTEM_CONFLICT` khi gửi kèm GitLab. `ProjectOut.previous_delivery { system, project_external_id, project_url, switched_at }` sau khi chuyển (FR-PRJ-13, ADR-0079) |
-| GET | `/api/v1/projects/{code}/delivery-switch` | Chỉ CTO. `{ from_system: "GITLAB", to_system: "GITHUB", open_issues }` trước khi chuyển; `422 DELIVERY_SWITCH_NOT_APPLICABLE`, `404` khi không có dự án (FR-PRJ-13) |
-| GET | `/api/v1/projects/{ref}/context` | CTO hoặc Project Owner của dự án. Hồ sơ ngữ cảnh như lần đọc gần nhất: `{ project_id, source (REPO|PASTED), path, sha, fetched_at, meta, sections{key: {number, title, required, to_ai, present, lines}}, score, band (FULL|PARTIAL|MISSING), missing[], stale_days, error, has_content, approved, approved_sha, approved_at, content, pending_suggestions }`; chưa có thì `band MISSING`, 6 mục thiếu (FR-CTX-03, FR-CTX-04) |
-| POST | `/api/v1/projects/{ref}/context/read` | `202 { project_id, queued }`; `422 NO_MAIN_REPO` khi dự án không có GitLab/GitHub đang bật (FR-CTX-03) |
-| PUT | `/api/v1/projects/{ref}/context` | `{ content }` tối đa 60 KB; lưu như bản `PASTED`, chấm điểm, chưa duyệt (FR-CTX-03) |
-| POST | `/api/v1/projects/{ref}/context/approve` | Chỉ CTO; `422 CONTEXT_EMPTY` khi chưa có hồ sơ (FR-CTX-03) |
-| GET | `/api/v1/projects/{ref}/context/suggestions` | CTO hoặc Project Owner của dự án. Gợi ý cho hồ sơ, mới nhất trước: `[{ id, project_id, intake_id, intake_public_id, work_log_id, text, suggested_by, suggested_by_name, agent_name, status (PENDING|APPLIED|DISMISSED), decided_by, decided_by_name, decided_at, created_at }]` (FR-CTX-04) |
-| POST | `/api/v1/projects/{ref}/context/suggestions/{id}/{applied\|dismissed}` | Chỉ CTO; `409 ALREADY_DECIDED` khi đã quyết, `422 DECISION_UNKNOWN` với từ khác, 404 khi gợi ý không thuộc dự án (FR-CTX-04) |
-| POST | `/api/v1/mcp-server` (thêm từ ADR-0063) | Tool `get_project_context {project}` → `{project, band, score, missing[], approved, source, sha, fetched_at, sections{key: {number, title, required, present, lines}}, content, pending_suggestions, note}`; `list_projects` trả thêm `context_band`; `log_work` nhận `context_suggestions[]` và trả `context_suggestions` (số gợi ý đã ghi) (FR-CTX-04) |
-| GET | `/api/v1/agent-commands/files/context-template.md` | Công khai, khuôn hồ sơ (FR-CTX-01) |
-| GET, PUT | `/api/v1/projects/{ref}/report-codes` | `{ codes: string[] }` (tối đa 20, lưu viết hoa, bỏ trùng). CTO hoặc Project Owner của dự án; `409 REPORT_CODE_TAKEN` khi mã đã là mã chính hoặc mã phụ của dự án khác. Thư báo cáo ghi mã đó về dự án này (FR-EML-12) |
-| POST | `/api/v1/projects/integration-probes` | `system=GITLAB|GITHUB`, `action`, `reference`; trả 202 với probe `PENDING`. `PLANE` bị từ chối `422`. `action=ACCESS` (FR-INTG-23) nhận thêm `token_ref` cho GitHub, `reference` tùy chọn với GitLab; kết quả `{system, ok, checks:[{key, status, detail}]}`, `status` là `OK|MISSING|WARN|UNKNOWN`. GitHub `issues_write` `MISSING` có thể mang `detail` là mã nguyên nhân `public_read_only`, `read_only` hoặc `org_policy`; `metadata` `MISSING` mang `org_policy` hoặc tên repo. |
-| GET | `/api/v1/projects/integration-probes/{id}` | Client hỏi lại tới khi `DONE` hoặc `FAILED` |
+| GET | `/api/v1/projects` | List with `kind`, GitLab/GitHub link and sync enabled state; does not return Plane configuration |
+| POST | `/api/v1/projects` | `name`, `code` (lowercase, digits, hyphens), `intake_key` (2-8 uppercase letters), `kind`; a software project accepts a probed GitLab or GitHub. Plane configuration fields are rejected with `422`. |
+| PATCH | `/api/v1/projects/{code}` | Rename, change kind, status or add a link; the same per-kind rules apply. CTO only: `switch_delivery: "GITHUB"` with a verified `github_repository`, `github_token_ref`, `github_probe_id` moves a GitLab project to GitHub for new work; `422 DELIVERY_SWITCH_NOT_APPLICABLE` when the project is not a software project currently linked to GitLab or already has GitHub, `GITHUB_LINK_REQUIRED`, `GITHUB_LINK_NOT_VERIFIED`, `DELIVERY_SYSTEM_CONFLICT` when GitLab is sent too. `ProjectOut.previous_delivery { system, project_external_id, project_url, switched_at }` after the switch (FR-PRJ-13, ADR-0079) |
+| GET | `/api/v1/projects/{code}/delivery-switch` | CTO only. `{ from_system: "GITLAB", to_system: "GITHUB", open_issues }` before the switch; `422 DELIVERY_SWITCH_NOT_APPLICABLE`, `404` when the project does not exist (FR-PRJ-13) |
+| GET | `/api/v1/projects/{ref}/context` | CTO or the project's Project Owner. The context pack as of the latest read: `{ project_id, source (REPO|PASTED), path, sha, fetched_at, meta, sections{key: {number, title, required, to_ai, present, lines}}, score, band (FULL|PARTIAL|MISSING), missing[], stale_days, error, has_content, approved, approved_sha, approved_at, content, pending_suggestions }`; if none yet, `band MISSING` with 6 sections missing (FR-CTX-03, FR-CTX-04) |
+| POST | `/api/v1/projects/{ref}/context/read` | `202 { project_id, queued }`; `422 NO_MAIN_REPO` when the project has no enabled GitLab/GitHub (FR-CTX-03) |
+| PUT | `/api/v1/projects/{ref}/context` | `{ content }` up to 60 KB; saved as a `PASTED` version, scored, not approved (FR-CTX-03) |
+| POST | `/api/v1/projects/{ref}/context/approve` | CTO only; `422 CONTEXT_EMPTY` when there is no pack yet (FR-CTX-03) |
+| GET | `/api/v1/projects/{ref}/context/suggestions` | CTO or the project's Project Owner. Suggestions for the pack, newest first: `[{ id, project_id, intake_id, intake_public_id, work_log_id, text, suggested_by, suggested_by_name, agent_name, status (PENDING|APPLIED|DISMISSED), decided_by, decided_by_name, decided_at, created_at }]` (FR-CTX-04) |
+| POST | `/api/v1/projects/{ref}/context/suggestions/{id}/{applied\|dismissed}` | CTO only; `409 ALREADY_DECIDED` when already decided, `422 DECISION_UNKNOWN` for any other word, 404 when the suggestion does not belong to the project (FR-CTX-04) |
+| POST | `/api/v1/mcp-server` (added in ADR-0063) | Tool `get_project_context {project}` → `{project, band, score, missing[], approved, source, sha, fetched_at, sections{key: {number, title, required, present, lines}}, content, pending_suggestions, note}`; `list_projects` also returns `context_band`; `log_work` accepts `context_suggestions[]` and returns `context_suggestions` (the number of suggestions recorded) (FR-CTX-04) |
+| GET | `/api/v1/agent-commands/files/context-template.md` | Public, the pack template (FR-CTX-01) |
+| GET, PUT | `/api/v1/projects/{ref}/report-codes` | `{ codes: string[] }` (up to 20, stored uppercase, deduplicated). CTO or the project's Project Owner; `409 REPORT_CODE_TAKEN` when the code is already the main code or an alias of another project. Report emails with that code are assigned to this project (FR-EML-12) |
+| POST | `/api/v1/projects/integration-probes` | `system=GITLAB|GITHUB`, `action`, `reference`; returns 202 with a `PENDING` probe. `PLANE` is rejected with `422`. `action=ACCESS` (FR-INTG-23) also accepts `token_ref` for GitHub, `reference` optional for GitLab; result `{system, ok, checks:[{key, status, detail}]}`, `status` is `OK|MISSING|WARN|UNKNOWN`. A GitHub `issues_write` `MISSING` may carry a `detail` cause code `public_read_only`, `read_only` or `org_policy`; a `metadata` `MISSING` carries `org_policy` or the repo name. |
+| GET | `/api/v1/projects/integration-probes/{id}` | The client polls until `DONE` or `FAILED` |
 
-`action=MEMBERS` (chỉ GitLab, `reference` là đường dẫn dự án) trả danh sách người dùng đang hoạt động của dự án (`id`, `name`, `username`) để gán cho nhân sự. `PUT /api/v1/planning/members/{id}` thay toàn bộ thông tin và danh sách dự án của một nhân sự; dự án bị bỏ ra chỉ chuyển `active=false`; `gitlab_user_external_id` chỉ hợp lệ với dự án `SOFTWARE`.
+`action=MEMBERS` (GitLab only, `reference` is the project path) returns the project's active users (`id`, `name`, `username`) to map to members. `PUT /api/v1/planning/members/{id}` replaces all of a member's information and project list; a project that is removed only switches to `active=false`; `gitlab_user_external_id` is valid only for a `SOFTWARE` project.
 
-GitHub (ADR-0021): probe nhận `system=GITHUB` kèm `token_ref` là tên biến token; `action=TOKENS` trả tên các biến `GITHUB_TOKEN_*` mà integration worker đang có (không bao giờ trả giá trị); `MEMBERS` trả những người có thể được giao Issue. `POST`/`PATCH /projects` nhận `github_repository`, `github_token_ref`, `github_probe_id`; gửi cả GitLab lẫn GitHub trả `DELIVERY_SYSTEM_CONFLICT`. `approved_route` của Intake nhận thêm `GITHUB`; khi duyệt, `GITLAB` và `GITHUB` được đổi cho khớp nơi giao việc của dự án.
+GitHub (ADR-0021): the probe accepts `system=GITHUB` with `token_ref` as the token variable name; `action=TOKENS` returns the names of the `GITHUB_TOKEN_*` variables the integration worker has (never the values); `MEMBERS` returns the people who can be assigned Issues. `POST`/`PATCH /projects` accept `github_repository`, `github_token_ref`, `github_probe_id`; sending both GitLab and GitHub returns `DELIVERY_SYSTEM_CONFLICT`. An Intake's `approved_route` also accepts `GITHUB`; on approval, `GITLAB` and `GITHUB` are switched to match the project's delivery system.
 
-Probe được integration worker xử lý qua task `intake.integration.probe`, không qua outbox. Liên kết chỉ được lưu khi kèm ID của một probe `CHECK` thành công cho đúng tham chiếu trong vòng 30 phút.
+Probes are handled by the integration worker through the `intake.integration.probe` task, not through the outbox. A link is saved only together with the ID of a successful `CHECK` probe for the same reference within 30 minutes.
 
 ## 3. Intake
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| POST | `/api/v1/intakes` | Tạo intake + source; hỗ trợ `Idempotency-Key`. `channel` thêm `FEEDBACK` (chỉ do "Nhận" góp ý tạo, FR-FBK-03) |
-| POST | `/api/v1/feedback` | Mọi vai. `{ project, text }` → `201 FeedbackOut { id, project_id, project_code, project_name, member_id, member_name, user_id, transport (WEB\|TELEGRAM\|AGENT), text, status (PENDING\|ACCEPTED\|REJECTED), intake_id, intake_public_id, decided_by, decided_by_name, decided_at, decision_note, files[{id, name, mime_type, size_bytes}], created_at }`; dự án phải là dự án nhân sự của tài khoản đang có mặt hoặc dự án mình quản (ngoài ra 404); Developer chưa gắn nhân sự `422 MEMBER_UNMAPPED`; `422 TEXT_REQUIRED` (FR-FBK-01, ADR-0064) |
-| GET | `/api/v1/auth/me` | Thêm `member_id` (nhân sự gắn với tài khoản, hoặc `null`) (FR-FBK-02) |
-| POST | `/api/v1/feedback/{id}/files` | Multipart `file`, ảnh hoặc PDF 5 MB, tối đa 3 (`422 TOO_MANY_FILES`); chỉ khi còn `PENDING` (`409 ALREADY_DECIDED`) (FR-FBK-01) |
-| GET | `/api/v1/feedback` | `project_id?`, `status?`, `mine?`, `limit?`; `mine=true` trả góp ý của mình ở mọi dự án, không thì theo dự án mình quản; Developer luôn chỉ thấy của mình (FR-FBK-02) |
-| GET | `/api/v1/feedback/{id}`, `/api/v1/feedback/{id}/files/{file_id}` | Một góp ý; tệp trả bytes `inline` (FR-FBK-02) |
-| POST | `/api/v1/feedback/{id}/accept` | CTO hoặc Project Owner (`403` với Developer). `{ note? }` → Intake kênh `FEEDBACK` tạo xong, `intake_id`, `intake_public_id`; `409 ALREADY_DECIDED` (FR-FBK-03) |
-| POST | `/api/v1/feedback/{id}/reject` | `{ note }` bắt buộc (`422 NOTE_REQUIRED`); `409 ALREADY_DECIDED` (FR-FBK-03) |
-| GET | `/api/v1/work` | `?project=<mã hoặc id>` bắt buộc, `?include_closed=`; bảng việc nội bộ của dự án (ADR-0066, FR-WRK-02) trong phạm vi dự án của người gọi (CTO, Project Owner, nhân sự của dự án; ngoài phạm vi `404`). Mỗi dòng `WorkOut { id, code, project_id, project_code, project_name, project_kind, title, description, status: DISCUSS\|READY\|IN_PROGRESS\|ACCEPTANCE\|DONE\|CANCELLED, priority, member_id, member_name, due_date, intake_id, intake_public_id, intake_status, issue_system, issue_external_id, issue_url, outcome: null\|ISSUE_PENDING\|ISSUE, issue_pending, closed_note, comment_count, version, created_by, created_by_name, created_at, updated_at, closed_at }` |
-| POST | `/api/v1/work` | CTO hoặc Project Owner. `{ project, title, description?, priority?=P3, member_id?, due_date?, status?=DISCUSS }` → `201 WorkOut`; `422 TITLE_REQUIRED\|MEMBER_NOT_IN_PROJECT\|STATUS_INVALID` (FR-WRK-01) |
+| POST | `/api/v1/intakes` | Creates intake + source; supports `Idempotency-Key`. `channel` adds `FEEDBACK` (created only by "Accept" ("Nhận") on a feedback item, FR-FBK-03) |
+| POST | `/api/v1/feedback` | All roles. `{ project, text }` → `201 FeedbackOut { id, project_id, project_code, project_name, member_id, member_name, user_id, transport (WEB\|TELEGRAM\|AGENT), text, status (PENDING\|ACCEPTED\|REJECTED), intake_id, intake_public_id, decided_by, decided_by_name, decided_at, decision_note, files[{id, name, mime_type, size_bytes}], created_at }`; the project must be one of the current account's member projects or a project they manage (otherwise 404); a Developer not mapped to a member gets `422 MEMBER_UNMAPPED`; `422 TEXT_REQUIRED` (FR-FBK-01, ADR-0064) |
+| GET | `/api/v1/auth/me` | Adds `member_id` (the member linked to the account, or `null`) (FR-FBK-02) |
+| POST | `/api/v1/feedback/{id}/files` | Multipart `file`, image or PDF 5 MB, up to 3 (`422 TOO_MANY_FILES`); only while still `PENDING` (`409 ALREADY_DECIDED`) (FR-FBK-01) |
+| GET | `/api/v1/feedback` | `project_id?`, `status?`, `mine?`, `limit?`; `mine=true` returns your own feedback across all projects, otherwise feedback for the projects you manage; a Developer always sees only their own (FR-FBK-02) |
+| GET | `/api/v1/feedback/{id}`, `/api/v1/feedback/{id}/files/{file_id}` | One feedback item; files return bytes `inline` (FR-FBK-02) |
+| POST | `/api/v1/feedback/{id}/accept` | CTO or Project Owner (`403` for a Developer). `{ note? }` → an Intake in channel `FEEDBACK` is created, `intake_id`, `intake_public_id`; `409 ALREADY_DECIDED` (FR-FBK-03) |
+| POST | `/api/v1/feedback/{id}/reject` | `{ note }` required (`422 NOTE_REQUIRED`); `409 ALREADY_DECIDED` (FR-FBK-03) |
+| GET | `/api/v1/work` | `?project=<code or id>` required, `?include_closed=`; the project's internal tasks board (ADR-0066, FR-WRK-02) within the caller's project scope (CTO, Project Owner, project members; out of scope `404`). Each row `WorkOut { id, code, project_id, project_code, project_name, project_kind, title, description, status: DISCUSS\|READY\|IN_PROGRESS\|ACCEPTANCE\|DONE\|CANCELLED, priority, member_id, member_name, due_date, intake_id, intake_public_id, intake_status, issue_system, issue_external_id, issue_url, outcome: null\|ISSUE_PENDING\|ISSUE, issue_pending, closed_note, comment_count, version, created_by, created_by_name, created_at, updated_at, closed_at }` |
+| POST | `/api/v1/work` | CTO or Project Owner. `{ project, title, description?, priority?=P3, member_id?, due_date?, status?=DISCUSS }` → `201 WorkOut`; `422 TITLE_REQUIRED\|MEMBER_NOT_IN_PROJECT\|STATUS_INVALID` (FR-WRK-01) |
 | GET | `/api/v1/work/{id}` | `WorkDetail = WorkOut + comments[{ id, user_id, user_name, mine, body, created_at }] + history[{ at, actor_name, event_type, details }]` (FR-WRK-02) |
-| PATCH | `/api/v1/work/{id}` | CTO hoặc Project Owner. `{ expected_version, title?, description?, priority?, member_id?, clear_member?, due_date?, clear_due? }`; `409 STALE_VERSION\|WORK_CLOSED` (FR-WRK-01) |
-| POST | `/api/v1/work/{id}/move` | `{ status, expected_version, note? }`; Developer chỉ với việc giao cho mình (`403 NOT_YOUR_WORK`) giữa DISCUSS/READY/IN_PROGRESS/ACCEPTANCE (`422 MOVE_NOT_ALLOWED`); `422 NOTE_REQUIRED` khi vào CANCELLED; `409 STALE_VERSION\|WORK_LOCKED_BY_ISSUE` (FR-WRK-03) |
+| PATCH | `/api/v1/work/{id}` | CTO or Project Owner. `{ expected_version, title?, description?, priority?, member_id?, clear_member?, due_date?, clear_due? }`; `409 STALE_VERSION\|WORK_CLOSED` (FR-WRK-01) |
+| POST | `/api/v1/work/{id}/move` | `{ status, expected_version, note? }`; a Developer only on tasks assigned to them (`403 NOT_YOUR_WORK`) between DISCUSS/READY/IN_PROGRESS/ACCEPTANCE (`422 MOVE_NOT_ALLOWED`); `422 NOTE_REQUIRED` when moving to CANCELLED; `409 STALE_VERSION\|WORK_LOCKED_BY_ISSUE` (FR-WRK-03) |
 | POST | `/api/v1/work/{id}/comments` | `{ body }` (2..5000) → `201 WorkDetail` (FR-WRK-04) |
-| DELETE | `/api/v1/work/{id}/comments/{comment_id}` | Của mình, hoặc CTO; `403 NOT_YOURS`; `204` (FR-WRK-04) |
-| POST | `/api/v1/work` (thêm từ FR-WRK-08) | `template?: VIDEO` tạo kèm sáu bước là việc con; `WorkOut` thêm `template, steps_total, steps_done, parent_id, parent_code, step, step_label, step_order, evidence_required`; `WorkDetail.steps[]` trên việc mẹ; `GET /work` trả cả các bước của việc mẹ trên bảng |
-| POST | `/api/v1/work/{id}/move` (thêm từ FR-WRK-09) | `422 EVIDENCE_REQUIRED` (bước cần link hoặc `note`), `422 NOTE_REQUIRED` khi trả từ ACCEPTANCE về, `409 STEPS_OPEN` khi việc mẹ còn bước mở |
-| GET | `/api/v1/auth/me` (thêm từ ADR-0067) | `projects[{ id, code, name, kind }]` của người gọi và `mode: MARKETING\|FULL` (FR-MKT-03) |
-| GET | `/api/v1/work` (thêm) | `?week=YYYY-MM-DD` (thứ Hai) kèm mọi bài có bản kênh đăng trong tuần (FR-MKT-04). `WorkOut` thêm `channel, format, campaign, urgent, channels[{ id, channel, publish_at, status: DRAFT\|READY\|PUBLISHED, published_url, language }], next_publish_at`; `WorkStatus` thêm `APPROVED` |
-| POST | `/api/v1/work` (thêm) | `channel?, format?, campaign?, urgent?, channels[{ channel, publish_at?, language? }]` (FR-MKT-01); `PATCH /work/{id}` thêm `channel, format, campaign, clear_campaign, urgent` |
-| POST, PATCH, DELETE | `/api/v1/work/{id}/channels[/{channel_id}]` | Bản kênh: thêm (`422 CHANNEL_UNKNOWN\|CHANNEL_EXISTS`), sửa `{ publish_at?, clear_publish?, status?, published_url? }` (Developer chỉ bài của mình, không đổi ngày; `422 URL_INVALID`), bỏ (`409 CHANNEL_PUBLISHED`) (FR-MKT-01) |
-| GET | `/api/v1/work/review` | CTO, Project Owner: bài ở `ACCEPTANCE` trong dự án mình quản (FR-MKT-05) |
+| DELETE | `/api/v1/work/{id}/comments/{comment_id}` | Your own, or the CTO; `403 NOT_YOURS`; `204` (FR-WRK-04) |
+| POST | `/api/v1/work` (added in FR-WRK-08) | `template?: VIDEO` also creates six steps as child tasks; `WorkOut` adds `template, steps_total, steps_done, parent_id, parent_code, step, step_label, step_order, evidence_required`; `WorkDetail.steps[]` on the parent task; `GET /work` returns the parent's steps on the board too |
+| POST | `/api/v1/work/{id}/move` (added in FR-WRK-09) | `422 EVIDENCE_REQUIRED` (the step needs a link or a `note`), `422 NOTE_REQUIRED` when sending back from ACCEPTANCE, `409 STEPS_OPEN` when the parent task still has open steps |
+| GET | `/api/v1/auth/me` (added in ADR-0067) | The caller's `projects[{ id, code, name, kind }]` and `mode: MARKETING\|FULL` (FR-MKT-03) |
+| GET | `/api/v1/work` (added) | `?week=YYYY-MM-DD` (a Monday) also includes every post with a channel version publishing in that week (FR-MKT-04). `WorkOut` adds `channel, format, campaign, urgent, channels[{ id, channel, publish_at, status: DRAFT\|READY\|PUBLISHED, published_url, language }], next_publish_at`; `WorkStatus` adds `APPROVED` |
+| POST | `/api/v1/work` (added) | `channel?, format?, campaign?, urgent?, channels[{ channel, publish_at?, language? }]` (FR-MKT-01); `PATCH /work/{id}` adds `channel, format, campaign, clear_campaign, urgent` |
+| POST, PATCH, DELETE | `/api/v1/work/{id}/channels[/{channel_id}]` | Channel versions: add (`422 CHANNEL_UNKNOWN\|CHANNEL_EXISTS`), edit `{ publish_at?, clear_publish?, status?, published_url? }` (a Developer only on their own posts, cannot change the date; `422 URL_INVALID`), remove (`409 CHANNEL_PUBLISHED`) (FR-MKT-01) |
+| GET | `/api/v1/work/review` | CTO, Project Owner: posts in `ACCEPTANCE` in the projects they manage (FR-MKT-05) |
 | GET | `/api/v1/work/campaigns` | `?project=` → `[{ name, count }]` (FR-MKT-06) |
 | POST | `/api/v1/work/bulk` | CTO, PO. `{ project, rows[{ title, channel?, publish_at?, member_id?, campaign?, description? }] }` (1..50) → `201 [{ title, id?, code?, error? }]` (FR-MKT-06) |
 | POST | `/api/v1/work/bulk-update` | CTO, PO. `{ ids (1..100), member_id?, clear_member?, publish_at?, status? }` → `{ changed, errors[{ id, error }] }` (FR-MKT-06) |
-| GET, PUT | `/api/v1/channel-rules[/{code}]` | Đọc: mọi vai; sửa: CTO, `ChannelRuleUpdate` các trường của luật, `422 RULE_VALUE_INVALID`, `404` (FR-MKT-02) |
-| POST | `/api/v1/meetings/{id}/note/items/work` (thêm) | mỗi mục nhận `channel?`, `publish_at?`; dự án `NON_CODE` tạo bài ở Ý tưởng kèm bản kênh mặc định (FR-MKT-07) |
-| PATCH | `/api/v1/work/{id}/channels/{channel_id}` (thêm) | `text?` (tối đa 60.000), `clear_text?`; `WorkChannelOut` thêm `text`, `short_link { code, url, target_url, clicks, created_at }`. Gửi duyệt (`/move` sang `ACCEPTANCE`) trả `422 CHANNEL_TEXT_TOO_LONG` khi một bản vượt mức dài của kênh (FR-MKT-11) |
-| POST | `/api/v1/work/{id}/channels/{channel_id}/link` | CTO, PO. `{ target_url }` → `PostLinkOut`; mã giữ nguyên khi gọi lại; `422 TARGET_INVALID` (FR-MKT-12) |
-| GET | `/p/{code}` và `/api/v1/p/{code}` | Không đăng nhập, không envelope: `302` tới trang đích kèm UTM, ghi click; `404` khi mã lạ (FR-MKT-12) |
-| GET, PUT | `/api/v1/projects/{code}/watch/pillars` | CTO, PO của dự án `NON_CODE` (`409 WATCH_NOT_FOR_PROJECT` với dự án khác, `403` Developer). PUT `{ pillars[{ name, description?, audience?, channels[], share_pct, keywords[{text, kind, priority} \| chuỗi], samples[{title?, url}], avoid? }] }` (tối đa 6; `422 PILLARS_TOO_MANY`, `PILLAR_DUPLICATE`) (FR-MKT-08) |
+| GET, PUT | `/api/v1/channel-rules[/{code}]` | Read: all roles; edit: CTO, `ChannelRuleUpdate` with the rule's fields, `422 RULE_VALUE_INVALID`, `404` (FR-MKT-02) |
+| POST | `/api/v1/meetings/{id}/note/items/work` (added) | each item accepts `channel?`, `publish_at?`; a `NON_CODE` project creates the post in Idea ("Ý tưởng") with default channel versions (FR-MKT-07) |
+| PATCH | `/api/v1/work/{id}/channels/{channel_id}` (added) | `text?` (up to 60,000), `clear_text?`; `WorkChannelOut` adds `text`, `short_link { code, url, target_url, clicks, created_at }`. Submitting for review (`/move` to `ACCEPTANCE`) returns `422 CHANNEL_TEXT_TOO_LONG` when a version exceeds the channel's length limit (FR-MKT-11) |
+| POST | `/api/v1/work/{id}/channels/{channel_id}/link` | CTO, PO. `{ target_url }` → `PostLinkOut`; the code stays the same on repeated calls; `422 TARGET_INVALID` (FR-MKT-12) |
+| GET | `/p/{code}` and `/api/v1/p/{code}` | No login, no envelope: `302` to the target page with UTM, records the click; `404` for an unknown code (FR-MKT-12) |
+| GET, PUT | `/api/v1/projects/{code}/watch/pillars` | CTO, PO of a `NON_CODE` project (`409 WATCH_NOT_FOR_PROJECT` for other projects, `403` Developer). PUT `{ pillars[{ name, description?, audience?, channels[], share_pct, keywords[{text, kind, priority} \| string], samples[{title?, url}], avoid? }] }` (up to 6; `422 PILLARS_TOO_MANY`, `PILLAR_DUPLICATE`) (FR-MKT-08) |
 | GET, PUT | `/api/v1/projects/{code}/watch/settings` | `{ networks?, times?, weekdays?, scan_every_hours? }` → `{ networks, open_networks, schedule{times, weekdays}, scan_every_hours, scan_hours, max_ai_runs_per_day, ai_runs_per_week }`; `422 NETWORK_NOT_OPEN`, `SCHEDULE_INVALID` (FR-MKT-08, FR-MKT-10) |
-| GET, POST, PATCH, DELETE | `/api/v1/projects/{code}/watch/sources[/{id}]` | Như `/private-space/watch/sources`, mạch luôn `content` (FR-MKT-08) |
-| GET, PUT, POST | `/api/v1/projects/{code}/watch/keywords[/suggest]`, `GET, PUT …/demand`, `GET …/health`, `POST …/health/check` | Như các đường của khu riêng, cho mạch `content` của dự án (FR-MKT-08) |
-| GET | `/api/v1/watch-topics?project=` | Mọi vai trong dự án. `{ week_start, has_sources, kept_this_week, refresh_left, built_at, schedule, topics[{ id, title, why, angles[], channels[], caution, pillar, score, state, ai_written, work_id, sources, signals[{ id, title, url, host, keyword, published_at, via }] }] }` (FR-MKT-09) |
-| POST | `/api/v1/watch-topics/refresh?project=` | CTO, PO. `202 { status: PENDING, refresh_left }`; `429 TOPICS_LIMIT` sau 3 lần một ngày (FR-MKT-10) |
+| GET, POST, PATCH, DELETE | `/api/v1/projects/{code}/watch/sources[/{id}]` | Like `/private-space/watch/sources`, stream always `content` (FR-MKT-08) |
+| GET, PUT, POST | `/api/v1/projects/{code}/watch/keywords[/suggest]`, `GET, PUT …/demand`, `GET …/health`, `POST …/health/check` | Like the Private Space paths, for the project's `content` stream (FR-MKT-08) |
+| GET | `/api/v1/watch-topics?project=` | All roles in the project. `{ week_start, has_sources, kept_this_week, refresh_left, built_at, schedule, topics[{ id, title, why, angles[], channels[], caution, pillar, score, state, ai_written, work_id, sources, signals[{ id, title, url, host, keyword, published_at, via }] }] }` (FR-MKT-09) |
+| POST | `/api/v1/watch-topics/refresh?project=` | CTO, PO. `202 { status: PENDING, refresh_left }`; `429 TOPICS_LIMIT` after 3 times a day (FR-MKT-10) |
 | POST | `/api/v1/watch-topics/{id}/post?project=` | CTO, PO. `{ mode: post \| series, angle?, member_id?, week? }` → `201 WorkDetail`; `409 TOPIC_CLOSED` (FR-MKT-09) |
-| DELETE | `/api/v1/watch-topics/{id}?project=` | CTO, PO. Bỏ chủ đề và tín hiệu của nó (FR-MKT-09) |
-| GET, PUT | `/api/v1/settings/watch-platforms[/{code}]` | Đọc: mọi vai; sửa: CTO `{ label?, enabled?, via?, note? }`, `422 PLATFORM_VALUE_INVALID` (FR-MKT-08) |
-| GET, PUT | `/api/v1/settings/watch-limits` | Đọc: mọi vai; sửa: CTO `{ max_ai_runs_per_day 0..8 }` (FR-MKT-10) |
-| POST | `/api/v1/watch/inbound/{connector_id}` | Không đăng nhập. `X-Intake-Token: <bí mật cổng>` hoặc Bearer; JSON ≤ 512 KB, ≤ 50 mục; `404` cổng lạ hoặc đã đóng, `401` sai bí mật, `413`, `422 BATCH_INVALID`; trả `{ accepted, duplicates, rejected[], problems[] }` (FR-MKT-13) |
-| GET, POST | `/api/v1/settings/watch-connectors?project=` | Chỉ CTO. Tạo `{ project, name, kind?, via?, default_pillar?, mapping? }` → `201 ConnectorOut` kèm `token` một lần; `409 CONNECTORS_FULL`, `422 PILLAR_UNKNOWN\|MAPPING_INVALID` (FR-MKT-13) |
-| PATCH, DELETE, POST | `/api/v1/settings/watch-connectors/{id}[/rotate\|/try]`, `GET …/{id}/deliveries`, `GET …/presets` | Chỉ CTO. `try` nhận payload JSON bất kỳ → `{ items[{…, would_reject[], notes[]}], problems[], would_accept }`, không lưu (FR-MKT-13) |
+| DELETE | `/api/v1/watch-topics/{id}?project=` | CTO, PO. Removes the topic and its signals (FR-MKT-09) |
+| GET, PUT | `/api/v1/settings/watch-platforms[/{code}]` | Read: all roles; edit: CTO `{ label?, enabled?, via?, note? }`, `422 PLATFORM_VALUE_INVALID` (FR-MKT-08) |
+| GET, PUT | `/api/v1/settings/watch-limits` | Read: all roles; edit: CTO `{ max_ai_runs_per_day 0..8 }` (FR-MKT-10) |
+| POST | `/api/v1/watch/inbound/{connector_id}` | No login. `X-Intake-Token: <bí mật cổng>` (connector secret) or Bearer; JSON ≤ 512 KB, ≤ 50 items; `404` unknown or closed connector, `401` wrong secret, `413`, `422 BATCH_INVALID`; returns `{ accepted, duplicates, rejected[], problems[] }` (FR-MKT-13) |
+| GET, POST | `/api/v1/settings/watch-connectors?project=` | CTO only. Create `{ project, name, kind?, via?, default_pillar?, mapping? }` → `201 ConnectorOut` with a one-time `token`; `409 CONNECTORS_FULL`, `422 PILLAR_UNKNOWN\|MAPPING_INVALID` (FR-MKT-13) |
+| PATCH, DELETE, POST | `/api/v1/settings/watch-connectors/{id}[/rotate\|/try]`, `GET …/{id}/deliveries`, `GET …/presets` | CTO only. `try` accepts any JSON payload → `{ items[{…, would_reject[], notes[]}], problems[], would_accept }`, nothing saved (FR-MKT-13) |
 | GET | `/api/v1/projects/{code}/watch/connectors` | CTO, PO: `[{ id, name, kind, enabled, last_received_at, received_count, last_status }]` (FR-MKT-13) |
-| GET | `/api/v1/publish/queue` (thêm) | Mục `kind: post_version` với `draft_id: work_channel:<id>`, `project`, `work`, `language`, `short_link` cho bản Đã duyệt và Sẵn sàng trên kênh bật `auto_publish` (FR-MKT-14) |
-| POST | `/api/v1/publish/events` (thêm) | `draft_id` dạng `work_channel:<id>`: `POSTED` kèm `url` → bản `PUBLISHED`; `FAILED` ghi audit; `404 DRAFT_NOT_FOUND`, `409 DRAFT_NOT_APPROVED` (FR-MKT-14) |
-| GET, PUT | `/api/v1/settings/publish-pause` | Đọc: mọi vai; sửa: CTO `{ paused }` (FR-MKT-14) |
-| PUT | `/api/v1/channel-rules/{code}` (thêm) | `auto_publish?` (FR-MKT-14) |
-| POST | `/api/v1/meetings/{id}/note/items/work` | CTO hoặc Project Owner của dự án họp. `{ items[{ item_id, member_id?, due_date?, status?: DISCUSS\|READY }] }` (1..50) → `201 { results[{ item_id, work_id, code, intake_id, error }], meeting }`; mỗi mục: Intake kênh MEETING tạo và duyệt tuyến WORK nguồn MEETING, Việc nhận người, hạn, cột (FR-REC-19). `MeetingNoteItemOut` thêm `work_id`, `work_code`, `can_become_work`; `WorkOut` thêm `meeting_id`, `meeting_title`, `meeting_at` |
-| GET | `/api/v1/hints` | Mọi vai. `{ dismissed: string[] }`: các lời giới thiệu trang người gọi đã bấm "Đã hiểu" (FR-UI-17) |
-| POST, DELETE | `/api/v1/hints/{key}/dismiss` | Ghi hoặc bỏ "Đã hiểu" cho `key` (`page.work`, `page.my_day`, `page.feedback`, `page.account`); `422 HINT_KEY_INVALID` (FR-UI-17) |
-| POST | `/api/v1/hints/{key}/opened` | Một lượt mở hint, `204`; đếm cho thống kê (FR-UI-17) |
-| GET | `/api/v1/hints/stats` | Chỉ CTO. `?days=` (1..90, mặc định 7) → `{ days, since, opened[{ key, opens, people }], dismissed[{ key, people }] }` (FR-UI-17) |
-| (trang) | `/huong-dan` | Không đăng nhập: trang hướng dẫn công khai; chỉ có lần kiểm phiên sẵn có của app, không gọi `/hints` hay API dữ liệu nào. Đăng nhập: bản trong app, gọi ba endpoint `hints` ở trên. Bản tĩnh cùng nội dung trên GitHub Pages của repo công khai; `?lang=en\|vi` (FR-UI-18, ADR-0078) |
-| POST | `/api/v1/work/{id}/links` | Ai thấy việc. `{ url, note? }` → `201 WorkDetail` với `links[{ id, url, note, source: USER\|AGENT, added_by, added_by_name, mine, created_at }]`; `422 URL_INVALID\|TOO_MANY_LINKS` (FR-WRK-07). `WorkOut` thêm `link_count` |
-| DELETE | `/api/v1/work/{id}/links/{link_id}` | Của mình, hoặc CTO; `403 NOT_YOURS`; `204` (FR-WRK-07) |
-| POST | `/api/v1/work/{id}/links/file` | Ai thấy việc. `multipart/form-data`: `file` (JPG, PNG, WebP hoặc PDF, ≤ 5 MB, magic bytes khớp `content-type`) và `note?` ≤ 300 ký tự → `201 WorkDetail`; dòng link có thêm `file_name`, `mime_type`, `size_bytes` và `url` là đường tải xuống. `422 FILE_TYPE_UNSUPPORTED\|FILE_TYPE_MISMATCH\|FILE_TOO_LARGE\|FILE_EMPTY\|TOO_MANY_LINKS` (FR-WRK-10) |
-| GET | `/api/v1/work/{id}/links/{link_id}/file` | Ai thấy việc. Trả tệp với `Content-Disposition: attachment`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`; `404` khi link không có tệp (FR-WRK-10) |
-| POST | `/api/v1/mcp-server` (thêm từ FR-MCP-08) | Tool `list_work`, `get_work`, `create_work` (không cho Developer), `move_work`, `comment_work`, `attach_link`; prompt `content_day`; tệp lệnh `/in-content-day` ở `agent-commands/files/in-content-day.md` |
-| POST | `/api/v1/mcp-server` (thêm từ FR-MCP-09) | Tool dự án marketing: `hot_topics`, `trending`, `get_pillars`, `week_plan`, `review_queue`, `set_channel_text` (mọi vai trong dự án); `topic_to_post`, `dismiss_topic`, `refresh_topics`, `get_short_link`, `add_signals` (không cho Developer); prompt `hot_topics`, `draft_post`; tệp lệnh `in-hot-topics.md`, `in-draft-post.md` |
-| POST | `/api/v1/work/{id}/issue` | CTO hoặc Project Owner, dự án SOFTWARE có đồng bộ bật. Quyết định lại yêu cầu gốc sang GitLab/GitHub (hoặc tạo yêu cầu mới) và xếp hàng đồng bộ; trả `WorkDetail` với `issue_pending=true`; `422 PROJECT_NOT_SOFTWARE\|DELIVERY_SYNC_DISABLED\|INTAKE_NOT_READY`, `409 WORK_CLOSED` (FR-WRK-05) |
-| GET | `/api/v1/intakes/{id}/github-issue-link` | Liên kết tạo Issue điền sẵn trên GitHub, chỉ từ nội dung đã chuẩn hóa (FR-INTG-20). Trả `url`, `repository`, `host`, `shortened`. Lỗi 422: `NOT_NORMALIZED`, `NO_REPOSITORY`; 404 khi ngoài phạm vi |
-| GET/PUT | `/api/v1/integrations/github-tokens` | Chỉ CTO (FR-INTG-21). GET trả `[{name, key_hint, used_by_projects, updated_at}]`; PUT nhận `{label, token}`, `label` được đổi thành `GITHUB_TOKEN_<TÊN>`; không trả lại giá trị token. Lỗi 422: `NAME_INVALID`, `TOKEN_INVALID`. |
-| DELETE | `/api/v1/integrations/github-tokens/{name}` | Chỉ CTO. 204; 404 `NOT_FOUND`; 409 `TOKEN_IN_USE` khi một dự án đang bật còn dùng token. |
-| GET/PUT | `/api/v1/integrations/gitlab-connection` | Chỉ CTO (FR-INTG-22). Trả `{configured, source: APP|ENV|NONE, base_url, key_hint, updated_at, linked_projects}`; PUT nhận `{base_url, token?}` (bỏ trống `token` để giữ token cũ) và trả thêm `projects_enabled`. Không trả lại giá trị token. Lỗi 422: `GITLAB_BASE_URL_INVALID`, `TOKEN_INVALID`, `TOKEN_REQUIRED`. |
-| DELETE | `/api/v1/integrations/gitlab-connection` | Chỉ CTO. 204, quay về `GITLAB_TOKEN` trong `.env` nếu có; 404 `NOT_FOUND` khi chưa lưu. |
-| POST | `/api/v1/intakes/{id}/approve` (thêm từ ADR-0066) | `approved_route` nhận `WORK`; trả `IntakeOut.work_item { id, code, status, project_id }` khi duyệt tuyến này. `PLANE` chỉ còn hợp lệ cho yêu cầu đã quyết trước đó. `GET /intakes/{id}/journey` thêm `work_item` cùng dạng; `GET /intakes/{id}/sync-status` trả `target_system=null` cho tuyến không đồng bộ (FR-WRK-06) |
-| POST | `/api/v1/acceptance/{id}/evidence` | CTO hoặc Project Owner của dự án. `{ links: [{ kind?: COMMIT\|MR\|LINK, url?, ref?, note? }] }` (1..10) → thẻ nghiệm thu với `evidence_links[{id, kind, url, ref, note, source, added_by_name, created_at}]` và `evidence_check {work (CODE\|OTHER\|UNKNOWN), status (OK\|WEAK\|MISSING), why}`; `422 EVIDENCE_URL_INVALID`, `422 EVIDENCE_WRONG_REPO` (FR-PLAN-36) |
-| POST | `/api/v1/acceptance/{id}/accept` | Thêm `evidence_missing_reason?`: bắt buộc khi `evidence_check.status` khác `OK` (`422 EVIDENCE_REASON_REQUIRED`); thẻ trả `evidence_missing_reason` (FR-PLAN-36) |
-| PATCH | `/api/v1/planning/runs/{run}/assignments/{id}/work-status` | Thêm `evidence[]` cùng dạng; ghi vào Issue của việc với nguồn `WORKER`; trả thêm `evidence_added` (FR-PLAN-36) |
-| POST | `/api/v1/mcp-server` (thêm từ ADR-0065) | `update_work_status` nhận `evidence[{kind, url, ref, note}]`; `log_work.commit` tự thành bằng chứng `WORK_LOG` của Issue gắn với yêu cầu (FR-PLAN-36) |
-| GET | `/api/v1/planning/week/{...}` | `projects[].done` thêm `accepted_without_evidence` (FR-PLAN-36) || POST | `/api/v1/mcp-server` (thêm từ ADR-0064) | Tool `suggest_intake {project, text, idempotency_key, attachments?}` → `{feedback_id, project, status, created, files, note}`; lỗi `MEMBER_UNMAPPED`, `PROJECT_NOT_FOUND`, `TEXT_REQUIRED`. `tools/list` không liệt kê `create_intake` cho token Developer (FR-FBK-01) |
-| GET | `/api/v1/intakes` | Keyset cursor; limit tối đa 100; project/stage/status/priority/target/channel/time/search filters. `stage` nhận `RECEIVED`, `NEEDS_INFORMATION`, `PENDING_APPROVAL`, `WAITING_PLANNING`, `IN_PROGRESS`, `PENDING_ACCEPTANCE`, `ACCEPTED`, `STOPPED`; `status` thô tiếp tục được nhận để tương thích. |
-| GET | `/api/v1/intakes/{id}` | Detail không tự trả raw ciphertext. `IntakeOut.lifecycle_stage` dùng cùng phép suy ra với list/filter từ trạng thái Intake, Work, Planning và `IssueVerification`; phản hồi trực tiếp đã duyệt, Work `DONE`, Issue CTO nghiệm thu hoặc Project Owner xác nhận xong đều là `ACCEPTED`. Quyết định mẫu và ghi đóng tracker của CTO vẫn độc lập. |
-| GET | `/api/v1/intakes/{id}/raw` | CTO-only + audit. Từ FR-AI-14 trả thêm `attachments[{id, index, name, mime_type, size_bytes, ocr_status, ocr_error, ocr_at, page_count, pages_read, text}]` (`text` là chữ đọc từ ảnh) |
-| POST | `/api/v1/intakes/{id}/attachments` | Multipart, 5 MB/file; `415 ATTACHMENT_TYPE_MISMATCH` khi magic bytes không khớp loại khai. Trả thêm `ocr_status`. Yêu cầu đã chuẩn hóa thì tệp được đọc trong worker rồi yêu cầu chuẩn hóa lại (FR-AI-14) |
-| GET | `/api/v1/intakes/{id}/attachments` | CTO hoặc Project Owner của dự án. Danh sách tệp và trạng thái đọc (`ocr_status` NONE, RUNNING, RETRY, DONE, FAILED, REJECTED, SKIPPED; `ocr_error` mã lỗi hoặc `PARTIAL`), không có bản chữ (FR-AI-14) |
-| GET | `/api/v1/intakes/{id}/attachments/{aid}/file` | CTO hoặc Project Owner của dự án. Trả bytes theo MIME đã kiểm tra với `Content-Disposition: attachment`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`; UI dùng fetch có cookie và object URL để xem trước ảnh trong ứng dụng (FR-AI-14) |
-| POST | `/api/v1/intakes/{id}/attachments/{aid}/read` | `202 { id, queued }`. Đặt tệp về chưa đọc và xếp lượt đọc lại; `queued=false` khi không có broker (FR-AI-14) |
+| GET | `/api/v1/publish/queue` (added) | Items `kind: post_version` with `draft_id: work_channel:<id>`, `project`, `work`, `language`, `short_link` for Approved ("Đã duyệt") and Ready ("Sẵn sàng") versions on channels with `auto_publish` on (FR-MKT-14) |
+| POST | `/api/v1/publish/events` (added) | `draft_id` of the form `work_channel:<id>`: `POSTED` with `url` → version `PUBLISHED`; `FAILED` writes an audit entry; `404 DRAFT_NOT_FOUND`, `409 DRAFT_NOT_APPROVED` (FR-MKT-14) |
+| GET, PUT | `/api/v1/settings/publish-pause` | Read: all roles; edit: CTO `{ paused }` (FR-MKT-14) |
+| PUT | `/api/v1/channel-rules/{code}` (added) | `auto_publish?` (FR-MKT-14) |
+| POST | `/api/v1/meetings/{id}/note/items/work` | CTO or Project Owner of the meeting's project. `{ items[{ item_id, member_id?, due_date?, status?: DISCUSS\|READY }] }` (1..50) → `201 { results[{ item_id, work_id, code, intake_id, error }], meeting }`; for each item: an Intake in channel MEETING is created and approved on route WORK with source MEETING, and the task gets its assignee, due date and column (FR-REC-19). `MeetingNoteItemOut` adds `work_id`, `work_code`, `can_become_work`; `WorkOut` adds `meeting_id`, `meeting_title`, `meeting_at` |
+| GET | `/api/v1/hints` | All roles. `{ dismissed: string[] }`: the page intros the caller has clicked "Got it" ("Đã hiểu") on (FR-UI-17) |
+| POST, DELETE | `/api/v1/hints/{key}/dismiss` | Records or removes "Got it" for `key` (`page.work`, `page.my_day`, `page.feedback`, `page.account`); `422 HINT_KEY_INVALID` (FR-UI-17) |
+| POST | `/api/v1/hints/{key}/opened` | One hint open, `204`; counted for statistics (FR-UI-17) |
+| GET | `/api/v1/hints/stats` | CTO only. `?days=` (1..90, default 7) → `{ days, since, opened[{ key, opens, people }], dismissed[{ key, people }] }` (FR-UI-17) |
+| (page) | `/huong-dan` | Not logged in: the public guide page; only the app's existing session check, no call to `/hints` or any data API. Logged in: the in-app version, calls the three `hints` endpoints above. A static copy with the same content is on the public repo's GitHub Pages; `?lang=en\|vi` (FR-UI-18, ADR-0078) |
+| POST | `/api/v1/work/{id}/links` | Anyone who can see the task. `{ url, note? }` → `201 WorkDetail` with `links[{ id, url, note, source: USER\|AGENT, added_by, added_by_name, mine, created_at }]`; `422 URL_INVALID\|TOO_MANY_LINKS` (FR-WRK-07). `WorkOut` adds `link_count` |
+| DELETE | `/api/v1/work/{id}/links/{link_id}` | Your own, or the CTO; `403 NOT_YOURS`; `204` (FR-WRK-07) |
+| POST | `/api/v1/work/{id}/links/file` | Anyone who can see the task. `multipart/form-data`: `file` (JPG, PNG, WebP or PDF, ≤ 5 MB, magic bytes matching `content-type`) and `note?` ≤ 300 characters → `201 WorkDetail`; the link row also has `file_name`, `mime_type`, `size_bytes`, and `url` is the download path. `422 FILE_TYPE_UNSUPPORTED\|FILE_TYPE_MISMATCH\|FILE_TOO_LARGE\|FILE_EMPTY\|TOO_MANY_LINKS` (FR-WRK-10) |
+| GET | `/api/v1/work/{id}/links/{link_id}/file` | Anyone who can see the task. Returns the file with `Content-Disposition: attachment`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`; `404` when the link has no file (FR-WRK-10) |
+| POST | `/api/v1/mcp-server` (added in FR-MCP-08) | Tools `list_work`, `get_work`, `create_work` (not for Developers), `move_work`, `comment_work`, `attach_link`; prompt `content_day`; command file `/in-content-day` at `agent-commands/files/in-content-day.md` |
+| POST | `/api/v1/mcp-server` (added in FR-MCP-09) | Marketing project tools: `hot_topics`, `trending`, `get_pillars`, `week_plan`, `review_queue`, `set_channel_text` (all roles in the project); `topic_to_post`, `dismiss_topic`, `refresh_topics`, `get_short_link`, `add_signals` (not for Developers); prompts `hot_topics`, `draft_post`; command files `in-hot-topics.md`, `in-draft-post.md` |
+| POST | `/api/v1/work/{id}/issue` | CTO or Project Owner, SOFTWARE project with sync enabled. Re-decides the original request to GitLab/GitHub (or creates a new request) and queues the sync; returns `WorkDetail` with `issue_pending=true`; `422 PROJECT_NOT_SOFTWARE\|DELIVERY_SYNC_DISABLED\|INTAKE_NOT_READY`, `409 WORK_CLOSED` (FR-WRK-05) |
+| GET | `/api/v1/intakes/{id}/github-issue-link` | A prefilled Issue creation link on GitHub, built only from normalized content (FR-INTG-20). Returns `url`, `repository`, `host`, `shortened`. 422 errors: `NOT_NORMALIZED`, `NO_REPOSITORY`; 404 when out of scope |
+| GET/PUT | `/api/v1/integrations/github-tokens` | CTO only (FR-INTG-21). GET returns `[{name, key_hint, used_by_projects, updated_at}]`; PUT accepts `{label, token}`, `label` is converted to `GITHUB_TOKEN_<TÊN>`; the token value is never returned. 422 errors: `NAME_INVALID`, `TOKEN_INVALID`. |
+| DELETE | `/api/v1/integrations/github-tokens/{name}` | CTO only. 204; 404 `NOT_FOUND`; 409 `TOKEN_IN_USE` when an enabled project still uses the token. |
+| GET/PUT | `/api/v1/integrations/gitlab-connection` | CTO only (FR-INTG-22). Returns `{configured, source: APP|ENV|NONE, base_url, key_hint, updated_at, linked_projects}`; PUT accepts `{base_url, token?}` (leave `token` empty to keep the old token) and also returns `projects_enabled`. The token value is never returned. 422 errors: `GITLAB_BASE_URL_INVALID`, `TOKEN_INVALID`, `TOKEN_REQUIRED`. |
+| DELETE | `/api/v1/integrations/gitlab-connection` | CTO only. 204, falls back to `GITLAB_TOKEN` in `.env` if present; 404 `NOT_FOUND` when nothing is saved. |
+| POST | `/api/v1/intakes/{id}/approve` (added in ADR-0066) | `approved_route` accepts `WORK`; returns `IntakeOut.work_item { id, code, status, project_id }` when approved on this route. `PLANE` remains valid only for requests decided earlier. `GET /intakes/{id}/journey` adds `work_item` in the same shape; `GET /intakes/{id}/sync-status` returns `target_system=null` for non-syncing routes (FR-WRK-06) |
+| POST | `/api/v1/acceptance/{id}/evidence` | CTO or the project's Project Owner. `{ links: [{ kind?: COMMIT\|MR\|LINK, url?, ref?, note? }] }` (1..10) → the acceptance card with `evidence_links[{id, kind, url, ref, note, source, added_by_name, created_at}]` and `evidence_check {work (CODE\|OTHER\|UNKNOWN), status (OK\|WEAK\|MISSING), why}`; `422 EVIDENCE_URL_INVALID`, `422 EVIDENCE_WRONG_REPO` (FR-PLAN-36) |
+| POST | `/api/v1/acceptance/{id}/accept` | Adds `evidence_missing_reason?`: required when `evidence_check.status` is not `OK` (`422 EVIDENCE_REASON_REQUIRED`); the card returns `evidence_missing_reason` (FR-PLAN-36) |
+| PATCH | `/api/v1/planning/runs/{run}/assignments/{id}/work-status` | Adds `evidence[]` in the same shape; written to the task's Issue with source `WORKER`; also returns `evidence_added` (FR-PLAN-36) |
+| POST | `/api/v1/mcp-server` (added in ADR-0065) | `update_work_status` accepts `evidence[{kind, url, ref, note}]`; `log_work.commit` automatically becomes `WORK_LOG` evidence for the Issue linked to the request (FR-PLAN-36) |
+| GET | `/api/v1/planning/week/{...}` | `projects[].done` adds `accepted_without_evidence` (FR-PLAN-36) |
+| POST | `/api/v1/mcp-server` (added in ADR-0064) | Tool `suggest_intake {project, text, idempotency_key, attachments?}` → `{feedback_id, project, status, created, files, note}`; errors `MEMBER_UNMAPPED`, `PROJECT_NOT_FOUND`, `TEXT_REQUIRED`. `tools/list` does not list `create_intake` for a Developer token (FR-FBK-01) |
+| GET | `/api/v1/intakes` | Keyset cursor; limit up to 100; project/stage/status/priority/target/channel/time/search filters. `stage` accepts `RECEIVED`, `NEEDS_INFORMATION`, `PENDING_APPROVAL`, `WAITING_PLANNING`, `IN_PROGRESS`, `PENDING_ACCEPTANCE`, `ACCEPTED`, `STOPPED`; raw `status` is still accepted for compatibility. |
+| GET | `/api/v1/intakes/{id}` | Detail does not return raw ciphertext by itself. `IntakeOut.lifecycle_stage` uses the same derivation as list/filter from the Intake, Work, Planning and `IssueVerification` states; an approved direct reply, Work `DONE`, an Issue accepted by the CTO or confirmed done by the Project Owner are all `ACCEPTED`. The CTO's template decision and tracker close write remain independent. |
+| GET | `/api/v1/intakes/{id}/raw` | CTO-only + audit. From FR-AI-14 also returns `attachments[{id, index, name, mime_type, size_bytes, ocr_status, ocr_error, ocr_at, page_count, pages_read, text}]` (`text` is the text read from the image) |
+| POST | `/api/v1/intakes/{id}/attachments` | Multipart, 5 MB/file; `415 ATTACHMENT_TYPE_MISMATCH` when the magic bytes do not match the declared type. Also returns `ocr_status`. If the request is already normalized, the file is read in the worker and the request is then normalized again (FR-AI-14) |
+| GET | `/api/v1/intakes/{id}/attachments` | CTO or the project's Project Owner. List of files and read status (`ocr_status` NONE, RUNNING, RETRY, DONE, FAILED, REJECTED, SKIPPED; `ocr_error` an error code or `PARTIAL`), without the text (FR-AI-14) |
+| GET | `/api/v1/intakes/{id}/attachments/{aid}/file` | CTO or the project's Project Owner. Returns bytes with the verified MIME and `Content-Disposition: attachment`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`; the UI uses a fetch with cookies and an object URL to preview images in the app (FR-AI-14) |
+| POST | `/api/v1/intakes/{id}/attachments/{aid}/read` | `202 { id, queued }`. Resets the file to unread and queues a re-read; `queued=false` when there is no broker (FR-AI-14) |
 | POST | `/api/v1/intakes/{id}/process` | `202`, idempotent job |
-| GET | `/api/v1/intakes/{id}/pipeline` | Runs/stages/errors đã redact |
-| PATCH | `/api/v1/intakes/{id}/review` | Sửa normalized payload + expected version |
-| POST | `/api/v1/intakes/{id}/approve` | Chỉ sau normalized review; tạo snapshot |
+| GET | `/api/v1/intakes/{id}/pipeline` | Redacted runs/stages/errors |
+| PATCH | `/api/v1/intakes/{id}/review` | Edit normalized payload + expected version |
+| POST | `/api/v1/intakes/{id}/approve` | Only after normalized review; creates a snapshot |
 | POST | `/api/v1/intakes/{id}/reject` | Reason required |
 | POST | `/api/v1/intakes/{id}/defer` | Future datetime |
 | POST | `/api/v1/intakes/{id}/needs-information` | Question list |
 
-## 4. Approval và sync
+## 4. Approval and sync
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/approvals` | Queue có pagination/project filter. Mỗi dòng có `approval_owner` (`CTO`/`PO`) và `approval_overdue`; `?owner=CTO|PO` lọc trên trang đã đọc (FR-APR-14) |
-| GET | `/api/v1/approvals/decisions` | Lịch sử quyết định trên yêu cầu (FR-APR-15), mới nhất trước, trong phạm vi dự án của người gọi: `?days=` (mặc định 7, 1 đến 365), `?before=<thời điểm>` đọc lùi (bỏ qua `days`), `?project_id=` (mã hoặc id), `?limit=` (mặc định 50, tối đa 200). Trả `{ items[], next_before, since }`; mỗi dòng `{ id, at, action: APPROVED|REJECTED|DEFERRED|NEEDS_INFORMATION|REOPENED, source: QUEUE|PLANNING, actor_id, actor_name, reason, intake_id, public_id, title, status, project_id, project_code, project_name, approved_route, approved_priority }` |
-| GET | `/api/v1/intakes/{id}/sync-status` | Snapshot/job hiện hành và trạng thái target |
-| POST | `/api/v1/approval-snapshots/{id}/sync` | Target phải khớp approved route |
+| GET | `/api/v1/approvals` | Queue with pagination/project filter. Each row has `approval_owner` (`CTO`/`PO`) and `approval_overdue`; `?owner=CTO|PO` filters within the page already read (FR-APR-14) |
+| GET | `/api/v1/approvals/decisions` | History of decisions on requests (FR-APR-15), newest first, within the caller's project scope: `?days=` (default 7, 1 to 365), `?before=<timestamp>` reads backward (ignores `days`), `?project_id=` (code or id), `?limit=` (default 50, max 200). Returns `{ items[], next_before, since }`; each row `{ id, at, action: APPROVED|REJECTED|DEFERRED|NEEDS_INFORMATION|REOPENED, source: QUEUE|PLANNING, actor_id, actor_name, reason, intake_id, public_id, title, status, project_id, project_code, project_name, approved_route, approved_priority }` |
+| GET | `/api/v1/intakes/{id}/sync-status` | Current snapshot/job and target status |
+| POST | `/api/v1/approval-snapshots/{id}/sync` | Target must match the approved route |
 
 ## 5. Create intake request
 
@@ -166,13 +169,13 @@ Probe được integration worker xử lý qua task `intake.integration.probe`, 
 }
 ```
 
-Response không echo raw text. File upload là request riêng gắn intake/source.
+The response does not echo the raw text. File upload is a separate request attached to the intake/source.
 
-Mọi JSON success dưới `/api/v1` được wrap bằng `success`, `data`, `request_id`. List Intake/Approval đặt `items`, `next_cursor`, `limit` bên trong `data`. Intake list còn trả `summary.total_items`, `p0_attention`, `p1_attention`, `pending_approval`, `sync_failed`; các chỉ số attention được scope theo `project_id` nếu filter project được gửi. Mỗi Intake trả `sync_targets[]` chứa trạng thái, external ID và URL mới nhất theo từng target, kèm `superseded` (lần đồng bộ thuộc quyết định đã rút lại, FR-APR-10).
+Every JSON success response under `/api/v1` is wrapped in `success`, `data`, `request_id`. Intake/Approval lists put `items`, `next_cursor`, `limit` inside `data`. The Intake list also returns `summary.total_items`, `p0_attention`, `p1_attention`, `pending_approval`, `sync_failed`; the attention counts are scoped by `project_id` if a project filter is sent. Each Intake returns `sync_targets[]` with the latest status, external ID and URL per target, plus `superseded` (a sync belonging to a decision that was withdrawn, FR-APR-10).
 
 ## 6. Approval request
 
-Precondition: item ở `PENDING_APPROVAL` sau khi normalized review được lưu. Nếu chưa đạt, API trả `409 REVIEW_REQUIRED` và không tạo snapshot/outbox.
+Precondition: the item is in `PENDING_APPROVAL` after the normalized review has been saved. If not, the API returns `409 REVIEW_REQUIRED` and creates no snapshot/outbox.
 
 ```json
 {
@@ -183,11 +186,11 @@ Precondition: item ở `PENDING_APPROVAL` sau khi normalized review được lư
 }
 ```
 
-Normalized title/summary/priority proposal/route phải được lưu trước bằng `PATCH /intakes/{id}/review`; approval request không nhận payload tùy ý. Server tạo snapshot từ item hiện hành, tự thêm Intake ID, project reference, actor và payload hash.
+The normalized title/summary/priority proposal/route must be saved first with `PATCH /intakes/{id}/review`; the approval request does not accept an arbitrary payload. The server builds the snapshot from the current item and adds the Intake ID, project reference, actor and payload hash itself.
 
-## 7. Plane · lịch sử
+## 7. Plane · history
 
-Plane không còn adapter, cấu hình, probe, worker hay thao tác ghi. Quyết định, sync job và external link cũ vẫn được API trả về ở chế độ chỉ đọc với nhãn `Plane · lịch sử`; yêu cầu đồng bộ mới trả `ROUTE_RETIRED`.
+Plane no longer has an adapter, configuration, probe, worker or write operation. Old decisions, sync jobs and external links are still returned by the API in read-only mode with the label `Plane · lịch sử` (Plane · history); new sync requests return `ROUTE_RETIRED`.
 
 ## 8. GitLab adapter
 
@@ -200,69 +203,69 @@ Plane không còn adapter, cấu hình, probe, worker hay thao tác ghi. Quyết
 | Intake ID | Traceability section |
 | Project mapping | GitLab project ID/path |
 
-Token scope tối thiểu. Nếu instance không hỗ trợ idempotency header, dùng stable marker và lookup trong project trước create retry.
+Minimum token scope. If the instance does not support an idempotency header, use a stable marker and look it up in the project before a create retry.
 
 ### GitLab label contract
 
-Intake chỉ gửi ba label từ allowlist cố định:
+Intake sends only three labels from a fixed allowlist:
 
 - `source:intake`;
-- đúng một `priority:p0|p1|p2|p3`, lấy từ quyết định đã duyệt của CTO;
-- đúng một `type:bug|feature|task|tech-debt`, ánh xạ từ `item_type` đã chuẩn hóa.
+- exactly one `priority:p0|p1|p2|p3`, taken from the CTO's approved decision;
+- exactly one `type:bug|feature|task|tech-debt`, mapped from the normalized `item_type`.
 
-`FEATURE` và `SCOPE_CHANGE` ánh xạ thành `type:feature`; `TASK`, `FEEDBACK`, `QUESTION` và `UNCLEAR` ánh xạ thành `type:task`. Giá trị priority/type ngoài allowlist phải fail closed trước khi gọi GitLab. Intake không nhận tên label tự do từ AI vì GitLab Issues API có thể tự tạo label chưa tồn tại.
+`FEATURE` and `SCOPE_CHANGE` map to `type:feature`; `TASK`, `FEEDBACK`, `QUESTION` and `UNCLEAR` map to `type:task`. Priority/type values outside the allowlist must fail closed before GitLab is called. Intake does not accept free-form label names from the AI because the GitLab Issues API can create labels that do not exist yet.
 
 ## 8A. GitHub adapter (ADR-0021)
 
-- Base `https://api.github.com`, header `Authorization: Bearer <token của dự án>`, `X-GitHub-Api-Version: 2022-11-28`.
-- Tạo Issue: `POST /repos/{owner}/{repo}/issues` với chỉ `title` và `body`; `body` là mô tả đã duyệt cộng chú thích ẩn `<!-- {INTEGRATION_MARKER_PREFIX}:MÃ -->` (biến môi trường, mặc định `intake`; nơi đã có Issue giữ nguyên tiền tố cũ để nhận lại Issue). Không gửi nhãn, người phụ trách hay milestone.
-- Idempotency: trước khi tạo, tìm chú thích ẩn trong 100 Issue tạo gần nhất (`GET /repos/{owner}/{repo}/issues?state=all&sort=created`).
-- Đọc cho Planning: `GET /repos/{owner}/{repo}/issues?state=all` có phân trang, bỏ mục có `pull_request`.
-- Không có lời gọi ghi nào khác: duyệt Planning Run không cập nhật Issue trên GitHub.
-- Lỗi: 401/403 là `GITHUB_AUTH_FAILED`, 404 là `GITHUB_MAPPING_NOT_FOUND`, 429 hoặc hết hạn mức là lỗi tạm thời và được thử lại.
+- Base `https://api.github.com`, header `Authorization: Bearer <token của dự án>` (the project's token), `X-GitHub-Api-Version: 2022-11-28`.
+- Create Issue: `POST /repos/{owner}/{repo}/issues` with only `title` and `body`; `body` is the approved description plus a hidden comment `<!-- {INTEGRATION_MARKER_PREFIX}:MÃ -->` (environment variable, default `intake`; where Issues already exist, keep the old prefix so they are recognized again). No labels, assignees or milestones are sent.
+- Idempotency: before creating, look for the hidden comment in the 100 most recently created Issues (`GET /repos/{owner}/{repo}/issues?state=all&sort=created`).
+- Reading for Planning: `GET /repos/{owner}/{repo}/issues?state=all` with pagination, skipping items that have `pull_request`.
+- No other write calls: approving a Planning Run does not update the Issue on GitHub.
+- Errors: 401/403 is `GITHUB_AUTH_FAILED`, 404 is `GITHUB_MAPPING_NOT_FOUND`, 429 or quota exhausted is a transient error and is retried.
 
 ## 9. IMAPS contract
 
-- TLS, hostname verification và certificate validation bắt buộc.
-- Checkpoint gồm mailbox, UIDVALIDITY và last UID.
-- UIDVALIDITY đổi phải reconcile, không ingest lại im lặng.
-- Parse limit cho body/attachment; email vượt giới hạn được ghi trạng thái cần xử lý.
-- Không gửi SMTP.
+- TLS, hostname verification and certificate validation are mandatory.
+- The checkpoint consists of mailbox, UIDVALIDITY and last UID.
+- A UIDVALIDITY change must be reconciled, not silently re-ingested.
+- Parse limits for body/attachments; emails over the limit are recorded with a needs-handling status.
+- No SMTP sending.
 
-Daily Report API phục vụ backfill/kiểm chứng nội bộ, chỉ CTO:
+The Daily Report API serves backfill/internal verification, CTO only:
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| POST | `/api/v1/reports/daily/ingest` | Ingest idempotent theo mailbox + UIDVALIDITY + UID; raw subject/body được mã hóa |
-| GET | `/api/v1/reports/daily` | Lọc theo `report_date` và `member_id`; mặc định chỉ trả revision hiện hành. Project Owner: chỉ thư của người trong đội có ít nhất một việc họ thấy; `item_count`, `unlinked_items` đếm phần họ thấy; thêm `hidden_items`, `can_review` (FR-ID-08). Mỗi dòng có `unlinked_items`; chi tiết mỗi task có `issue_suggestions[{issue, title, source, confidence, reason?}]`, `issue_link_source`, `no_issue_reason` (FR-RPT-07) |
-| GET | `/api/v1/reports/daily/{id}` | Chi tiết và các task đã trích; không trả subject/body |
-| GET | `/api/v1/reports/daily/{id}/raw` | Thư gốc đã giải mã, ghi audit `report.raw.read`. `body` là phần báo cáo, `signature` là phần sau dòng `--` (ADR-0019); bản lưu không bị cắt |
-| POST | `/api/v1/reports/daily/{id}/review` | `decision` là `CONFIRMED` hoặc `REJECTED`; loại thì task của báo cáo bị gỡ khỏi Planning |
-| PATCH, DELETE | `/api/v1/reports/daily/{id}/items/{item_id}` | CTO sửa hoặc xóa từng task |
+| POST | `/api/v1/reports/daily/ingest` | Idempotent ingest by mailbox + UIDVALIDITY + UID; raw subject/body are encrypted |
+| GET | `/api/v1/reports/daily` | Filter by `report_date` and `member_id`; by default returns only the current revision. Project Owner: only emails from team members who have at least one task they can see; `item_count`, `unlinked_items` count the part they see; adds `hidden_items`, `can_review` (FR-ID-08). Each row has `unlinked_items`; each task's detail has `issue_suggestions[{issue, title, source, confidence, reason?}]`, `issue_link_source`, `no_issue_reason` (FR-RPT-07) |
+| GET | `/api/v1/reports/daily/{id}` | Detail and extracted tasks; does not return subject/body |
+| GET | `/api/v1/reports/daily/{id}/raw` | Decrypted original email, writes audit `report.raw.read`. `body` is the report part, `signature` is the part after the `--` line (ADR-0019); the stored copy is not truncated |
+| POST | `/api/v1/reports/daily/{id}/review` | `decision` is `CONFIRMED` or `REJECTED`; when rejected, the report's tasks are removed from Planning |
+| PATCH, DELETE | `/api/v1/reports/daily/{id}/items/{item_id}` | CTO edits or deletes individual tasks |
 
-IMAP worker dùng `BODY.PEEK[]`, không đánh dấu email đã đọc. Reply/email mới cùng nhân sự và report date tạo revision mới; revision cũ và các item cũ chuyển `is_current=false`, không bị xóa.
+The IMAP worker uses `BODY.PEEK[]` and does not mark emails as read. A reply/new email from the same member for the same report date creates a new revision; the old revision and old items change to `is_current=false` and are not deleted.
 
-Format chuẩn có subject `DAILY REPORT | YYYY-MM-DD | HỌ TÊN | MÃ-DỰ-ÁN...`; body dùng status allowlist `PLANNED|IN_PROGRESS|PENDING_REVIEW|DONE|BLOCKED|CANCELLED`, tham chiếu GitLab/Plane/Intake (số Issue nhận ở dạng `GitLab #19`, `Issue #19: …`, `[#8 KIN-26W41-007] …` hay `#19 …` ở đầu tiêu đề, hoặc `Issue: https://…/issues/17` (`/work_items/17`); tiền tố `[#8 KIN-…]`/`Issue #19:` được bỏ khỏi tiêu đề task; mã Intake trong tiêu đề thành `intake_reference`; định dạng chuẩn ở `docs/stable/daily-report-format.md`), giờ làm/còn lại, bước tiếp theo, evidence và blocker. Parser lỗi vẫn persist email/revision và trả issue đã sanitize; report không hợp lệ không chặn Planning Run.
+The standard format has the subject `DAILY REPORT | YYYY-MM-DD | HỌ TÊN | MÃ-DỰ-ÁN...` (full name, project code); the body uses the status allowlist `PLANNED|IN_PROGRESS|PENDING_REVIEW|DONE|BLOCKED|CANCELLED`, GitLab/Plane/Intake references (Issue numbers are recognized as `GitLab #19`, `Issue #19: …`, `[#8 KIN-26W41-007] …` or `#19 …` at the start of the title, or `Issue: https://…/issues/17` (`/work_items/17`); the `[#8 KIN-…]`/`Issue #19:` prefix is removed from the task title; an Intake ID in the title becomes `intake_reference`; the standard format is in `docs/stable/daily-report-format.md`), hours worked/remaining, next step, evidence and blocker. A parser error still persists the email/revision and returns a sanitized issue; an invalid report does not block the Planning Run.
 
 ## 10. Daily planning API
 
-| Method | Path | Quyền/Ghi chú |
+| Method | Path | Permission/Notes |
 |---|---|---|
-| GET | `/api/v1/planning/capacities/{date}` | CTO; capacity theo người, thành phần khấu trừ và override; `is_cto` đánh dấu hồ sơ của chính CTO (FR-PLAN-37) |
-| PUT | `/api/v1/planning/capacities/{date}/{member_id}` | CTO; optimistic version, override reason bắt buộc cho OT/ngoại lệ |
-| POST | `/api/v1/planning/members` | CTO; tạo workforce member và project mappings |
-| GET | `/api/v1/planning/members` | CTO; danh sách workforce/mappings; mỗi dòng có `is_cto` (hồ sơ của chính CTO, FR-PLAN-37) |
-| POST | `/api/v1/planning/members/me` | Chỉ CTO; tạo hồ sơ nhân sự của chính CTO (email của tài khoản, 0 giờ mặc định) hoặc nối hồ sơ đã mang email đó, ghi `users.member_id`; bấm lại trả cùng `WorkforceMemberOut`; `422 MEMBER_HAS_ACCOUNT` khi hồ sơ đó đã thuộc tài khoản khác (FR-PLAN-37) |
-| POST | `/api/v1/planning/runs` | CTO/scheduler; idempotent theo plan date + scope |
-| GET | `/api/v1/planning/days/{plan_date}` | Chỉ đọc (FR-UI-12): kế hoạch của ngày đã mở chưa và đến đâu. Trả `run_id`, `status`, `assigned`, `waiting`; chưa có kế hoạch thì `run_id` là `null`. Không bao giờ mở kế hoạch. `?project_id=` cho một dự án; Project Owner bắt buộc truyền dự án của mình, ngoài phạm vi trả `404` |
-| GET | `/api/v1/planning/runs/{id}` | Run, candidates, assignments, warning và conflict. Từ 2026-10-15 mỗi assignment có `issue_url` (trang Issue trên tracker, từ bản đọc GitLab/GitHub) và mỗi candidate có `intake_public_id`, `issue_url`, để giao diện gắn link riêng cho mã Intake và số Issue (FR-PLAN-33). Từ 2026-10-19 candidate có `accepted_at`: thời điểm CTO nghiệm thu Issue của dòng đó (null khi chưa); dòng `DONE_ELSEWHERE` có `accepted_at` không hiện trên Daily Planning (FR-PLAN-34) Từ 2026-10-20 mỗi assignment cũng có `accepted_at` (CTO đã nghiệm thu Issue của việc; giao diện vẽ thẻ là đã xong, không đổi giờ). |
-| POST | `/api/v1/planning/runs/{id}/assignments` | CTO; thêm assignment có expected run version. Một `(run, project, Issue)` chỉ có một assignment; thêm lại trả `422 ISSUE_ALREADY_PLANNED` (FR-PLAN-04). |
-| POST | `/api/v1/planning/runs/{id}/accept-proposals` | CTO; copy `proposed_*` sang `approved_*` bằng expected version, chưa sync GitLab |
-| POST | `/api/v1/planning/runs/{id}/quick-add` | CTO; chọn existing reference hoặc tạo Intake từ form/paste; hỗ trợ `Idempotency-Key` |
-| POST | `/api/v1/planning/runs/{id}/quick-add/{candidate_id}/promote` | CTO; gắn GitLab Issue hiện hành và chuyển candidate thành proposal assignment; Issue đã có assignment trong run trả `422 ISSUE_ALREADY_PLANNED` (FR-PLAN-04). |
-| POST | `/api/v1/planning/runs/{id}/approve` | CTO; tạo immutable snapshot và enqueue GitLab update jobs |
-| GET | `/api/v1/planning/runs/{id}/sync-jobs` | Per-Issue status/error đã redact |
-| POST | `/api/v1/planning/runs/{id}/sync-jobs/{job_id}/retry` | CTO; chỉ failed job còn lượt retry và thuộc đúng Planning Run |
+| GET | `/api/v1/planning/capacities/{date}` | CTO; capacity per person, deduction components and overrides; `is_cto` marks the CTO's own profile (FR-PLAN-37) |
+| PUT | `/api/v1/planning/capacities/{date}/{member_id}` | CTO; optimistic version, override reason required for OT/exceptions |
+| POST | `/api/v1/planning/members` | CTO; creates a workforce member and project mappings |
+| GET | `/api/v1/planning/members` | CTO; workforce/mappings list; each row has `is_cto` (the CTO's own profile, FR-PLAN-37) |
+| POST | `/api/v1/planning/members/me` | CTO only; creates the CTO's own member profile (the account's email, 0 hours by default) or links an existing profile with that email, writes `users.member_id`; clicking again returns the same `WorkforceMemberOut`; `422 MEMBER_HAS_ACCOUNT` when that profile already belongs to another account (FR-PLAN-37) |
+| POST | `/api/v1/planning/runs` | CTO/scheduler; idempotent by plan date + scope |
+| GET | `/api/v1/planning/days/{plan_date}` | Read only (FR-UI-12): whether the day's plan has been opened and how far it has gone. Returns `run_id`, `status`, `assigned`, `waiting`; with no plan yet, `run_id` is `null`. Never opens a plan. `?project_id=` for one project; a Project Owner must pass their own project, out of scope returns `404` |
+| GET | `/api/v1/planning/runs/{id}` | Run, candidates, assignments, warnings and conflicts. Since 2026-10-15 each assignment has `issue_url` (the Issue page on the tracker, from the GitLab/GitHub read model) and each candidate has `intake_public_id`, `issue_url`, so the UI can link the Intake ID and the Issue number separately (FR-PLAN-33). Since 2026-10-19 a candidate has `accepted_at`: when the CTO accepted that row's Issue (null if not yet); a `DONE_ELSEWHERE` row with `accepted_at` is not shown on Daily Planning (FR-PLAN-34) Since 2026-10-20 each assignment also has `accepted_at` (the CTO has accepted the task's Issue; the UI draws the card as done, without changing hours). |
+| POST | `/api/v1/planning/runs/{id}/assignments` | CTO; adds an assignment with the expected run version. A `(run, project, Issue)` has only one assignment; adding again returns `422 ISSUE_ALREADY_PLANNED` (FR-PLAN-04). |
+| POST | `/api/v1/planning/runs/{id}/accept-proposals` | CTO; copies `proposed_*` to `approved_*` with the expected version, no GitLab sync yet |
+| POST | `/api/v1/planning/runs/{id}/quick-add` | CTO; picks an existing reference or creates an Intake from form/paste; supports `Idempotency-Key` |
+| POST | `/api/v1/planning/runs/{id}/quick-add/{candidate_id}/promote` | CTO; attaches the current GitLab Issue and turns the candidate into a proposal assignment; an Issue that already has an assignment in the run returns `422 ISSUE_ALREADY_PLANNED` (FR-PLAN-04). |
+| POST | `/api/v1/planning/runs/{id}/approve` | CTO; creates an immutable snapshot and enqueues GitLab update jobs |
+| GET | `/api/v1/planning/runs/{id}/sync-jobs` | Per-Issue status/error, redacted |
+| POST | `/api/v1/planning/runs/{id}/sync-jobs/{job_id}/retry` | CTO; only failed jobs with retries left that belong to the right Planning Run |
 
 Planning run create request:
 
@@ -274,7 +277,7 @@ Planning run create request:
 }
 ```
 
-Quick Add dùng một contract thống nhất:
+Quick Add uses a single unified contract:
 
 ```json
 {
@@ -288,11 +291,11 @@ Quick Add dùng một contract thống nhất:
 }
 ```
 
-`mode=FORM` yêu cầu `title`, `content` tùy chọn; `mode=PASTE` yêu cầu `content` và nhận `channel` thuộc `ZALO|WHATSAPP|EMAIL|MEETING|MANUAL`. Hai mode này tạo Intake và candidate `PENDING_TRIAGE` trong cùng transaction. Target đã chốt sẽ enqueue normalize/dedupe bất đồng bộ sau commit, không chặn response Quick Add; runtime 1.2 chưa enqueue bước này. Existing GitLab Issue đang mở tạo candidate `READY`; existing Intake/Plane chỉ `READY` khi đã có GitLab link khớp read model hiện hành.
+`mode=FORM` requires `title`, with optional `content`; `mode=PASTE` requires `content` and accepts `channel` from `ZALO|WHATSAPP|EMAIL|MEETING|MANUAL`. These two modes create the Intake and a `PENDING_TRIAGE` candidate in the same transaction. The agreed target enqueues normalize/dedupe asynchronously after commit, without blocking the Quick Add response; runtime 1.2 does not enqueue this step yet. An existing open GitLab Issue creates a `READY` candidate; an existing Intake/Plane item is `READY` only when it already has a GitLab link matching the current read model.
 
-Promotion yêu cầu `member_id`, `slot`, `planned_hours` và GitLab Issue đang mở. Kết quả tạo assignment chỉ có `proposed_*`; CTO vẫn phải gọi `accept-proposals`, rồi `approve`. Form/paste không được đi thẳng thành delivery assignment nếu chưa có GitLab Issue.
+Promotion requires `member_id`, `slot`, `planned_hours` and an open GitLab Issue. The result creates an assignment with only `proposed_*`; the CTO still has to call `accept-proposals`, then `approve`. Form/paste cannot go straight to a delivery assignment without a GitLab Issue.
 
-Mốc 06:45 gọi task `intake.planning.refresh-gitlab` trên integration queue. Task phân trang `state=all`, lưu snapshot nội bộ và không ghi GitLab. Mốc 07:00 chỉ đọc snapshot hiện hành, xếp ưu tiên theo carry-over email, priority và due date. Target theo ADR-0013: priority lấy từ Planning snapshot đã duyệt gần nhất có chứa Issue, GitLab priority label là dự phòng; runtime 1.2 mới đọc priority label. Planner tạo tối đa một primary Issue/người, chia tối đa 4 giờ mỗi lane. Proposal không trở thành quyết định cho tới khi CTO gọi `accept-proposals`, sau đó vẫn cần `approve` riêng.
+At 06:45 the task `intake.planning.refresh-gitlab` is called on the integration queue. The task paginates `state=all`, stores an internal snapshot and does not write to GitLab. At 07:00 it only reads the current snapshot and ranks by email carry-over, priority and due date. Target per ADR-0013: priority comes from the most recent approved Planning snapshot containing the Issue, with the GitLab priority label as fallback; runtime 1.2 only reads the priority label. The planner creates at most one primary Issue per person, splitting at most 4 hours per lane. A proposal does not become a decision until the CTO calls `accept-proposals`, after which a separate `approve` is still needed.
 
 Capacity override request:
 
@@ -318,11 +321,11 @@ Planning approval request:
 }
 ```
 
-Approval fail closed khi có assignment thiếu GitLab Issue, thiếu GitLab user mapping hoặc chọn milestone không tồn tại. Thiếu milestone hoặc due date không chặn: warning `GITLAB_MILESTONE_MISSING` / `GITLAB_DUE_DATE_MISSING` phải được đánh dấu đã xem (`acknowledged_warning_ids`), nếu không `422 WARNING_UNACKNOWLEDGED`; job cập nhật GitLab chỉ gửi trường có giá trị (ADR-0013, thực hiện 2026-10-13).
+Approval fails closed when an assignment lacks a GitLab Issue, lacks a GitLab user mapping or selects a milestone that does not exist. A missing milestone or due date does not block: the warning `GITLAB_MILESTONE_MISSING` / `GITLAB_DUE_DATE_MISSING` must be marked as seen (`acknowledged_warning_ids`), otherwise `422 WARNING_UNACKNOWLEDGED`; the GitLab update job only sends fields that have values (ADR-0013, implemented 2026-10-13).
 
 ### GitLab planning update contract
 
-Mỗi job chỉ cập nhật một Issue và payload allowlist gồm:
+Each job updates only one Issue and the payload allowlist consists of:
 
 ```json
 {
@@ -333,298 +336,297 @@ Mỗi job chỉ cập nhật một Issue và payload allowlist gồm:
 }
 ```
 
-- Không tạo milestone mới.
-- `milestone_external_id` và `due_date` là tùy chọn; trường thiếu không được gửi và không bị xóa trên GitLab (ADR-0013).
-- Không cập nhật priority label trong pilot; priority CTO duyệt chỉ nằm trong Planning snapshot.
-- Không ghi raw email/chat hoặc chi tiết ca sáng/chiều vào GitLab.
-- Adapter đọc lại Issue trước update, lưu before/after allowlist và dùng stable idempotency key theo planning snapshot + Issue.
-- Lỗi một Issue không rollback Issue khác; retry dùng cùng idempotency key và chỉ job lỗi.
+- No new milestones are created.
+- `milestone_external_id` and `due_date` are optional; a missing field is not sent and is not cleared on GitLab (ADR-0013).
+- The priority label is not updated in the pilot; the CTO-approved priority lives only in the Planning snapshot.
+- No raw email/chat or morning/afternoon slot details are written to GitLab.
+- The adapter re-reads the Issue before updating, stores the before/after allowlist and uses a stable idempotency key per planning snapshot + Issue.
+- An error on one Issue does not roll back other Issues; a retry uses the same idempotency key and only the failed job.
 
-Candidate nguồn `REPORT` (ADR-0019): `POST /api/v1/planning/runs` tạo run hoặc trả run hiện có của ngày và phạm vi đó. Trong cả hai trường hợp, nếu run còn sửa được, task chưa xong của Daily Report dùng được được thêm thành candidate và `version` của run tăng khi có candidate mới. Promote dùng cùng endpoint với Quick Add và vẫn yêu cầu GitLab Issue đang mở.
+`REPORT` source candidates (ADR-0019): `POST /api/v1/planning/runs` creates a run or returns the existing run for that day and scope. In both cases, if the run is still editable, unfinished tasks from usable Daily Reports are added as candidates and the run's `version` increases when there are new candidates. Promote uses the same endpoint as Quick Add and still requires an open GitLab Issue.
 
-Quyền hằng ngày của Project Owner (FR-ID-08, ADR-0026). Các route sau nhận cả Project Owner, trong phạm vi đội và dự án của họ; ngoài phạm vi trả 404:
+Project Owner daily permissions (FR-ID-08, ADR-0026). The following routes also accept a Project Owner, within their team and projects; out of scope returns 404:
 
-- `GET /api/v1/reports/daily`, `GET /api/v1/reports/daily/{id}`, `GET .../raw`, `POST .../review`, `PATCH` và `DELETE .../items/{item_id}`.
-- `GET /api/v1/planning/members` (chỉ đội của họ), `GET /api/v1/planning/capacities/{date}?project_id=` (bắt buộc nêu dự án), `PUT /api/v1/planning/capacities/{date}/{member_id}`.
-- `POST /api/v1/planning/runs` (phạm vi phải là dự án của họ), `GET /api/v1/planning/runs/{id}`, `POST .../assignments`, `GET .../work-items`, `POST .../work`, `POST .../candidates/{id}/assign`, `POST .../candidates/{id}/dismiss|restore`.
-- `POST .../work` với việc chưa có Issue và `POST .../candidates/{id}/assign` với `issue_mode=CREATE` trả 403 `CTO_APPROVAL_REQUIRED` cho Project Owner.
-- Mỗi assignment trong Planning Run có thêm `title` (tiêu đề Issue trong read model, null nếu chưa có).
+- `GET /api/v1/reports/daily`, `GET /api/v1/reports/daily/{id}`, `GET .../raw`, `POST .../review`, `PATCH` and `DELETE .../items/{item_id}`.
+- `GET /api/v1/planning/members` (their team only), `GET /api/v1/planning/capacities/{date}?project_id=` (project required), `PUT /api/v1/planning/capacities/{date}/{member_id}`.
+- `POST /api/v1/planning/runs` (scope must be their projects), `GET /api/v1/planning/runs/{id}`, `POST .../assignments`, `GET .../work-items`, `POST .../work`, `POST .../candidates/{id}/assign`, `POST .../candidates/{id}/dismiss|restore`.
+- `POST .../work` with a task that has no Issue yet and `POST .../candidates/{id}/assign` with `issue_mode=CREATE` return 403 `CTO_APPROVAL_REQUIRED` for a Project Owner.
+- Each assignment in a Planning Run also has `title` (the Issue title in the read model, null if none yet).
 
-Đổi lại quyết định (FR-APR-08, ADR-0028): `POST /api/v1/intakes/{id}/reopen` với `reason` (từ 5 ký tự) và `expected_version`; cùng phạm vi với phê duyệt. Trả Intake ở `PENDING_APPROVAL`. 409 `SYNC_LOCKED`, `NOT_DECIDED`, `INTAKE_PLANNED`, hoặc lệch phiên bản. Hành trình của Intake có thêm `previous_targets` (các mục đã tạo theo quyết định cũ). Từ ADR-0028, `POST .../work` và `POST .../candidates/{id}/assign` không còn trả `CTO_APPROVAL_REQUIRED` cho Project Owner.
+Changing a decision (FR-APR-08, ADR-0028): `POST /api/v1/intakes/{id}/reopen` with `reason` (at least 5 characters) and `expected_version`; same scope as approval. Returns the Intake in `PENDING_APPROVAL`. 409 `SYNC_LOCKED`, `NOT_DECIDED`, `INTAKE_PLANNED`, or version mismatch. The Intake journey also has `previous_targets` (items created under the old decision). Since ADR-0028, `POST .../work` and `POST .../candidates/{id}/assign` no longer return `CTO_APPROVAL_REQUIRED` for a Project Owner.
 
-Nơi phê duyệt (FR-APR-07), chỉ CTO: `GET /api/v1/approvals/sources?weeks=4` (1 đến 12 tuần) trả danh sách tuần, mới nhất trước, mỗi tuần có `week_start` (thứ Hai, giờ Việt Nam), `from_queue` và `from_planning`. Chỉ đếm hành động `APPROVE`.
+Where approvals happen (FR-APR-07), CTO only: `GET /api/v1/approvals/sources?weeks=4` (1 to 12 weeks) returns a list of weeks, newest first, each with `week_start` (Monday, Vietnam time), `from_queue` and `from_planning`. Only `APPROVE` actions are counted.
 
-Quét hộp thư báo cáo (FR-EML-12, FR-EML-14), chỉ CTO:
+Report mailbox scan (FR-EML-12, FR-EML-14), CTO only:
 
-- `GET /api/v1/reports/mailbox` trả `enabled`, `mailbox`, `poll_minutes`, `current` (lần quét đang chờ hoặc đang chạy) và `last` (lần quét xong gần nhất). Mỗi lần quét có `trigger` (`SCHEDULED`/`MANUAL`), `status` (`PENDING`/`RUNNING`/`DONE`/`FAILED`), `ingested`, `duplicates`, `failed`, `error_code`, `created_at`, `completed_at`.
-- `POST /api/v1/reports/mailbox/scan` trả 202 với cùng cấu trúc; nếu đã có lần quét đang mở thì dùng lại lần đó. 409 `MAILBOX_DISABLED` khi quét hộp thư đang tắt. Yêu cầu không được worker nhận sau 5 phút bị đóng với `WORKER_UNAVAILABLE`.
+- `GET /api/v1/reports/mailbox` returns `enabled`, `mailbox`, `poll_minutes`, `current` (the scan pending or running) and `last` (the most recent finished scan). Each scan has `trigger` (`SCHEDULED`/`MANUAL`), `status` (`PENDING`/`RUNNING`/`DONE`/`FAILED`), `ingested`, `duplicates`, `failed`, `error_code`, `created_at`, `completed_at`.
+- `POST /api/v1/reports/mailbox/scan` returns 202 with the same structure; if a scan is already open, it is reused. 409 `MAILBOX_DISABLED` when the mailbox scan is turned off. A request not picked up by the worker within 5 minutes is closed with `WORKER_UNAVAILABLE`.
 
-Hành trình của một yêu cầu (FR-UI-09): `GET /api/v1/intakes/{id}/journey`, cùng phạm vi với xem Intake (CTO hoặc Project Owner của dự án, ngoài phạm vi trả 404). Trả `intake_id`, `intake_public_id`, `project_id`, `received_at`, `channel`, `decision` (`action`, `at`, `by`, `route`, `priority`), `issue` (`system` GITLAB/GITHUB, `external_id`, `url`), `other_target`, `sync_status`, `accepted_at`, `plans` (tối đa 6 lần xếp gần nhất: `plan_date`, `run_id`, `member_name`, `slot`, `planned_hours`, `settled`, `work_status`, `accepted_at`) và `waiting_in_plan`. Mỗi assignment trong Planning Run có thêm `intake_id` và `intake_public_id` (null nếu Issue không sinh từ Intake). Giao diện tạo deep-link `/planning?date=YYYY-MM-DD&project=<uuid>&intake=INT-...` bằng lần xếp mới nhất.
+Journey of a request (FR-UI-09): `GET /api/v1/intakes/{id}/journey`, same scope as viewing an Intake (CTO or the project's Project Owner, out of scope returns 404). Returns `intake_id`, `intake_public_id`, `project_id`, `received_at`, `channel`, `decision` (`action`, `at`, `by`, `route`, `priority`), `issue` (`system` GITLAB/GITHUB, `external_id`, `url`), `other_target`, `sync_status`, `accepted_at`, `plans` (up to the 6 most recent schedulings: `plan_date`, `run_id`, `member_name`, `slot`, `planned_hours`, `settled`, `work_status`, `accepted_at`) and `waiting_in_plan`. Each assignment in a Planning Run also has `intake_id` and `intake_public_id` (null if the Issue did not originate from an Intake). The UI builds the deep link `/planning?date=YYYY-MM-DD&project=<uuid>&intake=INT-...` from the most recent scheduling.
 
-Thêm việc trong ngày (ADR-0024), chỉ CTO:
+Adding work within the day (ADR-0024), CTO only:
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/planning/runs/{id}/work-items?search=` | Issue đang mở và Intake chờ duyệt của các dự án trong run; mỗi dòng cho biết đã có trong kế hoạch chưa và có cần tạo Issue không |
-| POST | `/api/v1/planning/runs/{id}/work` | `source` là `ISSUE`, `INTAKE` hoặc `NEW`; `member_id`, `slot`, `planned_hours` tùy chọn nhưng phải đi cùng nhau. `reason` bắt buộc khi phải tạo Issue. Trả `state`: `PLANNED`, `WAITING_ASSIGNMENT` (kèm `assignment_error` nếu phân công không vừa) hoặc `CREATING_ISSUE` |
-| POST | `/api/v1/planning/runs/{id}/candidates/{cid}/assign` | Xếp một việc đang chờ: `issue_mode=EXISTING` gắn một Issue có sẵn, `CREATE` tạo Issue mới kèm `reason` |
-| POST | `/api/v1/planning/runs/{id}/assignments/{aid}/unassign` | `{ expected_run_version }` (FR-PLAN-16). Bỏ việc đã xếp khỏi ngày khi run còn sửa được; việc quay về candidate `READY` (candidate gốc nếu đi từ danh sách chờ, hoặc candidate mới từ Issue) với ưu tiên và giờ; cảnh báo gắn với việc đó bị xóa; `409 PLANNING_RUN_IMMUTABLE`, `409 PLANNING_VERSION_CONFLICT`, `422 PLANNING_ASSIGNMENT_NOT_FOUND`. Trả cả run |
-| POST | `/api/v1/planning/runs/{id}/assignments/{aid}/move` | `{ expected_run_version, slot, member_id?, override_reason? }` (FR-PLAN-04). Đổi buổi; có `member_id` thì đồng thời đổi người làm trong run đang mở, cập nhật mapping assignee tracker, candidate/cảnh báo và audit. Từ chối nếu người không hoạt động/không thuộc dự án, thiếu mapping delivery, quá capacity ngày, quá 4 giờ trong buổi hoặc đã có việc phát triển chính khác (`MEMBER_NOT_ACTIVE`, `MEMBER_NOT_IN_PROJECT`, `GITLAB_ASSIGNEE_REQUIRED`, `OVER_CAPACITY`, `SLOT_OVER_CAPACITY`, `MULTIPLE_PRIMARY_DOING`). CTO/Project Owner có thể gửi `override_reason` sau bước xác nhận để vượt ba giới hạn capacity/4 giờ/việc chính; lý do được lưu trên assignment và audit, vai khác nhận `PLANNING_OVERRIDE_FORBIDDEN`. Trả cả run |
-| POST | `/api/v1/planning/runs/{id}/candidates/{cid}/done` | `{ note }` (3..500 ký tự, `422 NOTE_REQUIRED`). CTO hoặc Project Owner của dự án. Việc chờ đã làm rồi ngoài kế hoạch: `status REJECTED`, `summary` "Đã làm xong ngoài kế hoạch: <ghi chú>", trả thêm `acceptance_queued`; kế hoạch đã chốt vẫn nhận (FR-PLAN-34) |
-| POST | `/api/v1/planning/runs/{id}/candidates/{cid}/dismiss` và `/restore` | Ẩn một việc chờ khỏi run của ngày đó, hoặc đưa lại |
-| POST | `/api/v1/planning/runs/{run_id}/reopen` | CTO hoặc Project Owner của dự án. `{ expected_version }`. Kế hoạch đã chốt (APPROVED, SYNCING, SYNCED, SYNC_FAILED, PARTIAL) thành bản mới: `201` trả Planning Run mới (`revision + 1`, `supersedes_run_id`, trạng thái `REVIEW_REQUIRED`, việc, giờ, ưu tiên, trạng thái việc đã báo và cảnh báo đã xem chép sang; bản cũ thành `SUPERSEDED`, vẫn đọc được). `422 PLANNING_RUN_OPEN` khi đang mở, `PLANNING_RUN_SUPERSEDED` khi đã có bản mới hơn, `PLANNING_SYNC_IN_PROGRESS` khi job GitLab của bản cũ chưa xong, `409 PLANNING_VERSION_CONFLICT`. Chốt lại chỉ tạo job cho Issue có `after_state` khác job `SUCCEEDED` gần nhất trong chuỗi bản cũ (FR-PLAN-18) |
-| POST | `/api/v1/planning/runs/{run_id}/verifications/{verification_id}/{accept\|reject}` | Chỉ CTO (FR-PLAN-22). `{ expected_version, reason? }`; `reject` bắt buộc `reason`. Trả cả Planning Run (`verifications[]` với `level` 0–5, `level_name`, `evidence {commits, merge_requests, merged, pipeline, links}`, `acceptance[]` từ Intake, `decision`). `409 PLANNING_VERSION_CONFLICT`, `409 VERIFICATION_DECIDED`, `422 REASON_REQUIRED`. Chưa xong → candidate `source_type=VERIFICATION` "Làm lại" và cảnh báo `ISSUE_NOT_DONE_AFTER_CLOSE`; không ghi gì lên GitLab |
-| PUT | `/api/v1/planning/projects/{project_ref}/done-evidence` | Chỉ CTO. `{ done_evidence: COMMIT \| MR }` (FR-PLAN-22); `ProjectOut.done_evidence` đọc lại |
+| GET | `/api/v1/planning/runs/{id}/work-items?search=` | Open Issues and Intakes awaiting approval for the projects in the run; each row says whether it is already in the plan and whether an Issue needs to be created |
+| POST | `/api/v1/planning/runs/{id}/work` | `source` is `ISSUE`, `INTAKE` or `NEW`; `member_id`, `slot`, `planned_hours` are optional but must come together. `reason` is required when an Issue has to be created. Returns `state`: `PLANNED`, `WAITING_ASSIGNMENT` (with `assignment_error` if the assignment does not fit) or `CREATING_ISSUE` |
+| POST | `/api/v1/planning/runs/{id}/candidates/{cid}/assign` | Schedules a waiting task: `issue_mode=EXISTING` attaches an existing Issue, `CREATE` creates a new Issue with `reason` |
+| POST | `/api/v1/planning/runs/{id}/assignments/{aid}/unassign` | `{ expected_run_version }` (FR-PLAN-16). Removes a scheduled task from the day while the run is still editable; the task goes back to a `READY` candidate (the original candidate if it came from the waiting list, or a new candidate from the Issue) with its priority and hours; warnings tied to that task are deleted; `409 PLANNING_RUN_IMMUTABLE`, `409 PLANNING_VERSION_CONFLICT`, `422 PLANNING_ASSIGNMENT_NOT_FOUND`. Returns the whole run |
+| POST | `/api/v1/planning/runs/{id}/assignments/{aid}/move` | `{ expected_run_version, slot, member_id?, override_reason? }` (FR-PLAN-04). Changes the slot; with `member_id` it also changes the assignee in the open run, updating the tracker assignee mapping, candidates/warnings and audit. Rejected if the person is inactive/not in the project, lacks a delivery mapping, exceeds the day's capacity, exceeds 4 hours in the slot or already has another primary development task (`MEMBER_NOT_ACTIVE`, `MEMBER_NOT_IN_PROJECT`, `GITLAB_ASSIGNEE_REQUIRED`, `OVER_CAPACITY`, `SLOT_OVER_CAPACITY`, `MULTIPLE_PRIMARY_DOING`). The CTO/Project Owner can send `override_reason` after a confirmation step to exceed the three limits capacity/4 hours/primary task; the reason is stored on the assignment and in audit, other roles get `PLANNING_OVERRIDE_FORBIDDEN`. Returns the whole run |
+| POST | `/api/v1/planning/runs/{id}/candidates/{cid}/done` | `{ note }` (3..500 characters, `422 NOTE_REQUIRED`). CTO or the project's Project Owner. A waiting task already done outside the plan: `status REJECTED`, `summary` "Đã làm xong ngoài kế hoạch: <ghi chú>" (Done outside the plan: <note>), also returns `acceptance_queued`; a finalized plan still accepts it (FR-PLAN-34) |
+| POST | `/api/v1/planning/runs/{id}/candidates/{cid}/dismiss` and `/restore` | Hides a waiting task from that day's run, or brings it back |
+| POST | `/api/v1/planning/runs/{run_id}/reopen` | CTO or the project's Project Owner. `{ expected_version }`. A finalized plan (APPROVED, SYNCING, SYNCED, SYNC_FAILED, PARTIAL) becomes a new revision: `201` returns the new Planning Run (`revision + 1`, `supersedes_run_id`, status `REVIEW_REQUIRED`, with tasks, hours, priorities, reported task status and seen warnings copied over; the old revision becomes `SUPERSEDED` and is still readable). `422 PLANNING_RUN_OPEN` when it is open, `PLANNING_RUN_SUPERSEDED` when a newer revision exists, `PLANNING_SYNC_IN_PROGRESS` when the old revision's GitLab jobs have not finished, `409 PLANNING_VERSION_CONFLICT`. Finalizing again only creates jobs for Issues whose `after_state` differs from the most recent `SUCCEEDED` job in the chain of old revisions (FR-PLAN-18) |
+| POST | `/api/v1/planning/runs/{run_id}/verifications/{verification_id}/{accept\|reject}` | CTO only (FR-PLAN-22). `{ expected_version, reason? }`; `reject` requires `reason`. Returns the whole Planning Run (`verifications[]` with `level` 0–5, `level_name`, `evidence {commits, merge_requests, merged, pipeline, links}`, `acceptance[]` from the Intake, `decision`). `409 PLANNING_VERSION_CONFLICT`, `409 VERIFICATION_DECIDED`, `422 REASON_REQUIRED`. Not done → candidate `source_type=VERIFICATION` "Làm lại" (Redo) and warning `ISSUE_NOT_DONE_AFTER_CLOSE`; nothing is written to GitLab |
+| PUT | `/api/v1/planning/projects/{project_ref}/done-evidence` | CTO only. `{ done_evidence: COMMIT \| MR }` (FR-PLAN-22); `ProjectOut.done_evidence` reads it back |
 
-Khi phải tạo Issue, API ghi approval action và snapshot của Intake rồi xếp hàng sync job như luồng thường; integration worker tạo Issue, và lúc sync thành công Issue được thêm vào read model cùng việc phân công đã ghi. Lỗi riêng: `ADD_WORK_REASON_REQUIRED`, `DELIVERY_SYNC_DISABLED`, `ASSIGNMENT_INCOMPLETE`, `INTAKE_NOT_READY`.
+When an Issue has to be created, the API records the approval action and the Intake snapshot, then queues a sync job like the normal flow; the integration worker creates the Issue, and when the sync succeeds the Issue is added to the read model together with the recorded assignment. Specific errors: `ADD_WORK_REASON_REQUIRED`, `DELIVERY_SYNC_DISABLED`, `ASSIGNMENT_INCOMPLETE`, `INTAKE_NOT_READY`.
 
 ## 10A. Meeting API (ADR-0018, ADR-0019)
 
-Chỉ CTO. Mọi response JSON dùng envelope chung.
+CTO only. Every JSON response uses the common envelope.
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/meetings/speech` | Nhà cung cấp giọng nói đã cấu hình chưa, có chữ trực tiếp không (`{configured, live_text}`) |
-| GET, POST, DELETE | `/api/v1/meetings/glossary` | Thuật ngữ chung hoặc theo dự án |
-| POST | `/api/v1/meetings` | `project_id` bắt buộc (`MEETING_PROJECT_REQUIRED`), `source` là `TAB_AND_MIC`, `MIC` hoặc `FILE`, `title` tùy chọn; trả 409 khi `MEETING_CAPTURE_ENABLED=false` |
-| GET | `/api/v1/meetings`, `/api/v1/meetings/{id}` | Danh sách; chi tiết gồm bản chữ, người nói, tóm tắt và mục note |
-| POST | `/api/v1/meetings/{id}/audio?sequence=N` | Multipart một đoạn audio, tối đa 5 MB, phải đúng thứ tự; tổng không quá `MEETING_MAX_AUDIO_MB` |
-| GET | `/api/v1/meetings/{id}/audio` | Bản ghi đã giải mã, ghi audit; `?download=true` trả `Content-Disposition: attachment` |
-| POST | `/api/v1/meetings/{id}/finish` | Kết thúc và xếp hàng chuyển chữ có tách người nói. Thân tùy chọn `{ duration_seconds }` (FR-REC-14): thời lượng trình duyệt đo được, server lấy giá trị nhỏ hơn giữa nó và đồng hồ của mình; không có thân thì dùng đồng hồ server. Gọi lại trên cuộc họp đã kết thúc không đổi gì |
-| POST | `/api/v1/meetings/{id}/audio?sequence=` | Nhận đoạn kế tiếp đúng thứ tự; đoạn đã có trả `200` không đổi; `409 AUDIO_CHUNK_OUT_OF_ORDER` kèm "Expected chunk N" để trình duyệt bỏ các đoạn server đã giữ; `409 MEETING_NOT_RECORDING` khi cuộc họp đã kết thúc (FR-REC-14) |
-| PATCH | `/api/v1/meetings/{id}/project` | Đổi dự án của cuộc họp; mọi mục chưa thành Intake đổi theo |
-| POST | `/api/v1/meetings` với `continues_meeting_id` | Phần kế tiếp của một cuộc họp đã tới giới hạn phút: cùng dự án, `part_number` + 1, tiêu đề "(phần n)"; `MeetingOut` có `series_id`, `part_number`, `transcript_error`, `note_error`; chi tiết có `parts[]` (FR-REC-17, FR-REC-18) |
-| POST | `/api/v1/meetings/{id}/note/items/{item_id}/intake?full_transcript=` | Intake từ một mục, kèm đoạn bản chữ quanh chủ đề; `full_transcript=true` gửi cả bản chữ (FR-REC-15) |
-| POST | `/api/v1/meetings/{id}/note/items/intakes` | `{ item_ids[], full_transcript }` → `{ results[{item_id, intake_id, error}], meeting }`; `201` kể cả khi có mục lỗi (FR-REC-16) |
-| POST | `/api/v1/meetings/{id}/transcript/retry` | Gửi lại tệp cho dịch vụ chuyển chữ khi `transcript_status` là FAILED hoặc SKIPPED; `409 TRANSCRIPT_RETRY_NOT_ALLOWED` nếu không (FR-REC-18) |
-| PATCH | `/api/v1/meetings/{id}` | Đổi tên (FR-REC-12): `{ "title" }`, 1 đến 200 ký tự, khoảng trắng thừa được gộp |
-| DELETE | `/api/v1/meetings/{id}` | Xóa hẳn bản ghi âm, bản chữ và note (FR-REC-12). Trả `{ deleted, intakes_kept }`. `409 MEETING_BUSY` khi đang ghi, đang chuyển chữ, hoặc bản sao phía dịch vụ chuyển chữ chưa xóa xong |
-| PATCH | `/api/v1/meetings/{id}/speakers` | Đặt tên thật cho "Thành viên N" |
-| PATCH | `/api/v1/meetings/{id}/note` | Sửa tóm tắt |
-| POST | `/api/v1/meetings/{id}/note/regenerate` | Tạo lại note; mục đã thành Intake được giữ |
-| POST, GET | `/api/v1/meetings` (bổ sung) | `POST` nhận thêm `kind`: `MEETING` (mặc định) hoặc `DICTATION` (nói để nhập: kết thúc là xong, không tách người nói, không note). `GET` mặc định chỉ trả `MEETING`; `?include_dictation=true` trả cả hai. Mỗi bản ghi có `kind` |
-| POST | `/api/v1/meetings/{id}/rewrite` | `202`. Yêu cầu AI viết lại bản chữ thành một yêu cầu gọn (FR-REC-11); worker thực hiện. Đang chạy thì không tạo lần thứ hai. `409 MEETING_HAS_NO_TRANSCRIPT` khi chưa kết thúc hoặc không có chữ |
-| GET | `/api/v1/meetings/{id}/rewrite` | Đọc kết quả: `rewrite_status` (`NONE`, `PENDING`, `DONE`, `FAILED`), `rewrite_text`, `rewrite_error`. Dùng để hỏi lại định kỳ, không ghi audit mở bản chữ |
-| PATCH, DELETE | `/api/v1/meetings/{id}/note/items/{item_id}` | Sửa hoặc xóa một mục |
-| POST | `/api/v1/meetings/{id}/note/items/{item_id}/intake` | Tạo Intake kênh `MEETING` từ mục, idempotent theo mục, rồi enqueue normalize |
+| GET | `/api/v1/meetings/speech` | Whether a speech provider is configured and whether live transcript is available (`{configured, live_text}`) |
+| GET, POST, DELETE | `/api/v1/meetings/glossary` | Shared or per-project glossary terms |
+| POST | `/api/v1/meetings` | `project_id` required (`MEETING_PROJECT_REQUIRED`), `source` is `TAB_AND_MIC`, `MIC` or `FILE`, `title` optional; returns 409 when `MEETING_CAPTURE_ENABLED=false` |
+| GET | `/api/v1/meetings`, `/api/v1/meetings/{id}` | List; detail includes the transcript, speakers, summary and note items |
+| POST | `/api/v1/meetings/{id}/audio?sequence=N` | Multipart, one audio chunk, max 5 MB, must be in order; total not more than `MEETING_MAX_AUDIO_MB` |
+| GET | `/api/v1/meetings/{id}/audio` | Decrypted recording, writes audit; `?download=true` returns `Content-Disposition: attachment` |
+| POST | `/api/v1/meetings/{id}/finish` | Ends and queues transcription with speaker separation. Optional body `{ duration_seconds }` (FR-REC-14): the duration measured by the browser; the server takes the smaller of it and its own clock; without a body the server clock is used. Calling again on a finished meeting changes nothing |
+| POST | `/api/v1/meetings/{id}/audio?sequence=` | Accepts the next chunk in order; an existing chunk returns `200` unchanged; `409 AUDIO_CHUNK_OUT_OF_ORDER` with "Expected chunk N" so the browser drops the chunks the server already holds; `409 MEETING_NOT_RECORDING` when the meeting has ended (FR-REC-14) |
+| PATCH | `/api/v1/meetings/{id}/project` | Changes the meeting's project; every item not yet turned into an Intake follows |
+| POST | `/api/v1/meetings` with `continues_meeting_id` | The next part of a meeting that hit the minute limit: same project, `part_number` + 1, title "(phần n)" (part n); `MeetingOut` has `series_id`, `part_number`, `transcript_error`, `note_error`; the detail has `parts[]` (FR-REC-17, FR-REC-18) |
+| POST | `/api/v1/meetings/{id}/note/items/{item_id}/intake?full_transcript=` | Intake from one item, with the transcript excerpt around the topic; `full_transcript=true` sends the whole transcript (FR-REC-15) |
+| POST | `/api/v1/meetings/{id}/note/items/intakes` | `{ item_ids[], full_transcript }` → `{ results[{item_id, intake_id, error}], meeting }`; `201` even when some items fail (FR-REC-16) |
+| POST | `/api/v1/meetings/{id}/transcript/retry` | Resends the file to the transcription service when `transcript_status` is FAILED or SKIPPED; `409 TRANSCRIPT_RETRY_NOT_ALLOWED` otherwise (FR-REC-18) |
+| PATCH | `/api/v1/meetings/{id}` | Rename (FR-REC-12): `{ "title" }`, 1 to 200 characters, extra whitespace is collapsed |
+| DELETE | `/api/v1/meetings/{id}` | Permanently deletes the recording, transcript and note (FR-REC-12). Returns `{ deleted, intakes_kept }`. `409 MEETING_BUSY` while recording, transcribing, or while the transcription service's copy has not finished deleting |
+| PATCH | `/api/v1/meetings/{id}/speakers` | Sets real names for "Thành viên N" (Member N) |
+| PATCH | `/api/v1/meetings/{id}/note` | Edits the summary |
+| POST | `/api/v1/meetings/{id}/note/regenerate` | Regenerates the note; items already turned into Intakes are kept |
+| POST, GET | `/api/v1/meetings` (addition) | `POST` also accepts `kind`: `MEETING` (default) or `DICTATION` (speak to enter text: ending means done, no speaker separation, no note). `GET` returns only `MEETING` by default; `?include_dictation=true` returns both. Each record has `kind` |
+| POST | `/api/v1/meetings/{id}/rewrite` | `202`. Asks the AI to rewrite the transcript into a concise request (FR-REC-11); the worker carries it out. While one is running, a second is not created. `409 MEETING_HAS_NO_TRANSCRIPT` when not ended yet or there is no text |
+| GET | `/api/v1/meetings/{id}/rewrite` | Reads the result: `rewrite_status` (`NONE`, `PENDING`, `DONE`, `FAILED`), `rewrite_text`, `rewrite_error`. Used for periodic polling, does not write a transcript-open audit |
+| PATCH, DELETE | `/api/v1/meetings/{id}/note/items/{item_id}` | Edits or deletes one item |
+| POST | `/api/v1/meetings/{id}/note/items/{item_id}/intake` | Creates a `MEETING` channel Intake from the item, idempotent per item, then enqueues normalize |
 
-WebSocket `/api/v1/meetings/{id}/stream` do dịch vụ `meeting-gateway` phục vụ, không phải API: xác thực bằng cookie phiên và kiểm tra origin, nhận PCM 16 kHz từ trình duyệt, chuyển tiếp tới ElevenLabs Scribe Realtime và trả các dòng chữ đã chốt. Chỉ gateway giữ `ELEVENLABS_API_KEY`.
+WebSocket `/api/v1/meetings/{id}/stream` is served by the `meeting-gateway` service, not the API: it authenticates with the session cookie and checks the origin, receives 16 kHz PCM from the browser, forwards it to ElevenLabs Scribe Realtime and returns finalized transcript lines. Only the gateway holds `ELEVENLABS_API_KEY`.
 
-Nhà cung cấp ngoài: realtime `wss://api.elevenlabs.io/v1/speech-to-text/realtime`; batch `POST /v1/speech-to-text` có `diarize`; xóa `DELETE /v1/speech-to-text/transcripts/{id}` (thử lại vì trả 404 trong vài giây đầu).
-
+External provider: realtime `wss://api.elevenlabs.io/v1/speech-to-text/realtime`; batch `POST /v1/speech-to-text` with `diarize`; delete `DELETE /v1/speech-to-text/transcripts/{id}` (retried because it returns 404 for the first few seconds).
 ## 11. Internal events
 
-| Event | Payload tối thiểu |
+| Event | Minimum payload |
 |---|---|
 | `intake.normalization.requested.v1` | `run_id`, `intake_id` |
 | `integration.sync.requested.v1` | `sync_job_id` |
 | `planning.gitlab-update.requested.v1` | `planning_sync_job_id` |
 
-Đây là ba outbox event runtime hiện được dispatcher route sang Celery. Xử lý sau cuộc họp không dùng outbox: gateway tự quét việc chuyển chữ 15 giây một lần, AI worker quét việc tạo note mỗi phút, cả hai claim bằng trạng thái trên bảng `meetings` với tối đa 3 lần thử. Completion/approval/retention/planning lifecycle hiện ghi audit hoặc chạy trực tiếp, chưa phải outbox event. Quyết định 2026-10-03 (OD-017): Intake approval chỉ ghi audit, không ghi outbox event `intake.approved`; runtime 1.2 vẫn còn ghi event này mà không có dispatcher route, cần gỡ trong code. Event version là một phần tên; consumer phải idempotent.
+These are the three runtime outbox events the dispatcher currently routes to Celery. Post-meeting processing does not use the outbox: the gateway scans transcription jobs every 15 seconds and the AI worker scans note-creation jobs every minute; both claim work through the status on the `meetings` table with at most 3 attempts. Completion/approval/retention/planning lifecycle currently writes audit records or runs directly; they are not outbox events yet. Decision of 2026-10-03 (OD-017): Intake approval only writes audit, not an `intake.approved` outbox event; runtime 1.2 still writes this event without a dispatcher route, and it must be removed in code. The event version is part of the name; consumers must be idempotent.
 
-## 12. Target contract chưa có OpenAPI operation
+## 12. Target contracts without an OpenAPI operation
 
-Các endpoint sau vẫn là thiết kế đích, chưa được client coi là khả dụng:
+The following endpoints are still target design; clients must not treat them as available:
 
-- Xóa dự án và gỡ liên kết (tạo, sửa và kiểm tra kết nối đã có từ ADR-0020).
+- Deleting a project and unlinking it (create, edit and connection check already exist since ADR-0020).
 - `GET /intakes/{id}/approval-snapshots`.
-- Global `GET /sync-jobs` và `POST /sync-jobs/{id}/retry` cho Intake sync.
+- Global `GET /sync-jobs` and `POST /sync-jobs/{id}/retry` for Intake sync.
 - `POST /planning/runs/{id}/refresh`.
 - `PATCH /planning/runs/{id}/assignments/{assignment_id}`.
-- Planning amendment tạo revision mới toàn run, liên kết supersede và sync per-Issue delta.
-- Emergency Add cho P0 theo ADR-0012: chỉ CTO, bắt buộc lý do, idempotent; integration worker tạo ngay GitLab Issue tối thiểu với label allowlist và `priority:p0`, không qua approval snapshot của Intake item; kết quả là Planning candidate.
+- Planning amendment that creates a new revision of the whole run, a supersede link, and per-Issue delta sync.
+- Emergency Add for P0 per ADR-0012: CTO only, reason required, idempotent; the integration worker immediately creates a minimal GitLab Issue with the label allowlist and `priority:p0`, without going through the Intake item's approval snapshot; the result is a Planning candidate.
 
-Khi triển khai phải thêm requirement ID, OpenAPI contract test và cập nhật inventory/readiness trong cùng thay đổi.
+When implemented, add the requirement ID, an OpenAPI contract test, and update inventory/readiness in the same change.
 
-## Khu riêng và nháp bài đăng (FR-CNT-01..03, ADR-0031)
+## Private Space and post drafts (FR-CNT-01..03, ADR-0031)
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/private-space` | Chỉ CTO. Trả `project` (hoặc `null` khi chưa mở), `voice`, `counts` (`ideas`, `no_draft`, `drafted`, `posted`, `dropped`, `unposted_drafts`) |
-| POST | `/api/v1/private-space` | Chỉ CTO. Mở khu riêng: tạo một dự án `IDEA` đánh dấu riêng tư. Gọi lại trả cùng khu đó |
-| GET | `/api/v1/private-space/ideas?state=&search=` | Chỉ CTO. `state`: `ALL` (mặc định, không gồm ý đã bỏ), `NO_DRAFT`, `DRAFTED`, `POSTED`, `DROPPED` |
-| PUT | `/api/v1/private-space/voice` | Chỉ CTO. Lưu giọng và định vị; tối đa 5 trụ (mỗi trụ 80 ký tự), 8 bài mẫu (mỗi bài 20 đến 4000 ký tự) |
-| GET | `/api/v1/intakes/{id}/drafts` | Người xem được Intake. Nháp mới nhất trước |
-| POST | `/api/v1/intakes/{id}/drafts` | `202`. `{ channel, angle?, source_draft_id? }`; `source_draft_id` là nháp cần chỉnh sang kênh khác. `409 DRAFTS_NOT_FOR_KIND` với dự án phần mềm; `409 SOURCE_DRAFT_NOT_READY` |
-| PATCH | `/api/v1/intakes/{id}/drafts/{draft_id}` | `{ text?, posted? }`. `409 DRAFT_NOT_READY` khi nháp chưa soạn xong |
+| GET | `/api/v1/private-space` | CTO only. Returns `project` (or `null` when not yet opened), `voice`, `counts` (`ideas`, `no_draft`, `drafted`, `posted`, `dropped`, `unposted_drafts`) |
+| POST | `/api/v1/private-space` | CTO only. Opens the Private Space: creates an `IDEA` project marked private. Calling again returns the same space |
+| GET | `/api/v1/private-space/ideas?state=&search=` | CTO only. `state`: `ALL` (default, excludes dropped ideas), `NO_DRAFT`, `DRAFTED`, `POSTED`, `DROPPED` |
+| PUT | `/api/v1/private-space/voice` | CTO only. Saves voice and positioning; at most 5 pillars (80 characters each), 8 sample posts (20 to 4000 characters each) |
+| GET | `/api/v1/intakes/{id}/drafts` | Anyone who can view the Intake. Newest draft first |
+| POST | `/api/v1/intakes/{id}/drafts` | `202`. `{ channel, angle?, source_draft_id? }`; `source_draft_id` is the draft to adapt to another channel. `409 DRAFTS_NOT_FOR_KIND` for software projects; `409 SOURCE_DRAFT_NOT_READY` |
+| PATCH | `/api/v1/intakes/{id}/drafts/{draft_id}` | `{ text?, posted? }`. `409 DRAFT_NOT_READY` when the draft is not finished |
 | DELETE | `/api/v1/intakes/{id}/drafts/{draft_id}` | `204` |
 
-Các API liệt kê và đếm của công ty (`/intakes`, `/approvals`, `/projects`, `/meetings`) không bao giờ trả dữ liệu của dự án riêng tư.
+The company list and count APIs (`/intakes`, `/approvals`, `/projects`, `/meetings`) never return data from private projects.
 
-Mạch nội dung và lựa chọn trước khi soạn (FR-CNT-04, ADR-0035):
+Content tracks and choices before drafting (FR-CNT-04, ADR-0035):
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/private-space` | Thêm `master_dna` (tài liệu chung, tối đa 40.000 ký tự) và `voices`: `{ business, technical }`, mỗi giọng có `name`, `direction_note`, `references` (tối đa 2, mỗi cái `title` và `text` ≤ 20.000 ký tự), không còn `dna`. `voice` vẫn là giọng của mạch `business` (ADR-0042) |
-| GET/POST/DELETE | `/api/v1/auth/tokens[/{id}]` | Chỉ phiên đăng nhập (CTO, Project Owner), không qua token (FR-MCP-01). `POST { name }` → `201` `{ id, name, prefix, token, created_at, expires_at }`, `token` chỉ trả một lần; `409` khi đã có 10 token; `DELETE` → `204`, `404` nếu không phải của mình. Token dùng như `Authorization: Bearer itk_…` cho mọi route với quyền của người tạo |
-| GET/POST | `/api/v1/intakes/{id}/work-log` | CTO hoặc PO của dự án (FR-MCP-03). `POST { summary (5–1.000), details { cause, changes[], tests, branch, commit, verify_steps[], deploy_steps[], worked_on? YYYY-MM-DD, actual_minutes? 0..1440, deployed? }, agent_name? }` → `201`. Ngày/phút là thực tế, không tạo hay cộng vào Daily Planning. Mục có `review_decision` `PENDING|CONFIRMED|RETURNED`, `review_note`, `reviewed_by_name`, `actor_name`, `agent_name`, `commit_url` (trang commit trên GitLab/GitHub dựng từ địa chỉ Issue của yêu cầu; `commit` đã là link thì giữ nguyên; `null` khi không biết repo) |
-| POST | `/api/v1/intakes/{id}/work-log/{log_id}/review` | Chỉ CTO. `{ decision: CONFIRMED|RETURNED, note? }`; `RETURNED` bắt buộc `note` (`422 NOTE_REQUIRED`); `409 ALREADY_REVIEWED`. `CONFIRMED` với Issue giao hàng hiện hành đồng thời tạo/chấp nhận `IssueVerification` nguồn `WORK_LOG`, đặt `sync_status=PENDING` rồi enqueue task đóng Issue sau commit. |
-| GET | `/api/v1/changelog` | `{ build {sha, built_at}, latest, entries[{date, title, commits[], refs[], bullets[], cto_only}], behind }` đọc từ `CHANGELOG.md`; mục `cto_only` ẩn với Project Owner (FR-UI-14). `behind`: số mục mới hơn bản đang chạy, chỉ CTO, `null` khi không biết (FR-UI-15) |
-| POST | `/api/v1/reports/daily/{id}/items/{item_id}/issue` | CTO hoặc Project Owner (người gửi thuộc đội mình). `{ gitlab_issue? , no_issue_reason? MEETING|SUPPORT|REVIEW|LEARNING|OTHER }`: có `gitlab_issue` thì gắn (nguồn lấy từ gợi ý nếu trùng, không thì `MANUAL`), chỉ có lý do thì "không cần Issue", rỗng thì bỏ cả hai. Trả chi tiết báo cáo (FR-RPT-07) |
-| POST | `/api/v1/reports/daily/{id}/link-sure` | Gắn mọi việc có gợi ý từ 0,9 trong thư; trả chi tiết báo cáo (FR-RPT-07) |
-| POST | `/api/v1/reports/daily/{id}/suggest-issues` | Tính lại gợi ý theo luật, phần chưa rõ gửi AI qua hàng `ai.normalize`; trả `{ items, linked, suggested, for_ai[], ai_queued }` (FR-RPT-07) |
-| POST | `/api/v1/reports/issue-suggestions/backfill?days=14` | Chỉ CTO. Chạy gợi ý cho mọi báo cáo còn việc chưa gắn trong `days` ngày; trả tổng kèm `reports` (FR-RPT-07) |
-| GET | `/api/v1/planning/week/{day}` | CTO hoặc Project Owner (dự án mình). Tuần chứa `day`: `{ week_start, week_end, days_passed, projects[{id, code, name, people, hours{available, planned, reported}, plans{total, closed}, done{reported, issues_closed, accepted, rejected, work_logs_confirmed}, items{reported, without_issue}, reports{expected, received, missing, late}, requests{new, approved, approved_within_24h, from_planning, avg_wait_hours, avg_to_issue_hours}, board{days, ready_days, no_work_days, overdue_days, max_approvals_overdue, max_stuck, escalated_days}}], people[{member_id, display_name, hours, done_reported, items, reports, projects[{id, name, planned, reported}]}], process{...}, cto_days[{date, minutes}] (chỉ CTO), text }` (FR-PLAN-29) |
-| POST | `/api/v1/planning/board-snapshots/{day}` | Chỉ CTO. Ghi (hoặc thay) ảnh chụp bảng đầu ngày của ngày đó; trả `{ snapshot_date, projects }` (FR-PLAN-30) |
-| GET | `/api/v1/acceptance` | CTO hoặc Project Owner (dự án mình); `?project_id=`. `source` thêm `PLAN` (báo xong trên kế hoạch ngày, FR-PLAN-34); mỗi việc có `source_note` (ghi chú lúc Hủy việc chờ, chép lên Issue khi CTO chấp nhận). `{ plan_date, sample_size, pending_total, today[], more[], decided[] }`, mỗi mục `{ id, source REPORT|CLOSED, project_id, project_name, issue_external_id, title, web_url, state, closed_at, assignee_*, reporter_*, reported_on, reported_hours, report_item_title, priority, level, level_name, done_evidence, evidence, evidence_fetched_at, intake_*, acceptance[], picked_on, decision, reason, decided_at, decided_by_name, po_decision, po_reason, po_decided_at, po_decided_by_name, sync_status, sync_error, synced_at }`. CTO: `today` là mẫu của ngày (gọi là tự chọn), `more` phần còn lại, `decided` 7 ngày; Project Owner: `today` là mọi việc chưa xác nhận của dự án mình (FR-PLAN-31) |
-| POST | `/api/v1/acceptance/{id}/accept` hoặc `/reject` | `{ reason? }` (bắt buộc khi reject, `422 REASON_REQUIRED`). CTO ghi `decision`, Project Owner ghi `po_decision`; `409 VERIFICATION_DECIDED` khi đã quyết. Reject: việc về kế hoạch đang mở dạng "Làm lại". CTO accept: `sync_status = PENDING`, task ghi chú và đóng Issue; trả mục kèm `sync_queued` (FR-PLAN-31) |
-| POST | `/api/v1/acceptance/sample?extra=5` | Chỉ CTO. Thêm `extra` việc vào mẫu hôm nay; trả `{ added }` (FR-PLAN-31) |
-| POST | `/api/v1/acceptance/collect` | Chỉ CTO. Gom việc báo xong và Issue đóng; đồng thời đối soát work-log `CONFIRMED` cũ chưa có nghiệm thu chính thức, chấp nhận và enqueue đóng Issue. Trả `{ from_reports, from_closed, from_work_logs }` (FR-PLAN-31, FR-MCP-03) |
-| PUT | `/api/v1/planning/projects/{project_ref}/acceptance-policy` | Chỉ CTO. `{ acceptance_policy: CTO_ALWAYS\|PO_FINAL_LOW_RISK }` (giá trị khác `422`) → `{ project_id, acceptance_policy }`; ghi `planning.acceptance-policy.changed`. `GET /projects` trả thêm `acceptance_policy`. Thẻ nghiệm thu (`GET /acceptance`, accept, reject) trả thêm `final_by (CTO\|PO\|null)`, `acceptance_policy`, `needs_cto_acceptance`, `po_final_blockers[]` (`POLICY`, `HARD`, `P0`, `EVIDENCE`, `NOT_OWNER`, `SELF`, `REJECTED_BEFORE`). Project Owner accept khi không có lý do: `decision ACCEPTED`, `final_by PO`, `sync_status PENDING`, đóng Issue như CTO. `GET /intakes/{id}/journey` `verification` thêm `po_decision`, `po_decided_at`, `po_decided_by_name`, `final_by`, `accepted_by_name` (FR-PLAN-41) |
-| POST | `/api/v1/planning/projects/{ref}/tracker-users/lookup` | CTO hoặc Project Owner (dự án mình). `202 { probe_id, status, system }`: nhờ integration-worker đọc danh sách người dùng của tracker (API không giữ token); `422 TRACKER_NOT_CONFIGURED` khi dự án chưa bật GitLab/GitHub (FR-PLAN-32) |
-| GET | `/api/v1/notify/telegram` | Chỉ CTO. `{ bot_username, bot_seen_at, projects[{id, code, name, chat_title, linked, linked_at}], members[{id, display_name, username, linked, linked_at, invite_pending}], holidays[{day, note}] }` (FR-NTF-02, FR-NTF-03) |
-| POST | `/api/v1/notify/telegram/members/{member_id}/invite` | Chỉ CTO. Tạo (hoặc tạo lại) mã mời dùng một lần; `{ member_id, code, link, linked }`, `link` null khi chưa đặt `TELEGRAM_BOT_USERNAME`; `404` không có nhân sự (FR-NTF-03) |
-| DELETE | `/api/v1/notify/telegram/members/{member_id}/link` | Chỉ CTO. Bỏ gắn Telegram của nhân sự, xóa mã mời đang mở; `204` (FR-NTF-03) |
-| DELETE | `/api/v1/notify/telegram/projects/{ref}/link` | Chỉ CTO. Bỏ gắn nhóm của dự án (`ref` là id hoặc mã); `204` (FR-NTF-02) |
-| GET | `/api/v1/notify/holidays` | Chỉ CTO. `[{day, note}]` (FR-NTF-04) |
-| PUT | `/api/v1/notify/holidays` | Chỉ CTO. `{ days: [{day, note?}] }` (tối đa 60) thay toàn bộ danh sách; trùng ngày giữ dòng đầu; trả danh sách mới (FR-NTF-04) |
-| GET | `/api/v1/notify/telegram/messages?days=7` | Chỉ CTO (`days` 1..60). `[{id, kind, for_date, slot, status SENT\|FAILED, error, sent_at, project_name, member_name}]`, mới nhất trước; `error` chỉ chứa mã Telegram ổn định và loại exception, không chứa nguyên văn lỗi vận chuyển hay bot token (FR-NTF-01, FR-NTF-05) |
-| POST | `/api/v1/planning/proposals` | `{ project (mã hoặc id), plan_date, issue?, intake?, text?, hours?, slot? }`. CTO, Project Owner (dự án mình), Developer (dự án mình có mặt, ngoài ra `404`); tài khoản chưa gắn nhân sự `422 MEMBER_UNMAPPED`. `201` trả candidate kèm `created`, `run_id`, `project_name`, `project_code`, `plan_date`; `409 PLANNING_RUN_IMMUTABLE` khi kế hoạch ngày đó đã chốt; `422 GITLAB_ISSUE_NOT_FOUND`, `GITLAB_ISSUE_CLOSED`, `CANDIDATE_ALREADY_PLANNED`, `INTAKE_NOT_FOUND`, `PROPOSAL_TEXT_REQUIRED` (FR-PLAN-35) |
-| GET | `/api/v1/planning/people/{plan_date}` (đổi) | CTO: mọi người; Project Owner: người trong đội dự án mình, mỗi người kèm `projects[{id, name, hours, run_status}]` của mọi dự án có giờ, kể cả dự án của Project Owner khác (FR-PLAN-28) |
-| GET | `/api/v1/planning/capacities/{date}` (thêm) | Mỗi dòng có `planned_elsewhere[{project_id, project_name, hours}]` bên cạnh `planned_elsewhere_hours` (FR-PLAN-28); `GET /planning/day-plans/{date}` cho `elsewhere[]` trên `people[]` và `free[]` |
-| PATCH | `/api/v1/planning/runs/{run_id}/assignments/{assignment_id}/work-status` | `{ status: PLANNED|IN_PROGRESS|DONE|BLOCKED, note? }`. CTO: mọi việc; Project Owner: dự án mình; Developer: việc của chính mình (ngoài ra `404`). Kế hoạch đã chốt vẫn nhận. Trả `{ assignment_id, issue, work_status, previous, at, work_status_note, acceptance_queued }`; `DONE` của việc có Issue tạo một việc chờ Nghiệm thu nguồn `PLAN` nếu Issue chưa có việc chờ (FR-PLAN-34) |
-| GET | `/api/v1/planning/my-day/{plan_date}` | CTO, Project Owner, Developer (tài khoản đã gắn nhân sự, ngoài ra `422 MEMBER_UNMAPPED`). Cùng dữ liệu tool `get_my_day`: `{ date, member, items[{assignment_id, project, project_name, issue, issue_url, title, intake, priority, slot, hours, work_type, primary, work_status, work_status_note, plan_closed}], personal[], note?, hint? }` (FR-PLAN-34, FR-MCP-06). Từ 2026-10-20 mỗi item có `accepted_at`; từ 2026-10-21 `issue_url` mở chi tiết Issue từ thẻ Việc của tôi. |
-| GET | `/api/v1/planning/day-plans/{plan_date}` | CTO (mọi dự án) hoặc Project Owner (dự án mình). Chỉ đọc, không mở kế hoạch. `{ plan_date, projects[{id, code, name, owner_name, run{...}|null, people[...], free[...], off[], waiting[...], off_plan[{id, intake_id, intake_public_id, title, issue, issue_url, executor, review_decision, worked_on, actual_minutes, deployed, accepted_at}]}], project_order{mode: PRIORITY|CUSTOM, project_ids[]}, totals{projects, unclosed, free_hours, free_people, waiting, off_plan, off_plan_actual_minutes} }` (FR-PLAN-33). `project_order` là tùy chọn của tài khoản hiện tại và đã lọc theo phạm vi dự án người gọi. `off_plan` là work-log của ngày không có assignment tương ứng; chỉ hiển thị lịch sử thực tế, không cộng vào giờ kế hoạch. Từ 2026-10-20 mỗi thẻ việc trong `people[].assignments[]` có `accepted_at`. |
-| PUT | `/api/v1/planning/project-order` | CTO hoặc Project Owner. `{ mode: PRIORITY|CUSTOM, project_ids[] }`; lưu riêng theo tài khoản. `PRIORITY` luôn xóa danh sách ID. `CUSTOM` chỉ nhận dự án phần mềm đang hoạt động mà người gọi được thấy; ID trùng trả `422 PROJECT_ORDER_DUPLICATE`, dự án ngoài phạm vi trả `422 PROJECT_ORDER_PROJECT_NOT_VISIBLE` (FR-PLAN-33, FR-ID-08). |
-| GET | `/api/v1/planning/projects/{ref}/tracker-users?probe=&issue=` | `{ status PENDING|DONE|FAILED, error_code, users[{id, name, username, mapped_member_id, suggested_member_id}], unmapped[{member_id, display_name, suggested_user_id}], issue_assignees[] }`; probe của dự án khác trả `FAILED PROBE_NOT_FOUND` (FR-PLAN-32) |
-| POST | `/api/v1/planning/projects/{ref}/tracker-users/auto-map?probe=` | Điền mapping cho người khớp duy nhất từ probe đã xong; `409 PROBE_NOT_DONE` khi chưa về; trả `{ filled, names[], unmapped }` (FR-PLAN-32) |
-| PUT | `/api/v1/planning/projects/{ref}/members/{member_id}/tracker-user` | CTO hoặc Project Owner. `{ gitlab_user_external_id }` (null để bỏ); `404` khi không phải dự án mình hoặc người không trong dự án (FR-PLAN-32) |
-| GET | `/api/v1/planning/people/{plan_date}` | Chỉ CTO. `{ plan_date, over, free, people[{member_id, display_name, available_hours, planned_hours, free_hours, state OVER|FREE|OK|OFF, projects[{id, name, hours, run_status}]}] }`: giờ đã xếp qua mọi kế hoạch chưa bị thay của ngày (FR-PLAN-28) |
-| GET | `/api/v1/planning/people` | Mọi vai đăng nhập. Người được xem kế hoạch theo người: `{ me, members[{member_id, display_name, is_me}] }`, nhân sự đang hoạt động, người xem đứng đầu. CTO: mọi người; người khác: chính mình và người chung dự án (dự án được giao và dự án mình là thành viên) (FR-PLAN-40, ADR-0081) |
-| GET | `/api/v1/planning/people/{member_id}/plan?from=&to=` | Mọi vai đăng nhập, chỉ đọc, tối đa 62 ngày (`422 RANGE_TOO_LONG`, `422 RANGE_INVALID`); người ngoài phạm vi `404 MEMBER_NOT_FOUND`. `{ member{member_id, display_name, is_me}, from, to, days[{date, capacity_hours, personal_hours, available_hours, planned_hours, off, items[], hidden_projects[{name, hours}]}], totals{planned_hours, available_hours, personal_hours, off_days, by_project[{name, hours, visible}], work_status{PLANNED, IN_PROGRESS, DONE, BLOCKED}, accepted, work_items{<status>: n}} }`. `items[]` theo `kind`: `ASSIGNMENT {id, run_id, run_status, project_id, project, project_name, title, issue, issue_url, intake, priority, slot, hours, work_type, status, accepted_at}`, `WORK_ITEM {id, code, title, status, priority, project_id, project, project_name, channel, urgent, due_date, closed}` (đã đóng ở ngày đóng, còn mở ở hạn), `PERSONAL {id, title, hours, status, start_time}` (chỉ khi xem chính mình). Dự án người xem không có mặt chỉ hiện trong `hidden_projects` và `by_project.visible=false` (FR-PLAN-40, ADR-0081) |
-| GET | `/api/v1/planning/overview/{plan_date}` | Chỉ đọc, không mở kế hoạch. Mỗi dự án phần mềm một dòng: `readiness {state, reasons[]}`, `context {band, score, missing[], approved}` (FR-CTX-04), `reports`, `approvals`, `unsynced`, `stuck`, `meetings`, `plan` (kế hoạch riêng của dự án hoặc kế hoạch tổng còn chứa nó), `acceptance`, `gitlab`, `people_off[]`, `unassigned[]`, `carry_over`, `plan.made_by`, `approvals {pending, urgent, cto, po, overdue, has_owner}`, `overdue {approvals, waiting, work_log, p0_open}`, `attention`; đầu trang `overdue_total` và `cto_time {today_minutes, actions_today, avg7_minutes, days[]}` (chỉ CTO, `null` với Project Owner); Project Owner chỉ thấy dự án của mình (FR-PLAN-23, FR-PLAN-26, FR-APR-14, FR-PLAN-27, FR-UI-15). `POST /runs/{id}/approve`, `/accept-proposals`, `GET /runs/{id}/sync-jobs`: CTO hoặc Project Owner của dự án (FR-PLAN-25) |
-| PUT | `/api/v1/planning/projects/{project_ref}/agent-ready` | Chỉ CTO. `{ agent_ready: bool }` (FR-MCP-04); `ProjectOut.agent_ready`. `IntakeOut.agent_readiness { score, band: READY|NEEDS_WORK|HUMAN, reasons[], missing[] }` có ở chi tiết và danh sách |
-| PATCH | `/api/v1/intakes/{id}/fix-hints` | CTO hoặc PO. `{ fix_hints }` ≤ 2.000 ký tự, trống để xóa; trả `IntakeOut` (có `fix_hints`). Hành trình (`/journey`) có `work { entries, latest_id, latest_decision, latest_at, latest_by, off_plan, worked_on, actual_minutes, deployed }` và `unlogged_evidence { commits, merge_requests, links }|null`; UI dùng `latest_id` để CTO quyết work-log `PENDING` ngay tại bước Nghiệm thu. `unlogged_evidence` chỉ mở luồng ghi nhận kết quả, không tự nghiệm thu. |
-| PATCH | `/api/v1/intakes/{id}/hard-flag` | Chỉ CTO (403 với vai khác). `{ needs_cto_acceptance: bool }`; trả `IntakeOut`. Đổi giá trị ghi `intake.hard_flag_changed`. `POST /intakes` và `approve` nhận cùng trường, bỏ qua nếu không phải CTO; MCP `create_intake` nhận `needs_cto_acceptance` (CTO), `get_intake` trả lại. FR-PLAN-39. |
-| POST | `/api/v1/mcp-server` | MCP Streamable HTTP (FR-MCP-02): thân JSON-RPC 2.0 (đơn hoặc lô), trả JSON cùng dạng, không bọc envelope; thông báo trả `202`. Chỉ nhận `Bearer itk_…` (`401` với cookie/phiên). Phương thức: `initialize`, `ping`, `tools/list`, `tools/call`; lỗi JSON-RPC `-32601/-32600/-32700`. Kết quả tool: `content[0].text` (JSON) và `structuredContent`; lỗi nghiệp vụ `isError: true` với `MÃ: lời` |
-| POST | `/api/v1/mcp-server` (thêm từ ADR-0062) | Tool `propose_work` `{project, date?, issue?, intake?, text?, hours?, slot?}` cho mọi vai có nhân sự; `get_my_day` trả thêm `projects[{id, code, name}]` (FR-PLAN-35) |
-| POST | `/api/v1/mcp-server` (thêm từ ADR-0061) | `create_intake` nhận `attachments[{name?, mime_type, data_base64}]` tối đa 3 tệp, mỗi tệp 5 MB, loại image/png, image/jpeg, image/webp, application/pdf; kiểm magic bytes trước khi tạo yêu cầu (`ATTACHMENT_TYPE_MISMATCH`); trả thêm `attachments` (số tệp đã nhận) (FR-AI-14) |
-| POST | `/api/v1/mcp-server` (thêm từ ADR-0058) | `tools/list` chỉ liệt kê tool người gọi dùng được (`get_cto_board`, `list_work_log_pending` chỉ CTO). Tool mới: `get_my_day {date?}` → `{date, member, items[{assignment_id, project, project_name, issue, issue_url, title, intake, priority, slot, hours, work_type, primary, work_status, work_status_note, plan_closed}], note, hint}`, lỗi `MEMBER_UNMAPPED`; `update_work_status {assignment_id | issue + date?, status PLANNED\|IN_PROGRESS\|DONE\|BLOCKED, note?}` → `{assignment_id, issue, work_status, previous, at}`, lỗi `ASSIGNMENT_NOT_FOUND` (kể cả việc của người khác); `get_cto_board {date?}` → `{plan_date, overdue_total, missing_projects, projects[]}`; `get_week_summary {week_of?}` → `{week_start, week_end, days_passed, text, projects, people, process}`; `list_work_log_pending {limit?}` → `{pending, entries[{log_id, intake, title, project, summary, agent, branch, commit, verify_steps, deploy_steps, created_at}]}`. `prompts/list` → `today`, `end_day`, `week`, và `board` (CTO); `prompts/get {name, arguments{date? | week_of?}}` → một tin `user` (FR-MCP-06, FR-MCP-07) |
-| PATCH | `/api/v1/users/{id}` (thêm 2026-10-14) | `member_id` gắn tài khoản với nhân sự đang hoạt động chưa có tài khoản khác (`""` bỏ gắn; Developer không bỏ được): `MEMBER_REQUIRED`, `MEMBER_HAS_ACCOUNT`. `AccountOut` thêm `member_name`. Tài khoản CTO sửa được dòng của mình (FR-NTF-06) |
-| GET | `/api/v1/agent-commands/install.sh`, `/install.ps1`, `/files/{name}.md` | Công khai, text: dòng cài và tệp lệnh ngắn (`in-today`, `in-end-day`, `in-week`, `in-board`, `fix-issue`); không có dữ liệu hay bí mật (FR-MCP-07) |
-| GET | `/api/v1/auth/agent-commands` | Phiên đăng nhập (mọi vai). `{ commands[{name, slash (/in-...), mcp_slash, description, when, codex}], install{bash, powershell, repo} }`: prompt của server theo vai dưới dạng lệnh Claude Code, câu nhắc Codex, lúc dùng; thêm `fix_issue` của repo. `AccountOut` thêm `agent_last_used_at` (FR-MCP-07) |
-| POST | `/api/v1/users` (thêm từ ADR-0058) | `{ subject, role PROJECT_OWNER\|DEVELOPER = PROJECT_OWNER, member_id? , email?, display_name? }`: `DEVELOPER` lấy email và tên từ nhân sự `member_id` (lỗi `MEMBER_REQUIRED`, `MEMBER_HAS_ACCOUNT`, `MEMBER_EMAIL_REQUIRED`); `projects` của tài khoản Developer là dự án của nhân sự. `GET /auth/tokens`, `POST /auth/tokens`, `DELETE /auth/tokens/{id}` mở cho Developer (FR-MCP-05) |
-| GET | `/api/v1/personal-tasks?from=&to=` | Mọi vai có đăng nhập (CTO, Project Owner, Developer). Việc riêng của chính người gọi trong khoảng ngày (mặc định hôm nay và 7 ngày tới, tối đa 92 ngày): `[{id, task_date, title, note, hours, start_time, remind_at, status PLANNED\|DONE\|SKIPPED, done_at, created_at, updated_at}]` (FR-PER-01) |
-| POST | `/api/v1/personal-tasks` | `{ title, task_date, hours?, start_time?, remind_at?, note?, important?, urgent? (null = tự tính) }`; `422 TIME_INVALID`, `HOURS_INVALID`, `TITLE_REQUIRED`. `201` trả việc kèm `important, urgent, urgent_effective, quadrant 1..4, quadrant_label` (FR-PER-01, FR-PER-04) |
-| PATCH | `/api/v1/personal-tasks/{id}` | Các trường trên, `status`, `task_date: null` (bỏ ngày, về ma trận), `archived` (true lưu trữ, false khôi phục); `404` khi không phải của mình (FR-PER-01, FR-PER-05) |
-| GET | `/api/v1/personal-tasks/matrix?week_of=` | `{ week_start, week_end, today, tasks[], summary{today_open, today_hours, quadrants[{quadrant, label, open, hours}], rolled_over, undated, overdue} }`: việc trong tuần, chưa có ngày và tồn từ trước, mỗi việc kèm `rollover_count` (FR-PER-05) |
-| POST | `/api/v1/personal-tasks/{id}/delegate` | `{ member_id, project_id, task_date, hours? }`. CTO: mọi nhân sự; Project Owner: `project_id` phải trong dự án mình (`404` nếu không); Developer `403`. Mở kế hoạch của dự án cho ngày đó nếu chưa có, thêm việc `SUPPORT` không Issue cho nhân sự; trả việc riêng với `status DELEGATED`, `delegated_member_name`, `delegated_assignment_id`, `plan{run_id, project_id, plan_date}`. `422 TASK_NOT_OPEN`, `MEMBER_REQUIRED`, hoặc mã của Planning (`PLANNING_RUN_IMMUTABLE`, `OVER_CAPACITY`) (FR-PER-06) |
-| GET/POST/PATCH | `/api/v1/personal-tasks` (thêm từ FR-PER-06) | `repeat_rule` `WEEKLY:<0-6>` (Thứ Hai 0) hoặc `MONTHLY:<1-31>`, `""` dừng lặp; `422 REPEAT_INVALID`. Ra thêm `repeat_label`, `done_quadrant`, `delegated_*`. `GET /planning/week/{monday}` của CTO trả `personal{done[], open[], done_total, done_hours, delegated, rollovers, schedule_share}` |
-| GET | `/api/v1/personal-tasks/archived` | Việc đã lưu trữ của chính mình, mới nhất trước (FR-PER-05) |
-| DELETE | `/api/v1/personal-tasks/{id}` | `204`; `404` khi không phải của mình (FR-PER-01) |
-| GET | `/api/v1/planning/capacities/{date}` (thêm từ ADR-0060) | Mỗi dòng thêm `personal_hours`; `available_hours` đã trừ giờ việc riêng (FR-PER-02) |
-| POST | `/api/v1/mcp-server` (thêm từ ADR-0060) | `get_my_day` trả thêm `personal[{task_id, title, hours, start_time, remind_at, status, note}]`; tool `add_personal_task {title, date?, hours?, start_time?, remind_at?, note?}` và `update_personal_task {task_id, status?, title?, date?, hours?, start_time?, remind_at?, note?}` (FR-PER-03) |
-| PUT | `/api/v1/private-space/master-dna` | `{ text }`. Lưu Master DNA dùng chung |
-| PUT | `/api/v1/private-space/voice?track=` | `track`: `business` (mặc định) hoặc `technical`; lưu giọng của riêng mạch đó. `default_channel` nhận cả kênh dài |
-| GET | `/api/v1/private-space/ideas?track=` | Thêm lọc theo mạch; mỗi ý có `track` (hoặc `null`) |
-| GET, PUT | `/api/v1/private-space/ideas/{id}/track` | Chỉ CTO. `{ track }`, `null` là chưa xếp. `404 IDEA_NOT_FOUND` khi không phải ý của khu riêng |
-| POST | `/api/v1/intakes/{id}/drafts` | Thêm `context?` (`REAL`, `EXAMPLE`, `SOURCE`) và `commercial?` (`NONE`, `SPONSORED`, `AFFILIATE`; khác `NONE` chỉ ở mạch `technical`, nếu không `422 COMMERCIAL_NOT_FOR_TRACK`). `source_draft_id` với `track` khác nháp nguồn là chuyển thể sang hướng kia; không nêu `track` thì giữ hướng của nháp nguồn. Thêm `track?`, `goal?` (`AUTHORITY`, `DISCUSSION`, `REACH`, `CONVERSATION`), `audience?` (`SME`, `AGENCY`, `CONSULTANT`, `DEVELOPER`), `pillar?` (tối đa 120 ký tự), `group_context?` (`FNB`, `EDUCATION`, `RETAIL`, `SERVICE`, `AGENCY`, `CONSULTING`). Có `group_context` thì kênh thành `FACEBOOK_GROUP` và `audience` bị bỏ. Không nêu `track` thì theo mạch của ý, rồi tới `business`. Nháp trả về mang các trường này |
+| GET | `/api/v1/private-space` | Adds `master_dna` (shared document, at most 40,000 characters) and `voices`: `{ business, technical }`, each voice has `name`, `direction_note`, `references` (at most 2, each with `title` and `text` ≤ 20,000 characters); `dna` is gone. `voice` is still the voice of the `business` track (ADR-0042) |
+| GET/POST/DELETE | `/api/v1/auth/tokens[/{id}]` | Login session only (CTO, Project Owner), not via token (FR-MCP-01). `POST { name }` → `201` `{ id, name, prefix, token, created_at, expires_at }`, `token` is returned only once; `409` when there are already 10 tokens; `DELETE` → `204`, `404` if not your own. The token is used as `Authorization: Bearer itk_…` for every route with the creator's permissions |
+| GET/POST | `/api/v1/intakes/{id}/work-log` | CTO or the project's PO (FR-MCP-03). `POST { summary (5–1.000), details { cause, changes[], tests, branch, commit, verify_steps[], deploy_steps[], worked_on? YYYY-MM-DD, actual_minutes? 0..1440, deployed? }, agent_name? }` → `201`. Date/minutes are actuals; they do not create or add to Daily Planning. Entries have `review_decision` `PENDING|CONFIRMED|RETURNED`, `review_note`, `reviewed_by_name`, `actor_name`, `agent_name`, `commit_url` (the commit page on GitLab/GitHub built from the request's Issue address; if `commit` is already a link it is kept as is; `null` when the repo is unknown) |
+| POST | `/api/v1/intakes/{id}/work-log/{log_id}/review` | CTO only. `{ decision: CONFIRMED|RETURNED, note? }`; `RETURNED` requires `note` (`422 NOTE_REQUIRED`); `409 ALREADY_REVIEWED`. `CONFIRMED` on the current delivery Issue also creates/accepts an `IssueVerification` with source `WORK_LOG`, sets `sync_status=PENDING`, then enqueues the task that closes the Issue after commit. |
+| GET | `/api/v1/changelog` | `{ build {sha, built_at}, latest, entries[{date, title, commits[], refs[], bullets[], cto_only}], behind }` read from `CHANGELOG.md`; `cto_only` entries are hidden from Project Owners (FR-UI-14). `behind`: number of entries newer than the running build, CTO only, `null` when unknown (FR-UI-15) |
+| POST | `/api/v1/reports/daily/{id}/items/{item_id}/issue` | CTO or Project Owner (requester belongs to their team). `{ gitlab_issue? , no_issue_reason? MEETING|SUPPORT|REVIEW|LEARNING|OTHER }`: with `gitlab_issue` it links it (source taken from the suggestion if it matches, otherwise `MANUAL`), with only a reason it marks "no Issue needed", empty clears both. Returns the report detail (FR-RPT-07) |
+| POST | `/api/v1/reports/daily/{id}/link-sure` | Links every item with a suggestion of 0.9 or higher in the message; returns the report detail (FR-RPT-07) |
+| POST | `/api/v1/reports/daily/{id}/suggest-issues` | Recomputes suggestions by rules, sends the unclear part to AI via the `ai.normalize` queue; returns `{ items, linked, suggested, for_ai[], ai_queued }` (FR-RPT-07) |
+| POST | `/api/v1/reports/issue-suggestions/backfill?days=14` | CTO only. Runs suggestions for every report that still has unlinked items within `days` days; returns totals with `reports` (FR-RPT-07) |
+| GET | `/api/v1/planning/week/{day}` | CTO or Project Owner (own projects). The week containing `day`: `{ week_start, week_end, days_passed, projects[{id, code, name, people, hours{available, planned, reported}, plans{total, closed}, done{reported, issues_closed, accepted, rejected, work_logs_confirmed}, items{reported, without_issue}, reports{expected, received, missing, late}, requests{new, approved, approved_within_24h, from_planning, avg_wait_hours, avg_to_issue_hours}, board{days, ready_days, no_work_days, overdue_days, max_approvals_overdue, max_stuck, escalated_days}}], people[{member_id, display_name, hours, done_reported, items, reports, projects[{id, name, planned, reported}]}], process{...}, cto_days[{date, minutes}] (CTO only), text }` (FR-PLAN-29) |
+| POST | `/api/v1/planning/board-snapshots/{day}` | CTO only. Writes (or replaces) the morning board snapshot for that day; returns `{ snapshot_date, projects }` (FR-PLAN-30) |
+| GET | `/api/v1/acceptance` | CTO or Project Owner (own projects); `?project_id=`. `source` adds `PLAN` (reported done on the day plan, FR-PLAN-34); each item has `source_note` (the note written when cancelling a pending item, copied to the Issue when the CTO accepts). `{ plan_date, sample_size, pending_total, today[], more[], decided[] }`, each entry `{ id, source REPORT|CLOSED, project_id, project_name, issue_external_id, title, web_url, state, closed_at, assignee_*, reporter_*, reported_on, reported_hours, report_item_title, priority, level, level_name, done_evidence, evidence, evidence_fetched_at, intake_*, acceptance[], picked_on, decision, reason, decided_at, decided_by_name, po_decision, po_reason, po_decided_at, po_decided_by_name, sync_status, sync_error, synced_at }`. CTO: `today` is the day's sample (picked when requested), `more` is the rest, `decided` covers 7 days; Project Owner: `today` is every unconfirmed item of their own projects (FR-PLAN-31) |
+| POST | `/api/v1/acceptance/{id}/accept` or `/reject` | `{ reason? }` (required for reject, `422 REASON_REQUIRED`). The CTO writes `decision`, the Project Owner writes `po_decision`; `409 VERIFICATION_DECIDED` when already decided. Reject: the item returns to the open plan as "Redo" ("Làm lại"). CTO accept: `sync_status = PENDING`, a task writes a note and closes the Issue; returns the entry with `sync_queued` (FR-PLAN-31) |
+| POST | `/api/v1/acceptance/sample?extra=5` | CTO only. Adds `extra` items to today's sample; returns `{ added }` (FR-PLAN-31) |
+| POST | `/api/v1/acceptance/collect` | CTO only. Collects items reported done and closed Issues; also reconciles old `CONFIRMED` work logs that have no formal acceptance, accepts them and enqueues closing the Issue. Returns `{ from_reports, from_closed, from_work_logs }` (FR-PLAN-31, FR-MCP-03) |
+| PUT | `/api/v1/planning/projects/{project_ref}/acceptance-policy` | CTO only. `{ acceptance_policy: CTO_ALWAYS\|PO_FINAL_LOW_RISK }` (other values `422`) → `{ project_id, acceptance_policy }`; writes `planning.acceptance-policy.changed`. `GET /projects` also returns `acceptance_policy`. Acceptance cards (`GET /acceptance`, accept, reject) also return `final_by (CTO\|PO\|null)`, `acceptance_policy`, `needs_cto_acceptance`, `po_final_blockers[]` (`POLICY`, `HARD`, `P0`, `EVIDENCE`, `NOT_OWNER`, `SELF`, `REJECTED_BEFORE`). Project Owner accept with no blocker: `decision ACCEPTED`, `final_by PO`, `sync_status PENDING`, closes the Issue like the CTO. `GET /intakes/{id}/journey` `verification` adds `po_decision`, `po_decided_at`, `po_decided_by_name`, `final_by`, `accepted_by_name` (FR-PLAN-41) |
+| POST | `/api/v1/planning/projects/{ref}/tracker-users/lookup` | CTO or Project Owner (own projects). `202 { probe_id, status, system }`: asks the integration-worker to read the tracker's user list (the API does not hold the token); `422 TRACKER_NOT_CONFIGURED` when the project has not enabled GitLab/GitHub (FR-PLAN-32) |
+| GET | `/api/v1/notify/telegram` | CTO only. `{ bot_username, bot_seen_at, projects[{id, code, name, chat_title, linked, linked_at}], members[{id, display_name, username, linked, linked_at, invite_pending}], holidays[{day, note}] }` (FR-NTF-02, FR-NTF-03) |
+| POST | `/api/v1/notify/telegram/members/{member_id}/invite` | CTO only. Creates (or recreates) a single-use invite code; `{ member_id, code, link, linked }`, `link` is null when `TELEGRAM_BOT_USERNAME` is not set; `404` when there is no such member (FR-NTF-03) |
+| DELETE | `/api/v1/notify/telegram/members/{member_id}/link` | CTO only. Unlinks the member's Telegram and deletes any open invite code; `204` (FR-NTF-03) |
+| DELETE | `/api/v1/notify/telegram/projects/{ref}/link` | CTO only. Unlinks the project's group (`ref` is the id or code); `204` (FR-NTF-02) |
+| GET | `/api/v1/notify/holidays` | CTO only. `[{day, note}]` (FR-NTF-04) |
+| PUT | `/api/v1/notify/holidays` | CTO only. `{ days: [{day, note?}] }` (at most 60) replaces the whole list; duplicate days keep the first row; returns the new list (FR-NTF-04) |
+| GET | `/api/v1/notify/telegram/messages?days=7` | CTO only (`days` 1..60). `[{id, kind, for_date, slot, status SENT\|FAILED, error, sent_at, project_name, member_name}]`, newest first; `error` only contains a stable Telegram code and the exception type, never the raw transport error or the bot token (FR-NTF-01, FR-NTF-05) |
+| POST | `/api/v1/planning/proposals` | `{ project (code or id), plan_date, issue?, intake?, text?, hours?, slot? }`. CTO, Project Owner (own projects), Developer (projects they are on, otherwise `404`); accounts not linked to a member get `422 MEMBER_UNMAPPED`. `201` returns the candidate with `created`, `run_id`, `project_name`, `project_code`, `plan_date`; `409 PLANNING_RUN_IMMUTABLE` when that day's plan is already closed; `422 GITLAB_ISSUE_NOT_FOUND`, `GITLAB_ISSUE_CLOSED`, `CANDIDATE_ALREADY_PLANNED`, `INTAKE_NOT_FOUND`, `PROPOSAL_TEXT_REQUIRED` (FR-PLAN-35) |
+| GET | `/api/v1/planning/people/{plan_date}` (changed) | CTO: everyone; Project Owner: people on their project teams, each with `projects[{id, name, hours, run_status}]` for every project with hours, including projects of other Project Owners (FR-PLAN-28) |
+| GET | `/api/v1/planning/capacities/{date}` (added) | Each row has `planned_elsewhere[{project_id, project_name, hours}]` next to `planned_elsewhere_hours` (FR-PLAN-28); `GET /planning/day-plans/{date}` gives `elsewhere[]` on `people[]` and `free[]` |
+| PATCH | `/api/v1/planning/runs/{run_id}/assignments/{assignment_id}/work-status` | `{ status: PLANNED|IN_PROGRESS|DONE|BLOCKED, note? }`. CTO: every item; Project Owner: own projects; Developer: their own items (otherwise `404`). A closed plan still accepts it. Returns `{ assignment_id, issue, work_status, previous, at, work_status_note, acceptance_queued }`; `DONE` on an item with an Issue creates a pending Acceptance item with source `PLAN` if the Issue has no pending item yet (FR-PLAN-34) |
+| GET | `/api/v1/planning/my-day/{plan_date}` | CTO, Project Owner, Developer (account linked to a member, otherwise `422 MEMBER_UNMAPPED`). Same data as the `get_my_day` tool: `{ date, member, items[{assignment_id, project, project_name, issue, issue_url, title, intake, priority, slot, hours, work_type, primary, work_status, work_status_note, plan_closed}], personal[], note?, hint? }` (FR-PLAN-34, FR-MCP-06). Since 2026-10-20 each item has `accepted_at`; since 2026-10-21 `issue_url` opens the Issue detail from the "My work" ("Việc của tôi") card. |
+| GET | `/api/v1/planning/day-plans/{plan_date}` | CTO (all projects) or Project Owner (own projects). Read only, does not open a plan. `{ plan_date, projects[{id, code, name, owner_name, run{...}|null, people[...], free[...], off[], waiting[...], off_plan[{id, intake_id, intake_public_id, title, issue, issue_url, executor, review_decision, worked_on, actual_minutes, deployed, accepted_at}]}], project_order{mode: PRIORITY|CUSTOM, project_ids[]}, totals{projects, unclosed, free_hours, free_people, waiting, off_plan, off_plan_actual_minutes} }` (FR-PLAN-33). `project_order` is the current account's preference and is already filtered to the caller's project scope. `off_plan` is the day's work logs with no matching assignment; it only shows actual history and is not added to planned hours. Since 2026-10-20 each item card in `people[].assignments[]` has `accepted_at`. |
+| PUT | `/api/v1/planning/project-order` | CTO or Project Owner. `{ mode: PRIORITY|CUSTOM, project_ids[] }`; stored per account. `PRIORITY` always clears the ID list. `CUSTOM` only accepts active software projects the caller can see; duplicate IDs return `422 PROJECT_ORDER_DUPLICATE`, out-of-scope projects return `422 PROJECT_ORDER_PROJECT_NOT_VISIBLE` (FR-PLAN-33, FR-ID-08). |
+| GET | `/api/v1/planning/projects/{ref}/tracker-users?probe=&issue=` | `{ status PENDING|DONE|FAILED, error_code, users[{id, name, username, mapped_member_id, suggested_member_id}], unmapped[{member_id, display_name, suggested_user_id}], issue_assignees[] }`; a probe of another project returns `FAILED PROBE_NOT_FOUND` (FR-PLAN-32) |
+| POST | `/api/v1/planning/projects/{ref}/tracker-users/auto-map?probe=` | Fills the mapping for people with a unique match from a finished probe; `409 PROBE_NOT_DONE` when it has not returned; returns `{ filled, names[], unmapped }` (FR-PLAN-32) |
+| PUT | `/api/v1/planning/projects/{ref}/members/{member_id}/tracker-user` | CTO or Project Owner. `{ gitlab_user_external_id }` (null to clear); `404` when it is not your project or the person is not on the project (FR-PLAN-32) |
+| GET | `/api/v1/planning/people/{plan_date}` | CTO only. `{ plan_date, over, free, people[{member_id, display_name, available_hours, planned_hours, free_hours, state OVER|FREE|OK|OFF, projects[{id, name, hours, run_status}]}] }`: hours scheduled across all non-superseded plans of the day (FR-PLAN-28) |
+| GET | `/api/v1/planning/people` | Every logged-in role. People whose plan the caller may view by person: `{ me, members[{member_id, display_name, is_me}] }`, active members, the viewer first. CTO: everyone; others: themselves and people sharing a project (projects assigned to them and projects they are a member of) (FR-PLAN-40, ADR-0081) |
+| GET | `/api/v1/planning/people/{member_id}/plan?from=&to=` | Every logged-in role, read only, at most 62 days (`422 RANGE_TOO_LONG`, `422 RANGE_INVALID`); people out of scope return `404 MEMBER_NOT_FOUND`. `{ member{member_id, display_name, is_me}, from, to, days[{date, capacity_hours, personal_hours, available_hours, planned_hours, off, items[], hidden_projects[{name, hours}]}], totals{planned_hours, available_hours, personal_hours, off_days, by_project[{name, hours, visible}], work_status{PLANNED, IN_PROGRESS, DONE, BLOCKED}, accepted, work_items{<status>: n}} }`. `items[]` by `kind`: `ASSIGNMENT {id, run_id, run_status, project_id, project, project_name, title, issue, issue_url, intake, priority, slot, hours, work_type, status, accepted_at}`, `WORK_ITEM {id, code, title, status, priority, project_id, project, project_name, channel, urgent, due_date, closed}` (closed items on their close date, open items on their due date), `PERSONAL {id, title, hours, status, start_time}` (only when viewing yourself). Projects the viewer is not on only appear in `hidden_projects` and as `by_project.visible=false` (FR-PLAN-40, ADR-0081) |
+| GET | `/api/v1/planning/overview/{plan_date}` | Read only, does not open a plan. One row per software project: `readiness {state, reasons[]}`, `context {band, score, missing[], approved}` (FR-CTX-04), `reports`, `approvals`, `unsynced`, `stuck`, `meetings`, `plan` (the project's own plan or the combined plan that still contains it), `acceptance`, `gitlab`, `people_off[]`, `unassigned[]`, `carry_over`, `plan.made_by`, `approvals {pending, urgent, cto, po, overdue, has_owner}`, `overdue {approvals, waiting, work_log, p0_open}`, `attention`; at the top of the page `overdue_total` and `cto_time {today_minutes, actions_today, avg7_minutes, days[]}` (CTO only, `null` for Project Owners); Project Owners only see their own projects (FR-PLAN-23, FR-PLAN-26, FR-APR-14, FR-PLAN-27, FR-UI-15). `POST /runs/{id}/approve`, `/accept-proposals`, `GET /runs/{id}/sync-jobs`: CTO or the project's Project Owner (FR-PLAN-25) |
+| PUT | `/api/v1/planning/projects/{project_ref}/agent-ready` | CTO only. `{ agent_ready: bool }` (FR-MCP-04); `ProjectOut.agent_ready`. `IntakeOut.agent_readiness { score, band: READY|NEEDS_WORK|HUMAN, reasons[], missing[] }` is present in detail and list |
+| PATCH | `/api/v1/intakes/{id}/fix-hints` | CTO or PO. `{ fix_hints }` ≤ 2,000 characters, empty to clear; returns `IntakeOut` (with `fix_hints`). The journey (`/journey`) has `work { entries, latest_id, latest_decision, latest_at, latest_by, off_plan, worked_on, actual_minutes, deployed }` and `unlogged_evidence { commits, merge_requests, links }|null`; the UI uses `latest_id` so the CTO can decide a `PENDING` work log right at the Acceptance step. `unlogged_evidence` only opens the flow for recording results; it does not accept on its own. |
+| PATCH | `/api/v1/intakes/{id}/hard-flag` | CTO only (403 for other roles). `{ needs_cto_acceptance: bool }`; returns `IntakeOut`. Changing the value writes `intake.hard_flag_changed`. `POST /intakes` and `approve` accept the same field, ignored if the caller is not the CTO; MCP `create_intake` accepts `needs_cto_acceptance` (CTO), `get_intake` returns it. FR-PLAN-39. |
+| POST | `/api/v1/mcp-server` | MCP Streamable HTTP (FR-MCP-02): JSON-RPC 2.0 body (single or batch), returns JSON of the same shape, not wrapped in the envelope; notifications return `202`. Only accepts `Bearer itk_…` (`401` with cookie/session). Methods: `initialize`, `ping`, `tools/list`, `tools/call`; JSON-RPC errors `-32601/-32600/-32700`. Tool result: `content[0].text` (JSON) and `structuredContent`; business errors `isError: true` with `MÃ: lời` (CODE: message) |
+| POST | `/api/v1/mcp-server` (added from ADR-0062) | Tool `propose_work` `{project, date?, issue?, intake?, text?, hours?, slot?}` for every role linked to a member; `get_my_day` also returns `projects[{id, code, name}]` (FR-PLAN-35) |
+| POST | `/api/v1/mcp-server` (added from ADR-0061) | `create_intake` accepts `attachments[{name?, mime_type, data_base64}]`, at most 3 files, 5 MB each, types image/png, image/jpeg, image/webp, application/pdf; magic bytes are checked before the request is created (`ATTACHMENT_TYPE_MISMATCH`); also returns `attachments` (number of files received) (FR-AI-14) |
+| POST | `/api/v1/mcp-server` (added from ADR-0058) | `tools/list` only lists tools the caller can use (`get_cto_board`, `list_work_log_pending` CTO only). New tools: `get_my_day {date?}` → `{date, member, items[{assignment_id, project, project_name, issue, issue_url, title, intake, priority, slot, hours, work_type, primary, work_status, work_status_note, plan_closed}], note, hint}`, error `MEMBER_UNMAPPED`; `update_work_status {assignment_id | issue + date?, status PLANNED\|IN_PROGRESS\|DONE\|BLOCKED, note?}` → `{assignment_id, issue, work_status, previous, at}`, error `ASSIGNMENT_NOT_FOUND` (including other people's items); `get_cto_board {date?}` → `{plan_date, overdue_total, missing_projects, projects[]}`; `get_week_summary {week_of?}` → `{week_start, week_end, days_passed, text, projects, people, process}`; `list_work_log_pending {limit?}` → `{pending, entries[{log_id, intake, title, project, summary, agent, branch, commit, verify_steps, deploy_steps, created_at}]}`. `prompts/list` → `today`, `end_day`, `week`, and `board` (CTO); `prompts/get {name, arguments{date? | week_of?}}` → one `user` message (FR-MCP-06, FR-MCP-07) |
+| PATCH | `/api/v1/users/{id}` (added 2026-10-14) | `member_id` links the account to an active member that has no other account (`""` unlinks; a Developer cannot be unlinked): `MEMBER_REQUIRED`, `MEMBER_HAS_ACCOUNT`. `AccountOut` adds `member_name`. The CTO account can edit its own row (FR-NTF-06) |
+| GET | `/api/v1/agent-commands/install.sh`, `/install.ps1`, `/files/{name}.md` | Public, text: the install line and the short command files (`in-today`, `in-end-day`, `in-week`, `in-board`, `fix-issue`); no data or secrets (FR-MCP-07) |
+| GET | `/api/v1/auth/agent-commands` | Login session (every role). `{ commands[{name, slash (/in-...), mcp_slash, description, when, codex}], install{bash, powershell, repo} }`: the server's prompts by role as Claude Code commands, Codex prompts, and when to use them; plus the repo's `fix_issue`. `AccountOut` adds `agent_last_used_at` (FR-MCP-07) |
+| POST | `/api/v1/users` (added from ADR-0058) | `{ subject, role PROJECT_OWNER\|DEVELOPER = PROJECT_OWNER, member_id? , email?, display_name? }`: `DEVELOPER` takes the email and name from member `member_id` (errors `MEMBER_REQUIRED`, `MEMBER_HAS_ACCOUNT`, `MEMBER_EMAIL_REQUIRED`); the `projects` of a Developer account are the member's projects. `GET /auth/tokens`, `POST /auth/tokens`, `DELETE /auth/tokens/{id}` are open to Developers (FR-MCP-05) |
+| GET | `/api/v1/personal-tasks?from=&to=` | Every logged-in role (CTO, Project Owner, Developer). The caller's own personal tasks within the date range (default today and the next 7 days, at most 92 days): `[{id, task_date, title, note, hours, start_time, remind_at, status PLANNED\|DONE\|SKIPPED, done_at, created_at, updated_at}]` (FR-PER-01) |
+| POST | `/api/v1/personal-tasks` | `{ title, task_date, hours?, start_time?, remind_at?, note?, important?, urgent? (null = computed) }`; `422 TIME_INVALID`, `HOURS_INVALID`, `TITLE_REQUIRED`. `201` returns the task with `important, urgent, urgent_effective, quadrant 1..4, quadrant_label` (FR-PER-01, FR-PER-04) |
+| PATCH | `/api/v1/personal-tasks/{id}` | The fields above, `status`, `task_date: null` (removes the date, back to the matrix), `archived` (true archives, false restores); `404` when not your own (FR-PER-01, FR-PER-05) |
+| GET | `/api/v1/personal-tasks/matrix?week_of=` | `{ week_start, week_end, today, tasks[], summary{today_open, today_hours, quadrants[{quadrant, label, open, hours}], rolled_over, undated, overdue} }`: tasks in the week, undated tasks and tasks left over from before, each with `rollover_count` (FR-PER-05) |
+| POST | `/api/v1/personal-tasks/{id}/delegate` | `{ member_id, project_id, task_date, hours? }`. CTO: any member; Project Owner: `project_id` must be one of their projects (`404` otherwise); Developer `403`. Opens the project's plan for that day if there is none, adds a `SUPPORT` item without an Issue for the member; returns the personal task with `status DELEGATED`, `delegated_member_name`, `delegated_assignment_id`, `plan{run_id, project_id, plan_date}`. `422 TASK_NOT_OPEN`, `MEMBER_REQUIRED`, or a Planning code (`PLANNING_RUN_IMMUTABLE`, `OVER_CAPACITY`) (FR-PER-06) |
+| GET/POST/PATCH | `/api/v1/personal-tasks` (added from FR-PER-06) | `repeat_rule` `WEEKLY:<0-6>` (Monday 0) or `MONTHLY:<1-31>`, `""` stops repeating; `422 REPEAT_INVALID`. Output adds `repeat_label`, `done_quadrant`, `delegated_*`. The CTO's `GET /planning/week/{monday}` returns `personal{done[], open[], done_total, done_hours, delegated, rollovers, schedule_share}` |
+| GET | `/api/v1/personal-tasks/archived` | Your own archived tasks, newest first (FR-PER-05) |
+| DELETE | `/api/v1/personal-tasks/{id}` | `204`; `404` when not your own (FR-PER-01) |
+| GET | `/api/v1/planning/capacities/{date}` (added from ADR-0060) | Each row adds `personal_hours`; `available_hours` already subtracts personal task hours (FR-PER-02) |
+| POST | `/api/v1/mcp-server` (added from ADR-0060) | `get_my_day` also returns `personal[{task_id, title, hours, start_time, remind_at, status, note}]`; tools `add_personal_task {title, date?, hours?, start_time?, remind_at?, note?}` and `update_personal_task {task_id, status?, title?, date?, hours?, start_time?, remind_at?, note?}` (FR-PER-03) |
+| PUT | `/api/v1/private-space/master-dna` | `{ text }`. Saves the shared Master DNA |
+| PUT | `/api/v1/private-space/voice?track=` | `track`: `business` (default) or `technical`; saves the voice of that track only. `default_channel` accepts long-form channels too |
+| GET | `/api/v1/private-space/ideas?track=` | Adds a filter by track; each idea has `track` (or `null`) |
+| GET, PUT | `/api/v1/private-space/ideas/{id}/track` | CTO only. `{ track }`, `null` means not yet assigned. `404 IDEA_NOT_FOUND` when it is not a Private Space idea |
+| POST | `/api/v1/intakes/{id}/drafts` | Adds `context?` (`REAL`, `EXAMPLE`, `SOURCE`) and `commercial?` (`NONE`, `SPONSORED`, `AFFILIATE`; values other than `NONE` only on the `technical` track, otherwise `422 COMMERCIAL_NOT_FOR_TRACK`). `source_draft_id` with a `track` different from the source draft adapts it to the other direction; without `track` it keeps the source draft's direction. Adds `track?`, `goal?` (`AUTHORITY`, `DISCUSSION`, `REACH`, `CONVERSATION`), `audience?` (`SME`, `AGENCY`, `CONSULTANT`, `DEVELOPER`), `pillar?` (at most 120 characters), `group_context?` (`FNB`, `EDUCATION`, `RETAIL`, `SERVICE`, `AGENCY`, `CONSULTING`). With `group_context` the channel becomes `FACEBOOK_GROUP` and `audience` is dropped. Without `track` it follows the idea's track, then `business`. The returned draft carries these fields |
 
-Bài dài và sổ ghi chú (FR-CNT-05, FR-CNT-06, ADR-0036):
+Long posts and the notebook (FR-CNT-05, FR-CNT-06, ADR-0036):
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| POST | `/api/v1/intakes/{id}/drafts` | `channel` thêm `BLOG`, `VIDEO_SCRIPT`; `goal` thêm `FOLLOW`; `audience` thêm `AI_USER`; `outline?` (chỉ với hai kênh dài, nếu không `422 OUTLINE_NOT_FOR_CHANNEL`). `source_draft_id` trỏ tới một dàn ý thì bài được viết theo dàn ý đó. Nháp trả về có `kind`: `POST` hoặc `OUTLINE` |
-| PATCH | `/api/v1/intakes/{id}/drafts/{draft_id}` | `text` tối đa 30.000 ký tự |
-| GET | `/api/v1/private-space/notes?track=` | Chỉ CTO. Ghi chú của một mạch, theo thứ tự `FACT`, `PROOF`, `DECISION`, `RESULT` |
-| POST | `/api/v1/private-space/notes` | `201`. `{ track, kind, text }`, `text` 3 đến 1.000 ký tự. `409 NOTES_FULL` khi mạch đã có 60 ghi chú |
+| POST | `/api/v1/intakes/{id}/drafts` | `channel` adds `BLOG`, `VIDEO_SCRIPT`; `goal` adds `FOLLOW`; `audience` adds `AI_USER`; `outline?` (only with the two long-form channels, otherwise `422 OUTLINE_NOT_FOR_CHANNEL`). If `source_draft_id` points to an outline, the post is written from that outline. The returned draft has `kind`: `POST` or `OUTLINE` |
+| PATCH | `/api/v1/intakes/{id}/drafts/{draft_id}` | `text` at most 30,000 characters |
+| GET | `/api/v1/private-space/notes?track=` | CTO only. Notes of one track, in the order `FACT`, `PROOF`, `DECISION`, `RESULT` |
+| POST | `/api/v1/private-space/notes` | `201`. `{ track, kind, text }`, `text` 3 to 1,000 characters. `409 NOTES_FULL` when the track already has 60 notes |
 | DELETE | `/api/v1/private-space/notes/{note_id}` | `204`; `404 NOTE_NOT_FOUND` |
 
-Kế hoạch tuần, duyệt và luồng đăng (FR-CNT-07..10, ADR-0037, ADR-0038):
+Week plan, approval and publishing flow (FR-CNT-07..10, ADR-0037, ADR-0038):
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/private-space/plan?week=` | Chỉ CTO. `week` là một ngày thứ Hai (mặc định tuần này, giờ Việt Nam); ngày khác trả `422 WEEK_INVALID`. Trả `tracks` (mỗi mạch: `slots`, `stats`, `request`), `rhythm`, `editable` |
-| PUT | `/api/v1/private-space/plan/rhythm?track=` | `{ slots: [{ weekday 1..7, time "HH:MM"?, channel, pillar? }] }`, tối đa 7 ô |
-| POST | `/api/v1/private-space/plan/propose` | `202`. `{ track, week_start, keywords? }`. `409 WEEK_NOT_OPEN` ngoài tuần này và tuần sau; `409 NO_OPEN_SLOT` khi không còn ô trống. Hỏi lại `GET …/plan` tới khi `request.status` khác `PENDING` |
-| GET | `/api/v1/private-space/plan/slots/{id}` | Một ô |
-| PATCH | `/api/v1/private-space/plan/slots/{id}` | Chỉ đổi trường được gửi: `intake_id` (`null` để gỡ), `skipped`, `dismiss`. `409 SLOT_LOCKED` khi ô đang giữ bài đã duyệt |
-| POST | `/api/v1/private-space/plan/slots/{id}/accept` | Chốt đề xuất của AI. Trả `{ slot, created_idea_id }`; `created_idea_id` có giá trị khi một ý mới được tạo |
-| POST | `/api/v1/intakes/{id}/drafts/{draft_id}/approve` | `{ slot_id?, scheduled_for? }`. `409 SLOT_TAKEN` khi ô bị bỏ qua hoặc đang giữ ý hay bài khác; `422 OUTLINE_NOT_POSTABLE` với dàn ý |
-| DELETE | `/api/v1/intakes/{id}/drafts/{draft_id}/approve` | Bỏ duyệt. `409 DRAFT_POSTED` khi bài đã đăng |
-| PATCH | `/api/v1/intakes/{id}/drafts/{draft_id}` | Thêm `posted_at?`, `posted_url?` đi cùng `posted: true`. `409 DRAFT_APPROVED` khi sửa chữ của nháp đã duyệt; `422 POSTED_IN_FUTURE` |
-| GET | `/api/v1/publish/queue?channel=` | Không qua đăng nhập. `Authorization: Bearer <PUBLISH_API_KEY>`. Xem `docs/stable/publish-flow.md` |
-| POST | `/api/v1/publish/events` | Không qua đăng nhập. Ký bằng `X-Intake-Timestamp` và `X-Intake-Signature`. Xem `docs/stable/publish-flow.md` |
+| GET | `/api/v1/private-space/plan?week=` | CTO only. `week` is a Monday (default this week, Vietnam time); other days return `422 WEEK_INVALID`. Returns `tracks` (per track: `slots`, `stats`, `request`), `rhythm`, `editable` |
+| PUT | `/api/v1/private-space/plan/rhythm?track=` | `{ slots: [{ weekday 1..7, time "HH:MM"?, channel, pillar? }] }`, at most 7 slots |
+| POST | `/api/v1/private-space/plan/propose` | `202`. `{ track, week_start, keywords? }`. `409 WEEK_NOT_OPEN` outside this week and next week; `409 NO_OPEN_SLOT` when no empty slot is left. Poll `GET …/plan` until `request.status` is no longer `PENDING` |
+| GET | `/api/v1/private-space/plan/slots/{id}` | One slot |
+| PATCH | `/api/v1/private-space/plan/slots/{id}` | Only changes the fields sent: `intake_id` (`null` to remove), `skipped`, `dismiss`. `409 SLOT_LOCKED` when the slot holds an approved post |
+| POST | `/api/v1/private-space/plan/slots/{id}/accept` | Confirms the AI's proposal. Returns `{ slot, created_idea_id }`; `created_idea_id` has a value when a new idea was created |
+| POST | `/api/v1/intakes/{id}/drafts/{draft_id}/approve` | `{ slot_id?, scheduled_for? }`. `409 SLOT_TAKEN` when the slot is skipped or holds another idea or post; `422 OUTLINE_NOT_POSTABLE` for outlines |
+| DELETE | `/api/v1/intakes/{id}/drafts/{draft_id}/approve` | Unapproves. `409 DRAFT_POSTED` when the post is already published |
+| PATCH | `/api/v1/intakes/{id}/drafts/{draft_id}` | Adds `posted_at?`, `posted_url?` together with `posted: true`. `409 DRAFT_APPROVED` when editing the text of an approved draft; `422 POSTED_IN_FUTURE` |
+| GET | `/api/v1/publish/queue?channel=` | No login. `Authorization: Bearer <PUBLISH_API_KEY>`. See `docs/stable/publish-flow.md` |
+| POST | `/api/v1/publish/events` | No login. Signed with `X-Intake-Timestamp` and `X-Intake-Signature`. See `docs/stable/publish-flow.md` |
 
-Nháp trả về có thêm `approved_at`, `scheduled_for`, `posted_url`, `posted_via` (`MANUAL` hoặc `WEBHOOK`), `publish_error`, `slot_id`.
+The returned draft also has `approved_at`, `scheduled_for`, `posted_url`, `posted_via` (`MANUAL` or `WEBHOOK`), `publish_error`, `slot_id`.
 
-Nguồn theo dõi và tín hiệu (FR-CNT-11, FR-CNT-12, ADR-0039):
+Watch sources and signals (FR-CNT-11, FR-CNT-12, ADR-0039):
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET, POST | `/api/v1/private-space/watch/sources` | Chỉ CTO. Thêm: `{ url, track: business, technical hoặc both, label?, kind?, note? }`. `409 SOURCE_EXISTS`, `409 SOURCES_FULL` (80 nguồn) |
-| PATCH, DELETE | `/api/v1/private-space/watch/sources/{id}` | Đổi `track`, `active`, `label`, `note`; chỉ trường được gửi mới đổi |
-| GET, PUT | `/api/v1/private-space/watch/keywords?track=` | Trả `pillars` (trụ và từ khóa), `request` (trạng thái gợi ý), `suggested` (gợi ý chưa giữ). Lưu: `{ pillars: { "<trụ>": [từ khóa] } }`, tối đa 12 mỗi trụ |
-| POST | `/api/v1/private-space/watch/keywords/suggest?track=` | `202`. Hỏi lại `GET …/keywords` tới khi `request.status` khác `PENDING`. `409 NO_PILLARS` |
-| GET, PUT | `/api/v1/private-space/watch/demand?track=` | `{ wanted_per_week 0..50, weekday 1..7, time "HH:MM", lookback_days 1..30 }`. Trả thêm `deadline`, `window_start`, `received`, `remaining`, `accept_up_to`. `GET /api/v1/watch/config` trả cùng khối này ở `demand` của mỗi mạch |
-| POST | `/api/v1/private-space/prompt-preview` | Chỉ CTO (FR-CNT-14). `{ track, voice?, master_dna?, intake_id?, channel, outline?, goal?, audience?, pillar?, group_context?, angle?, source_draft_id?, context?, commercial? }`; `voice` và `master_dna` là nội dung đang có trên màn hình, bỏ trống thì dùng bản đã lưu. Trả `prompt_version`, `model`, `system_prompt`, `blocks` (`key`, `trust`: `CHOICE`, `AUTHOR`, `DATA`, `UNTRUSTED`; `text`, `chars`, `cuts`), `message_chars`, `placeholder`. Không gọi AI, không lưu |
-| POST | `/api/v1/private-space/voice-trial` | Chỉ CTO (FR-CNT-16). `{ track, voice?, master_dna?, channel, idea? }`; `voice` và `master_dna` là nội dung đang có trên màn hình, `idea` một dòng ≤ 500 ký tự (trống thì dùng một tình huống chung). Gọi AI ngay (prompt soạn nháp với dòng `Trial`), trả `{ text, prompt_version, model, message_chars }`. Không lưu gì; ghi một sự kiện kiểm toán `private_space.voice_tried`. `503` khi AI không trả lời |
-| GET | `/api/v1/private-space/watch/health` | Chỉ CTO (FR-CNT-13). `last_config_at`, `last_signal_at`, và mỗi mạch: `warning`, `reason` (`ROUTES_CLOSED`, `NO_SOURCES`, `NO_KEYWORDS`, `FLOW_SILENT`, `NOTHING_SENT`), `checked_at`, `received`, `remaining`, `deadline` |
-| POST | `/api/v1/private-space/watch/health/check` | Chạy lượt kiểm ngay, trả cùng dạng |
-| GET | `/api/v1/private-space/watch/signals?track=&state=` | `state`: `NEW` (mặc định), `USED`, `DISMISSED` |
-| POST | `/api/v1/private-space/watch/signals/{id}/idea` | Chuyển thành ý của mạch đó. Trả `{ signal, idea_id }` |
-| DELETE | `/api/v1/private-space/watch/signals/{id}` | Bỏ tín hiệu |
-| GET | `/api/v1/watch/config` | Không qua đăng nhập. `Authorization: Bearer <WATCH_API_KEY>`. Xem `docs/stable/watch-flow.md` |
-| POST | `/api/v1/watch/signals` | Không qua đăng nhập. Ký bằng `X-Intake-Timestamp` và `X-Intake-Signature`. Xem `docs/stable/watch-flow.md`. Từ ADR-0068: mục nhận thêm `project`, `via`, `priority`; `config` trả thêm `projects[]` và `terms[]` trong mỗi trụ |
+| GET, POST | `/api/v1/private-space/watch/sources` | CTO only. Add: `{ url, track: business, technical or both, label?, kind?, note? }`. `409 SOURCE_EXISTS`, `409 SOURCES_FULL` (80 sources) |
+| PATCH, DELETE | `/api/v1/private-space/watch/sources/{id}` | Changes `track`, `active`, `label`, `note`; only the fields sent are changed |
+| GET, PUT | `/api/v1/private-space/watch/keywords?track=` | Returns `pillars` (pillars and keywords), `request` (suggestion status), `suggested` (suggestions not yet kept). Save: `{ pillars: { "<trụ>": [từ khóa] } }` (`<pillar>`: [keywords]), at most 12 per pillar |
+| POST | `/api/v1/private-space/watch/keywords/suggest?track=` | `202`. Poll `GET …/keywords` until `request.status` is no longer `PENDING`. `409 NO_PILLARS` |
+| GET, PUT | `/api/v1/private-space/watch/demand?track=` | `{ wanted_per_week 0..50, weekday 1..7, time "HH:MM", lookback_days 1..30 }`. Also returns `deadline`, `window_start`, `received`, `remaining`, `accept_up_to`. `GET /api/v1/watch/config` returns the same block in each track's `demand` |
+| POST | `/api/v1/private-space/prompt-preview` | CTO only (FR-CNT-14). `{ track, voice?, master_dna?, intake_id?, channel, outline?, goal?, audience?, pillar?, group_context?, angle?, source_draft_id?, context?, commercial? }`; `voice` and `master_dna` are the content currently on screen; if left empty the saved version is used. Returns `prompt_version`, `model`, `system_prompt`, `blocks` (`key`, `trust`: `CHOICE`, `AUTHOR`, `DATA`, `UNTRUSTED`; `text`, `chars`, `cuts`), `message_chars`, `placeholder`. Does not call AI, saves nothing |
+| POST | `/api/v1/private-space/voice-trial` | CTO only (FR-CNT-16). `{ track, voice?, master_dna?, channel, idea? }`; `voice` and `master_dna` are the content currently on screen, `idea` is one line ≤ 500 characters (empty uses a generic scenario). Calls AI immediately (the drafting prompt with a `Trial` line), returns `{ text, prompt_version, model, message_chars }`. Saves nothing; writes one audit event `private_space.voice_tried`. `503` when AI does not respond |
+| GET | `/api/v1/private-space/watch/health` | CTO only (FR-CNT-13). `last_config_at`, `last_signal_at`, and per track: `warning`, `reason` (`ROUTES_CLOSED`, `NO_SOURCES`, `NO_KEYWORDS`, `FLOW_SILENT`, `NOTHING_SENT`), `checked_at`, `received`, `remaining`, `deadline` |
+| POST | `/api/v1/private-space/watch/health/check` | Runs a check now, returns the same shape |
+| GET | `/api/v1/private-space/watch/signals?track=&state=` | `state`: `NEW` (default), `USED`, `DISMISSED` |
+| POST | `/api/v1/private-space/watch/signals/{id}/idea` | Turns it into an idea of that track. Returns `{ signal, idea_id }` |
+| DELETE | `/api/v1/private-space/watch/signals/{id}` | Dismisses the signal |
+| GET | `/api/v1/watch/config` | No login. `Authorization: Bearer <WATCH_API_KEY>`. See `docs/stable/watch-flow.md` |
+| POST | `/api/v1/watch/signals` | No login. Signed with `X-Intake-Timestamp` and `X-Intake-Signature`. See `docs/stable/watch-flow.md`. From ADR-0068: items also accept `project`, `via`, `priority`; `config` also returns `projects[]` and `terms[]` in each pillar |
 
-## Ngữ cảnh dự án và chi tiết của yêu cầu (FR-AI-12, ADR-0032)
+## Project context and request details (FR-AI-12, ADR-0032)
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET, PUT | `/api/v1/projects/{ref}/brief` | Gửi `{ "brief" }`, tối đa 4000 ký tự; trả `{ "brief", "ai_source": "PACK" \| "BRIEF", "pack_approved_at", "pack_sections": [tên mục] }` cho biết AI đang đọc hồ sơ ngữ cảnh đã duyệt (mục 1 và 2) hay ô tự do (FR-CTX-05). CTO hoặc Project Owner của dự án; ngoài phạm vi trả `404` |
-| GET | `/api/v1/intakes/{id}` (bổ sung) | Thêm `details` (hoặc `null`): `where`, `steps`, `expected`, `subtasks`, `acceptance`, `open_questions`, `related[]` gồm `id`, `title`, `url` |
-| PATCH | `/api/v1/intakes/{id}/review` (bổ sung) | Nhận thêm `details` tùy chọn: `where`, `subtasks`, `acceptance` (mỗi danh sách tối đa 12 dòng, mỗi dòng 300 ký tự). Các phần khác của chi tiết giữ nguyên |
+| GET, PUT | `/api/v1/projects/{ref}/brief` | Send `{ "brief" }`, at most 4000 characters; returns `{ "brief", "ai_source": "PACK" \| "BRIEF", "pack_approved_at", "pack_sections": [tên mục] }` (section names), telling whether AI is reading the approved context pack (sections 1 and 2) or the free-text box (FR-CTX-05). CTO or the project's Project Owner; out of scope returns `404` |
+| GET | `/api/v1/intakes/{id}` (addition) | Adds `details` (or `null`): `where`, `steps`, `expected`, `subtasks`, `acceptance`, `open_questions`, `related[]` with `id`, `title`, `url` |
+| PATCH | `/api/v1/intakes/{id}/review` (addition) | Also accepts optional `details`: `where`, `subtasks`, `acceptance` (each list at most 12 lines, 300 characters per line). Other parts of the details stay unchanged |
+| POST | `/api/v1/intakes/{id}/split` | `{ expected_version, items[] }`, 2 to 8 lines, at most 300 characters each (FR-APR-09). Returns `original` and `children`. `409 NOT_SPLITTABLE` when the request already has a decision; `409 STALE_VERSION` |
 
-Bản phê duyệt (`approval_snapshots.payload`) có thêm khóa `details` khi yêu cầu có chi tiết.
-| POST | `/api/v1/intakes/{id}/split` | `{ expected_version, items[] }`, 2 đến 8 dòng, mỗi dòng tối đa 300 ký tự (FR-APR-09). Trả `original` và `children`. `409 NOT_SPLITTABLE` khi yêu cầu đã có quyết định; `409 STALE_VERSION` |
+The approval snapshot (`approval_snapshots.payload`) also has a `details` key when the request has details.
 
-Phần `details` có thêm `split_suggested` (AI cho rằng các việc con nên là yêu cầu riêng).
+The `details` part also has `split_suggested` (AI thinks the subtasks should be separate requests).
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| PUT | `/api/v1/intakes/{id}/clarifications` | `{ expected_version, answers[], reanalyse }` (FR-APR-10). Mỗi phần tử: `question`, `answer` (tối đa 1000 ký tự) hoặc `skipped`. `reanalyse: true` thì xếp hàng phân tích lại. `409 DECISION_LOCKED` khi đã duyệt; `409 STALE_VERSION` |
-| POST | `/api/v1/intakes/{id}/ready` | `{ expected_version }`. Đưa yêu cầu đang "Cần làm rõ" hoặc đang hoãn về chờ duyệt. `409 NOT_WAITING`, `409 REVIEW_REQUIRED` (thiếu tiêu đề hoặc tóm tắt) |
+| PUT | `/api/v1/intakes/{id}/clarifications` | `{ expected_version, answers[], reanalyse }` (FR-APR-10). Each element: `question`, `answer` (at most 1000 characters) or `skipped`. `reanalyse: true` queues a new analysis. `409 DECISION_LOCKED` when already approved; `409 STALE_VERSION` |
+| POST | `/api/v1/intakes/{id}/ready` | `{ expected_version }`. Moves a request that is "Needs clarification" ("Cần làm rõ") or postponed back to waiting for approval. `409 NOT_WAITING`, `409 REVIEW_REQUIRED` (missing title or summary) |
 
-Phần `details` có thêm `clarifications[]` gồm `question`, `answer`, `skipped`.
+The `details` part also has `clarifications[]` with `question`, `answer`, `skipped`.
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| DELETE | `/api/v1/intakes/{id}` | Xóa hẳn (FR-APR-11). Trả `{ deleted, public_id, attachments_left }`. `409` với `INTAKE_DECIDED`, `INTAKE_PROCESSING`, `INTAKE_HAS_EXTERNAL`, `INTAKE_PLANNED` |
-| POST | `/api/v1/intakes/{id}/duplicate` | `{ of, expected_version }`; `of` là mã hoặc ID của yêu cầu được giữ, cùng dự án (FR-APR-12). `409 DUPLICATE_TARGET_NOT_FOUND`, `DUPLICATE_TARGET_INVALID`, `DECISION_LOCKED` |
-| POST | `/api/v1/intakes/{id}/duplicate-issue` | `{ issue, expected_version }`; `issue` là số Issue GitLab đang có của dự án (`"22"` hoặc `"#22"`), phải có trong dữ liệu GitLab đã tải (FR-APR-12, từ 2026-10-19). `409 DUPLICATE_TARGET_NOT_FOUND` (không phải Issue của dự án), `DUPLICATE_TARGET_INVALID` (Issue tạo từ chính yêu cầu), `DECISION_LOCKED` |
-| DELETE | `/api/v1/intakes/{id}/duplicate?expected_version=N` | Bỏ đánh dấu trùng (cả trùng yêu cầu và trùng Issue); yêu cầu về chờ duyệt. `409 NOT_A_DUPLICATE` |
+| DELETE | `/api/v1/intakes/{id}` | Deletes permanently (FR-APR-11). Returns `{ deleted, public_id, attachments_left }`. `409` with `INTAKE_DECIDED`, `INTAKE_PROCESSING`, `INTAKE_HAS_EXTERNAL`, `INTAKE_PLANNED` |
+| POST | `/api/v1/intakes/{id}/duplicate` | `{ of, expected_version }`; `of` is the code or ID of the request being kept, in the same project (FR-APR-12). `409 DUPLICATE_TARGET_NOT_FOUND`, `DUPLICATE_TARGET_INVALID`, `DECISION_LOCKED` |
+| POST | `/api/v1/intakes/{id}/duplicate-issue` | `{ issue, expected_version }`; `issue` is the number of an existing GitLab Issue of the project (`"22"` or `"#22"`), which must be in the loaded GitLab data (FR-APR-12, since 2026-10-19). `409 DUPLICATE_TARGET_NOT_FOUND` (not an Issue of the project), `DUPLICATE_TARGET_INVALID` (an Issue created from this same request), `DECISION_LOCKED` |
+| DELETE | `/api/v1/intakes/{id}/duplicate?expected_version=N` | Removes the duplicate mark (both duplicate-of-request and duplicate-of-Issue); the request returns to waiting for approval. `409 NOT_A_DUPLICATE` |
 
-`IntakeOut` có thêm `duplicate_of_id`, `duplicate_issue` (`system`, `external_id`, `title`, `url`; null khi không trùng Issue) và, ở `GET /intakes/{id}`, `duplicate_of` gồm `id`, `public_id`, `title`. MCP `get_intake` trả cùng `duplicate_issue`.
+`IntakeOut` also has `duplicate_of_id`, `duplicate_issue` (`system`, `external_id`, `title`, `url`; null when not a duplicate of an Issue) and, in `GET /intakes/{id}`, `duplicate_of` with `id`, `public_id`, `title`. MCP `get_intake` returns the same `duplicate_issue`.
 
-## Thiết lập lần đầu (FR-SETUP-01..09, ADR-0069, ADR-0071)
+## First-time setup (FR-SETUP-01..09, ADR-0069, ADR-0071)
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/setup` | Chỉ CTO. Trả `completed`, `has_project`, `has_private_space`, `sample_available`. `completed` đúng khi đã đánh dấu hoặc đã có dự án thật |
-| POST | `/api/v1/setup/private-sample` | Chỉ CTO. Nạp bộ DNA mẫu hư cấu vào khu riêng (mở khu nếu chưa có). `422 SAMPLE_INVALID` hoặc `SAMPLE_MISSING` khi bộ mẫu hỏng; trả trạng thái như GET |
-| POST | `/api/v1/setup/complete` | Chỉ CTO. Đánh dấu đã thiết lập, gọi lại vô hại; trả trạng thái như GET. Khi cờ wizard bật mà chưa có route AI: `422 AI_KEY_REQUIRED`. `GET /setup` có thêm `ai_ready`, `wizard` |
-| POST | `/api/v1/setup/demo-project` | Chỉ CTO, chỉ khi cờ wizard bật (tắt: `422 NOT_FOUND`). Nạp dự án mẫu hư cấu (`demo`, khóa `DEM`) và đánh dấu đã thiết lập; gọi lại vô hại. `422 SAMPLE_MISSING`, `SAMPLE_INVALID`, `DEMO_CODE_TAKEN`. Trả trạng thái như GET. `GET /setup` có thêm `has_demo`, `demo_available`; khi `has_demo`, `/setup/complete` không đòi `AI_KEY_REQUIRED` |
-| GET | `/api/v1/showcase` | Chỉ CTO (FR-SETUP-15). Danh mục dự án mẫu từ `app/resources/showcase.json`: `{version, groups, items[]}`, mỗi mục có `key`, `kind` (`demo`/`real`), `name`, `summary`, `repo_url`, `languages`, `license`, `state` (`off`/`on`/`archived`), `project_code`, `sample_requests`, `in_catalog`. |
-| PUT | `/api/v1/showcase/{key}` | Chỉ CTO (FR-SETUP-15). Body `{enabled}`. Bật lần đầu tạo dự án (`real`) hoặc nạp dự án mẫu (`demo`); tắt đặt dự án `INACTIVE`, bật lại khôi phục đúng dự án. `404 NOT_FOUND` khi khóa không có trong danh mục, `409 PROJECT_CODE_TAKEN` khi mã dự án đã bị chiếm. |
-| DELETE | `/api/v1/showcase/{key}/samples` | Chỉ CTO (FR-SETUP-16). Xóa các yêu cầu thử (cờ `test_data`, còn chờ duyệt) của mục; trả `{removed}`. |
-| GET | `/api/v1/setup/status` | Công khai. `{needs_bootstrap}`; đúng khi `FIRST_RUN_WIZARD` bật và chưa tạo tài khoản đầu (FR-SETUP-05, ADR-0071) |
-| POST | `/api/v1/setup/bootstrap` | Công khai, một lần, miễn CSRF, có giới hạn tốc độ. Body `{cto:{email,display_name,password}, owner:{...}\|null}`. Đặt cookie phiên và CSRF của CTO. `404` khi cờ tắt, `409 BOOTSTRAP_DONE`, `422` mật khẩu ngắn hoặc email trùng (FR-SETUP-06) |
+| GET | `/api/v1/setup` | CTO only. Returns `completed`, `has_project`, `has_private_space`, `sample_available`. `completed` is true when setup has been marked done or a real project exists |
+| POST | `/api/v1/setup/private-sample` | CTO only. Loads the fictional sample DNA set into the Private Space (opens the space if it does not exist). `422 SAMPLE_INVALID` or `SAMPLE_MISSING` when the sample set is broken; returns the status like GET |
+| POST | `/api/v1/setup/complete` | CTO only. Marks setup as done; calling again is harmless; returns the status like GET. When the wizard flag is on and there is no AI route: `422 AI_KEY_REQUIRED`. `GET /setup` also has `ai_ready`, `wizard` |
+| POST | `/api/v1/setup/demo-project` | CTO only, only when the wizard flag is on (off: `422 NOT_FOUND`). Loads the fictional sample project (`demo`, key `DEM`) and marks setup as done; calling again is harmless. `422 SAMPLE_MISSING`, `SAMPLE_INVALID`, `DEMO_CODE_TAKEN`. Returns the status like GET. `GET /setup` also has `has_demo`, `demo_available`; when `has_demo`, `/setup/complete` does not require `AI_KEY_REQUIRED` |
+| GET | `/api/v1/showcase` | CTO only (FR-SETUP-15). Catalog of sample projects from `app/resources/showcase.json`: `{version, groups, items[]}`, each entry has `key`, `kind` (`demo`/`real`), `name`, `summary`, `repo_url`, `languages`, `license`, `state` (`off`/`on`/`archived`), `project_code`, `sample_requests`, `in_catalog`. |
+| PUT | `/api/v1/showcase/{key}` | CTO only (FR-SETUP-15). Body `{enabled}`. Enabling for the first time creates the project (`real`) or loads the sample project (`demo`); disabling sets the project to `INACTIVE`, enabling again restores the same project. `404 NOT_FOUND` when the key is not in the catalog, `409 PROJECT_CODE_TAKEN` when the project code is already taken. |
+| DELETE | `/api/v1/showcase/{key}/samples` | CTO only (FR-SETUP-16). Deletes the entry's test requests (flag `test_data`, still waiting for approval); returns `{removed}`. |
+| GET | `/api/v1/setup/status` | Public. `{needs_bootstrap}`; true when `FIRST_RUN_WIZARD` is on and the first account has not been created (FR-SETUP-05, ADR-0071) |
+| POST | `/api/v1/setup/bootstrap` | Public, one-time, CSRF-exempt, rate limited. Body `{cto:{email,display_name,password}, owner:{...}\|null}`. Sets the CTO's session and CSRF cookies. `404` when the flag is off, `409 BOOTSTRAP_DONE`, `422` for a short password or duplicate email (FR-SETUP-06) |
 
-## Khóa LLM và route theo tác vụ (FR-AI-15..19, ADR-0070)
+## LLM keys and per-task routes (FR-AI-15..19, ADR-0070)
 
-Tất cả chỉ CTO. Khóa chỉ nhận khi tạo hoặc sửa; response chỉ có `key_hint` (4 ký tự cuối) và `key_ok` (sai khi không giải mã được).
+All CTO only. Keys are only accepted on create or edit; responses only have `key_hint` (last 4 characters) and `key_ok` (false when it cannot be decrypted).
 
-| Method | Path | Ghi chú |
+| Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/ai/providers` | Danh sách provider: `id`, `name`, `base_url`, `enabled`, `key_hint`, `key_ok`, `extra_body`, `last_test_at`, `last_test_ok`, `last_test_error` |
+| GET | `/api/v1/ai/providers` | Provider list: `id`, `name`, `base_url`, `enabled`, `key_hint`, `key_ok`, `extra_body`, `last_test_at`, `last_test_ok`, `last_test_error` |
 | POST | `/api/v1/ai/providers` | `{ name (≤32), base_url, api_key, enabled?, extra_body? }`. `422 AI_BASE_URL_INVALID`, `409 AI_PROVIDER_NAME_TAKEN` |
-| PATCH | `/api/v1/ai/providers/{id}` | Các trường như trên, đều tùy chọn; `api_key` để trống thì giữ khóa cũ |
-| DELETE | `/api/v1/ai/providers/{id}` | `409 PROVIDER_IN_USE` khi còn route trỏ tới |
-| POST | `/api/v1/ai/providers/{id}/test` | Gọi `GET {base_url}/models`. Trả `ok`, `error` (mã: `AUTH`, `TIMEOUT`, `HTTP_<n>`, `NETWORK`, `KEY_UNREADABLE`), `models[]` |
-| POST | `/api/v1/ai/providers/{id}/probe` | `{ kind, model }` (`kind`: `vision` hoặc `stt`). Thử model bằng ảnh mẫu (số 482) hoặc 1,5 giây âm thanh mẫu; lưu kết quả theo (provider, model, kind). Trả `kind`, `model`, `ok`, `error` (`NOT_SUPPORTED`, `NOT_READ`, `AUTH`, `TIMEOUT`, `NETWORK`, `KEY_UNREADABLE`, `QUOTA` (nhà cung cấp trả 429: hết hạn mức hoặc model ngoài gói của khóa), `MODEL_NOT_FOUND` (trả 404: sai tên model hoặc model đã ngừng cho khóa mới), `PROVIDER_TRANSIENT` (trả 5xx khi thử ảnh), `HTTP_<n>`), `checked_at`. Chỉ `NOT_SUPPORTED` và `NOT_READ` của lần thử ảnh làm route `vision` bỏ qua model của `default` (FR-AI-22). `422 AI_PROBE_KIND_INVALID`, `422 AI_MODEL_INVALID`. Chỉ CTO (FR-AI-21) |
-| GET | `/api/v1/ai/routes` | Bảy dòng `default`, `normalize`, `report`, `meeting`, `vision`, `content`, `stt` (`stt` không rơi về `default`; chưa đặt thì hiện khóa ElevenLabs của `.env` với `source: env`): `task`, `provider_id`, `provider_name`, `model`, `source` (`route`, `default`, `env`, `none`), `check_ok`, `check_error`, `checked_at` (kết quả thử mẫu của model đang phục vụ; dòng `default` mang kết quả thử ảnh). `vision` không rơi về `default` khi model đó đã thử ảnh hỏng (FR-AI-22) |
-| PUT | `/api/v1/ai/routes/{task}` | `{ provider_id, model }`; `provider_id: null` xóa route. `404 AI_TASK_UNKNOWN`, `422 AI_PROVIDER_NOT_FOUND` |
+| PATCH | `/api/v1/ai/providers/{id}` | Same fields as above, all optional; an empty `api_key` keeps the old key |
+| DELETE | `/api/v1/ai/providers/{id}` | `409 PROVIDER_IN_USE` when a route still points to it |
+| POST | `/api/v1/ai/providers/{id}/test` | Calls `GET {base_url}/models`. Returns `ok`, `error` (codes: `AUTH`, `TIMEOUT`, `HTTP_<n>`, `NETWORK`, `KEY_UNREADABLE`), `models[]` |
+| POST | `/api/v1/ai/providers/{id}/probe` | `{ kind, model }` (`kind`: `vision` or `stt`). Tests the model with a sample image (the number 482) or 1.5 seconds of sample audio; stores the result per (provider, model, kind). Returns `kind`, `model`, `ok`, `error` (`NOT_SUPPORTED`, `NOT_READ`, `AUTH`, `TIMEOUT`, `NETWORK`, `KEY_UNREADABLE`, `QUOTA` (the provider returns 429: quota exhausted or the model is outside the key's plan), `MODEL_NOT_FOUND` (returns 404: wrong model name or the model is discontinued for new keys), `PROVIDER_TRANSIENT` (returns 5xx during the image test), `HTTP_<n>`), `checked_at`. Only `NOT_SUPPORTED` and `NOT_READ` from the image test make the `vision` route skip the `default` model (FR-AI-22). `422 AI_PROBE_KIND_INVALID`, `422 AI_MODEL_INVALID`. CTO only (FR-AI-21) |
+| GET | `/api/v1/ai/routes` | Seven rows `default`, `normalize`, `report`, `meeting`, `vision`, `content`, `stt` (`stt` does not fall back to `default`; when unset it shows the ElevenLabs key from `.env` with `source: env`): `task`, `provider_id`, `provider_name`, `model`, `source` (`route`, `default`, `env`, `none`), `check_ok`, `check_error`, `checked_at` (the sample test result of the model currently serving; the `default` row carries the image test result). `vision` does not fall back to `default` when that model failed the image test (FR-AI-22) |
+| PUT | `/api/v1/ai/routes/{task}` | `{ provider_id, model }`; `provider_id: null` deletes the route. `404 AI_TASK_UNKNOWN`, `422 AI_PROVIDER_NOT_FOUND` |
 
-`GET /api/v1/operations/status` có thêm `ai_configured` và `ai_source`; các trường cũ giữ nguyên.
+`GET /api/v1/operations/status` also has `ai_configured` and `ai_source`; the old fields are unchanged.
 
-`POST /api/v1/auth/login` nhận email hoặc tên tài khoản trong trường `subject` (FR-SETUP-07).
+`POST /api/v1/auth/login` accepts an email or account name in the `subject` field (FR-SETUP-07).

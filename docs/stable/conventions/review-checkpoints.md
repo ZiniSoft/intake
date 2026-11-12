@@ -1,55 +1,57 @@
+English | [Tiếng Việt](review-checkpoints.vi.md)
+
 # Quality gates 1.2
 
-## Gate 0 - Requirement và ADR
+## Gate 0 - Requirements and ADR
 
-- Requirement có mã SRS và acceptance criteria.
-- Open decision ảnh hưởng kiến trúc đã được CTO chốt.
-- ADR/data model/flow được cập nhật trước coding.
+- Requirements have an SRS ID and acceptance criteria.
+- Open decisions affecting the architecture have been finalized by the CTO.
+- ADR/data model/flow are updated before coding.
 
 ## Gate A - Database
 
-- Schema, type, FK, CHECK, unique và index khớp `data-model.md`.
-- Migration chạy được trên database rỗng và rollback strategy được ghi rõ.
-- Test PostgreSQL thật cho JSONB, TIMESTAMPTZ, lease và concurrency.
-- Với lần reset pilot: CTO duyệt đúng target volumes trước thao tác.
+- Schema, types, FK, CHECK, unique and indexes match `data-model.md`.
+- Migrations run on an empty database and the rollback strategy is documented.
+- Real PostgreSQL tests for JSONB, TIMESTAMPTZ, lease and concurrency.
+- For a pilot reset: the CTO approves the exact target volumes before the operation.
 
 ## Gate B - API contract
 
-- Route trỏ tới requirement ID.
-- Auth/project scope và response field allowlist.
-- Pagination cap, error catalog, idempotency và optimistic concurrency.
-- Smoke collection/curl có thể chạy lại.
+- Routes point to requirement IDs.
+- Auth/project scope and response field allowlist.
+- Pagination cap, error catalog, idempotency and optimistic concurrency.
+- Smoke collection/curl can be rerun.
 
 ## Gate C - Business validation
 
-- Unit/integration suite xanh.
-- Có failure injection cho rule trọng yếu.
-- Không silent success hoặc retry vô hạn.
+- Unit/integration suite green.
+- Failure injection for critical rules.
+- No silent success or infinite retries.
 
 ## Gate D - UI
 
-- UI dùng API thật; mock đã gỡ khỏi flow nghiệm thu.
-- Trạng thái empty/loading/error/retry/stale rõ ràng.
-- Flow chính và negative flow chạy trên browser.
+- The UI uses the real API; mocks have been removed from the acceptance flow.
+- Clear empty/loading/error/retry/stale states.
+- Main flow and negative flows run in the browser.
 
 ## Gate E - Plane integration
 
 - UModelVerse/provider fallback contract test.
-- Plane self-host E2E và duplicate protection.
-- Cross-project isolation cho hai dự án.
+- Self-hosted Plane E2E and duplicate protection.
+- Cross-project isolation for two projects.
 
 ## Gate F - GitLab integration
 
-- GitLab self-host E2E, lookup-before-create, idempotent replay và payload redaction.
-- Cross-project mapping cho hai dự án.
-- Browser hiển thị external link và negative approval gate.
+- Self-hosted GitLab E2E, lookup-before-create, idempotent replay and payload redaction.
+- Cross-project mapping for two projects.
+- The browser shows the external link and the negative approval gate.
 
 ## Gate G - Controlled pilot
 
-- Không P0/P1 mở.
-- Backup/restore drill đạt RPO/RTO.
-- Security checklist, monitoring, alert và rollback được diễn tập.
-- CTO ký UAT và risk acceptance còn lại.
+- No open P0/P1.
+- Backup/restore drill meets RPO/RTO.
+- Security checklist, monitoring, alerts and rollback have been rehearsed.
+- The CTO signs off UAT and the remaining risk acceptance.
 
 ## Gate report
 

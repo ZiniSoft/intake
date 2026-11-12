@@ -1,48 +1,50 @@
-# Quy tắc bảo mật 1.2
+English | [Tiếng Việt](security-rules.vi.md)
 
-Đây là security target. Runtime gap hiện gồm auth rate limit, persistent session revocation, audit login/MFA/raw-read đầy đủ, kiểm tra file/OCR sandbox, signed download và production VPN/TLS; xem readiness trước khi coi một rule đã được thực thi.
+# Security rules 1.2
+
+This is the security target. Current runtime gaps include auth rate limiting, persistent session revocation, full login/MFA/raw-read audit, file checks/OCR sandbox, signed downloads and production VPN/TLS; check readiness before treating a rule as enforced.
 
 ## 1. Data classes
 
-| Class | Ví dụ | Quy tắc |
+| Class | Example | Rule |
 |---|---|---|
-| Restricted | Raw chat, email body, sender reference, attachment | Encrypt, CTO-only, retention 90 ngày |
+| Restricted | Raw chat, email body, sender reference, attachment | Encrypt, CTO-only, 90-day retention |
 | Confidential | Normalized requirement, report, audit | Auth + project scope |
-| Secret | Password, MFA secret, API token | Không log/DB plaintext; secret injection |
-| Public/internal-safe | Intake public ID, sanitized external summary | Chỉ field allowlist |
+| Secret | Password, MFA secret, API token | No plaintext in logs/DB; secret injection |
+| Public/internal-safe | Intake public ID, sanitized external summary | Allowlisted fields only |
 
 ## 2. Credential separation
 
-- AI worker: UModelVerse/OpenRouter key, không GitLab/GitHub token.
-- Integration worker: GitLab/GitHub token, không cần raw source decryption key.
-- IMAPS worker: IMAP credential, không SMTP credential. Email khôi phục mật khẩu chỉ đi từ API qua Mailgun HTTPS; API key Mailgun không cấp cho worker khác.
-- Token GitHub của khách hàng (ADR-0021): một token `GITHUB_TOKEN_<TÊN>` cho mỗi repository, ưu tiên dán ở Cài đặt > Dự án (lưu mã hóa trong CSDL, ADR-0076, chỉ hiện 4 ký tự cuối); phương án dự phòng là biến trong `.env.github` mà chỉ `integration-worker` nạp, file không được commit. Cùng tên thì token trong CSDL được dùng trước. Token là fine-grained, giới hạn một repository, quyền Issues đọc/ghi và Metadata đọc. Không token nào được dùng chung giữa hai khách hàng.
-- Meeting gateway: `ELEVENLABS_API_KEY`; không có GitLab/GitHub token, mật khẩu hộp thư hay UModelVerse key. Mọi service khác nhận giá trị rỗng cho key này.
-- Khoảng trống đã biết: `UMODELVERSE_API_KEY` vẫn tới mọi container app trừ gateway vì các service dùng chung `env_file`.
-- API: chỉ secret cần cho auth/encryption và không có quyền provider rộng hơn cần thiết.
+- AI worker: UModelVerse/OpenRouter key, no GitLab/GitHub token.
+- Integration worker: GitLab/GitHub token, does not need the raw source decryption key.
+- IMAPS worker: IMAP credential, no SMTP credential. Password recovery emails go only from the API via Mailgun HTTPS; the Mailgun API key is not given to any other worker.
+- Customer GitHub tokens (ADR-0021): one `GITHUB_TOKEN_<TÊN>` token per repository, preferably pasted in Settings > Projects ("Cài đặt > Dự án") (stored encrypted in the database, ADR-0076, only the last 4 characters shown); the fallback is a variable in `.env.github` that only `integration-worker` loads, and the file is not committed. With the same name, the token in the database takes precedence. Tokens are fine-grained, limited to one repository, with Issues read/write and Metadata read permissions. No token is shared between two customers.
+- Meeting gateway: `ELEVENLABS_API_KEY`; no GitLab/GitHub token, mailbox password or UModelVerse key. Every other service receives an empty value for this key.
+- Known gap: `UMODELVERSE_API_KEY` still reaches every app container except the gateway because the services share an `env_file`.
+- API: only the secrets needed for auth/encryption and no provider permissions broader than necessary.
 
-### Phân quyền theo dự án (ADR-0022)
+### Per-project authorization (ADR-0022)
 
-- Mặc định từ chối: một route mới dùng `require_cto` trừ khi được mở có chủ đích bằng `require_member`.
-- Route dùng `require_member` phải kiểm tra dự án của thứ nó chạm tới (`ensure_project`, hoặc dependency `intake_member`/`meeting_member`) và phải có ca kiểm thử trong `tests/test_project_owner.py` gọi bằng tài khoản của dự án khác.
-- Ngoài phạm vi trả 404, không trả 403.
-- Mật khẩu tạm chỉ hiện một lần cho CTO và phải được chuyển qua kênh an toàn; không gửi qua chat cùng với tên đăng nhập.
+- Deny by default: a new route uses `require_cto` unless it is deliberately opened with `require_member`.
+- A route using `require_member` must check the project of whatever it touches (`ensure_project`, or the `intake_member`/`meeting_member` dependency) and must have a test case in `tests/test_project_owner.py` that calls it with an account from another project.
+- Out of scope returns 404, not 403.
+- A temporary password is shown only once to the CTO and must be delivered through a secure channel; do not send it over chat together with the username.
 
 ## 3. Network
 
-Chỉ reverse proxy/web được expose trong VPN. PostgreSQL, Redis và SeaweedFS không publish LAN. Egress allowlist theo workload; SMTP block ở host/container policy.
+Only the reverse proxy/web is exposed inside the VPN. PostgreSQL, Redis and SeaweedFS are not published to the LAN. Egress allowlist per workload; SMTP blocked by host/container policy.
 
 ## 4. File safety
 
-Upload vào quarantine, kiểm size/MIME/magic bytes, số trang PDF, từ chối PDF mã hóa hoặc có file nhúng. Pilot không dùng malware scan (ADR-0015). OCR chạy trên máy riêng cùng LAN, trong container không ra Internet, non-root, filesystem chỉ đọc, có giới hạn CPU/RAM và timeout mỗi file. Kết nối Intake tới máy OCR phải có xác thực; máy OCR không lưu lại file/kết quả và không truy cập ngược database/Redis/SeaweedFS. Chỉ clean object sang trusted pipeline. Download dùng signed URL ngắn hạn hoặc API stream có authorization, luôn trả dạng attachment, không hiển thị trực tiếp trong trình duyệt.
+Uploads go to quarantine, with checks on size/MIME/magic bytes and PDF page count; encrypted PDFs or PDFs with embedded files are rejected. The pilot does not use malware scanning (ADR-0015). OCR runs on a separate machine on the same LAN, in a container without Internet access, non-root, with a read-only filesystem, CPU/RAM limits and a per-file timeout. The connection from Intake to the OCR machine must be authenticated; the OCR machine does not keep files/results and cannot reach back into database/Redis/SeaweedFS. Only clean objects move to the trusted pipeline. Downloads use short-lived signed URLs or an authorized API stream, always returned as an attachment, never displayed inline in the browser.
 
 ## 5. Audit
 
-Audit tối thiểu: login/MFA/recovery/password reset, đọc raw, upload/download, process/retry, approve/reject/defer, sync, mapping/secrets reference change, retention purge và admin action. Audit không chứa raw content hay reset token.
+Minimum audit: login/MFA/recovery/password reset, raw reads, upload/download, process/retry, approve/reject/defer, sync, mapping/secrets reference changes, retention purge and admin actions. Audit does not contain raw content or reset tokens.
 
 ## 6. AI boundary
 
-Audio cuộc họp là ngoại lệ có chủ đích của nguyên tắc "file gốc không rời mạng nội bộ": nó được gửi tới ElevenLabs để chuyển chữ, bản sao phía nhà cung cấp được xóa sau mỗi lượt, và gói Pro không có chế độ không lưu dữ liệu (OD-033). Chữ ký thư báo cáo không được gửi cho AI (ADR-0019). Web container cho phép phát media từ `blob:` (để nghe lại bản ghi đã giải mã) và micro/chia sẻ màn hình chỉ cho chính origin.
+Meeting audio is a deliberate exception to the principle "original files do not leave the internal network": it is sent to ElevenLabs for transcription, the provider-side copy is deleted after each turn, and the Pro plan has no zero-retention mode (OD-033). Report email signatures are not sent to the AI (ADR-0019). The web container allows playing media from `blob:` (to play back decrypted recordings) and microphone/screen sharing only for its own origin.
 
-Cloud provider là bên xử lý dữ liệu ngoài. Chỉ gửi dữ liệu tối thiểu qua TLS đến endpoint allowlist; không tool/browser fetch; không truyền secret; ghi provider/model/policy trace. Điều khoản lưu trữ phải được thẩm định lại trước production.
+Cloud providers are external data processors. Send only the minimum data over TLS to allowlisted endpoints; no tool/browser fetch; no secrets passed; record a provider/model/policy trace. Retention terms must be re-reviewed before production.
 

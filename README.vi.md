@@ -2,7 +2,7 @@
 
 Công cụ riêng tư để CTO tiếp nhận yêu cầu của khách từ chat, email, họp và form; AI chuẩn hóa; CTO duyệt; Intake tạo Issue trên GitLab/GitHub (hoặc việc nội bộ) rồi xếp vào kế hoạch ngày của đội.
 
-> Trạng thái: mức pilot, một đội nhỏ đang dùng. Luồng walkthrough public chính có bản tiếng Anh qua `?lang=en`; các màn hình khác và tài liệu kỹ thuật vẫn chủ yếu bằng tiếng Việt. README tiếng Anh: [README.md](README.md).
+> Trạng thái: mức pilot, một đội nhỏ đang dùng. Luồng walkthrough public chính có bản tiếng Anh qua `?lang=en`; các màn hình khác vẫn chủ yếu bằng tiếng Việt. Tài liệu trong `docs/` mặc định tiếng Anh, mỗi tệp có bản tiếng Việt `X.vi.md` đặt cạnh. README tiếng Anh: [README.md](README.md).
 
 ## Một yêu cầu trở thành công việc như thế nào
 
@@ -32,7 +32,7 @@ Muốn tự làm: chép `.env.example` thành `.env`, điền secret, chạy `do
 python -m pytest -q
 cd frontend && npx tsc -b
 ```
-Đọc [docs/README.md](docs/README.md) trước, rồi [CONTRIBUTING.md](CONTRIBUTING.md).
+Đọc [docs/README.vi.md](docs/README.vi.md) trước, rồi [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Giấy phép
 Apache-2.0. Copyright 2026 ZiniSoft và những người đóng góp.

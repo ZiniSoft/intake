@@ -1,73 +1,75 @@
+English | [Tiếng Việt](incident-runbook.vi.md)
+
 # Incident runbook 1.2
 
-## 1. Mức độ
+## 1. Severity
 
-| Mức | Ví dụ | Hành động |
+| Level | Example | Action |
 |---|---|---|
-| P0 | Data leak, mất dữ liệu, tạo external item hàng loạt, credential lộ | Dừng side-effect, cô lập, CTO chỉ huy |
-| P1 | Intake/queue/database unavailable, sync lỗi diện rộng | Dừng rollout, khôi phục dịch vụ |
-| P2 | Một project/job lỗi, có workaround | Khoanh vùng và retry có kiểm soát |
-| P3 | Lỗi UI/quan sát nhỏ | Backlog theo ưu tiên |
+| P0 | Data leak, data loss, mass creation of external items, leaked credential | Stop side effects, isolate, CTO in command |
+| P1 | Intake/queue/database unavailable, widespread sync errors | Stop the rollout, restore service |
+| P2 | One project/job failing, a workaround exists | Contain and retry in a controlled way |
+| P3 | Minor UI/observability issue | Backlog by priority |
 
-## 2. Quy trình chung
+## 2. General procedure
 
-1. Ghi thời điểm, người phát hiện, request/job/project IDs.
-2. Bảo toàn log/audit đã redact; không sao chép raw data tùy tiện.
-3. Ngăn side effect tiếp tục bằng cách dừng đúng worker hoặc disable project integration.
-4. Phân loại dữ liệu, availability hay external duplication.
-5. Khắc phục và kiểm tra negative case.
-6. Khôi phục worker theo từng phần, theo dõi queue/job.
-7. Post-incident: nguyên nhân, phạm vi, evidence, hành động phòng ngừa và owner.
+1. Record the time, who detected it, and the request/job/project IDs.
+2. Preserve redacted logs/audit; do not copy raw data arbitrarily.
+3. Stop further side effects by stopping the right worker or disabling the project integration.
+4. Classify: data, availability or external duplication.
+5. Fix and check the negative cases.
+6. Restore workers incrementally, monitoring queues/jobs.
+7. Post-incident: cause, scope, evidence, preventive actions and owner.
 
-## 3. Playbook ngắn
+## 3. Short playbooks
 
-### UModelVerse lỗi
+### UModelVerse errors
 
-- Kiểm HTTP/error code đã redact và key/model allowlist.
-- 400/401/403: sửa cấu hình, không ép fallback.
-- Timeout/429/5xx: kiểm queue backoff và số lần retry; pilot không có fallback provider (ADR-0011), run hết lượt chuyển `FAILED` để CTO xử lý lại khi provider phục hồi.
-- Không retry tay nhiều lần khi job đang có lease.
+- Check the redacted HTTP/error code and the key/model allowlist.
+- 400/401/403: fix the configuration, do not force a fallback.
+- Timeout/429/5xx: check the queue backoff and retry count; the pilot has no fallback provider (ADR-0011), a run that exhausts its attempts moves to `FAILED` for the CTO to reprocess when the provider recovers.
+- Do not retry manually multiple times while the job holds a lease.
 
-### GitLab/GitHub tạo trùng
+### GitLab/GitHub duplicates
 
-- Disable integration của project bị ảnh hưởng.
-- So external ID/marker với idempotency key và payload hash.
-- Không tự động xóa external item; CTO quyết định record chuẩn và liên kết lại audit.
+- Disable the integration of the affected project.
+- Compare the external ID/marker with the idempotency key and payload hash.
+- Do not automatically delete external items; the CTO decides the canonical record and relinks the audit.
 
-### Redis mất kết nối
+### Redis connection lost
 
-- Giữ API nếu PostgreSQL/outbox còn khỏe.
-- Khôi phục Redis/worker; dispatcher publish lại event NEW/RETRY.
-- Kiểm không duplicate processing run/job.
+- Keep the API up if PostgreSQL/outbox is still healthy.
+- Restore Redis/workers; the dispatcher republishes NEW/RETRY events.
+- Check that no run/job was processed twice.
 
-### Planning sync một phần hoặc thất bại
+### Planning sync partially or fully failed
 
-- Xem per-Issue job; không retry toàn run và không rollback Issue đã `SUCCEEDED`.
-- Chỉ dùng UI/API retry cho job `FAILED` còn lượt; job `PENDING/RUNNING/RETRY` phải để worker/lease xử lý.
-- Nếu lỗi mapping/payload, sửa nguyên nhân trước; runtime 1.2 chưa có amendment UI cho run đã duyệt nên không sửa trực tiếp snapshot/job payload trong database.
-- Disable GitLab integration hoặc dừng integration worker nếu phát hiện update sai hàng loạt.
+- Look at the per-Issue jobs; do not retry the whole run and do not roll back Issues already `SUCCEEDED`.
+- Only use the UI/API retry for `FAILED` jobs that still have attempts left; `PENDING/RUNNING/RETRY` jobs must be left to the worker/lease.
+- If it is a mapping/payload error, fix the cause first; runtime 1.2 has no amendment UI for an approved run, so do not edit the snapshot/job payload directly in the database.
+- Disable the GitLab integration or stop the integration worker if mass incorrect updates are detected.
 
-### Daily Report/IMAPS lỗi
+### Daily Report/IMAPS errors
 
-- Planning Run vẫn tiếp tục từ GitLab read model và phải hiển thị `REPORT_MISSING`, `REPORT_MALFORMED` hoặc `REPORT_LATE` phù hợp.
-- Không đổi sang SMTP hoặc đánh dấu mailbox read; worker chỉ dùng `BODY.PEEK[]`.
-- Nếu identity nhân sự chưa map, xử lý `REPORT_IDENTITY_UNMAPPED`; không tự gán report theo display name mơ hồ.
+- The Planning Run continues from the GitLab read model and must show `REPORT_MISSING`, `REPORT_MALFORMED` or `REPORT_LATE` as appropriate.
+- Do not switch to SMTP or mark the mailbox as read; the worker only uses `BODY.PEEK[]`.
+- If a member identity is not mapped, handle `REPORT_IDENTITY_UNMAPPED`; do not assign a report automatically based on an ambiguous display name.
 
-### PostgreSQL lỗi
+### PostgreSQL errors
 
-- API chuyển not-ready; dừng worker ghi.
-- Khôi phục service hoặc restore theo backup runbook.
-- Không chạy migration sửa nóng ngoài version control.
+- The API goes not-ready; stop the writing workers.
+- Restore the service or restore from backup per the backup runbook.
+- Do not run hot-fix migrations outside version control.
 
-### SeaweedFS lỗi
+### SeaweedFS errors
 
-- Chặn upload mới và xử lý attachment.
-- Text-only intake có thể tiếp tục nếu policy cho phép và UI hiển thị degraded mode.
-- Kiểm DB-object reconciliation sau khôi phục.
+- Block new uploads and attachment processing.
+- Text-only intake can continue if policy allows and the UI shows degraded mode.
+- Check DB-object reconciliation after recovery.
 
-### Credential lộ
+### Leaked credential
 
-- Thu hồi/rotate ngay; disable workload liên quan.
-- Rà audit/provider logs và phạm vi thời gian.
-- Cập nhật secret injection; không chỉ xóa secret khỏi file hiện tại.
+- Revoke/rotate immediately; disable related workloads.
+- Review audit/provider logs and the time range.
+- Update secret injection; do not just delete the secret from the current file.
 

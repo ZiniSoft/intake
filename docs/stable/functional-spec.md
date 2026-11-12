@@ -1,181 +1,183 @@
-# Đặc tả chức năng
+English | [Tiếng Việt](functional-spec.vi.md)
 
-_Target behavior 1.2 | Cập nhật 2026-10-01 | Trạng thái thực thi xem PRODUCTION-READINESS và IMPLEMENTATION-INVENTORY_
+# Functional specification
 
-## 0. Ranh giới target/runtime
+_Target behavior 1.2 | Updated 2026-10-01 | For implementation status see PRODUCTION-READINESS and IMPLEMENTATION-INVENTORY_
 
-Use case trong tài liệu này là hành vi đích. Runtime hiện đã khép kín text Intake, approval/sync, Daily Report parser và phần lớn Daily Planning; các phần chưa có code/live evidence vẫn giữ trong use case nhưng được liệt kê tại `IMPLEMENTATION-INVENTORY.md`. Đáng chú ý: Project Owner, Emergency Add tự tạo Issue, Planning assignment editor/amendment, auto-normalize Quick Add và live IMAPS chưa hoạt động. Chính sách đích cho các khoảng trống Planning đã được CTO chốt ngày 2026-10-01 tại ADR-0010 và bổ sung ngày 2026-10-03 tại ADR-0011 đến ADR-0014.
+## 0. Target/runtime boundary
 
-## 1. Persona
+The use cases in this document describe target behavior. The runtime currently closes the loop for text Intake, approval/sync, the Daily Report parser and most of Daily Planning; parts without code or live evidence stay in the use cases but are listed in `IMPLEMENTATION-INVENTORY.md`. Notably: Project Owner, Emergency Add with automatic Issue creation, the Planning assignment editor/amendment, auto-normalize for Quick Add and live IMAPS are not working yet. The target policy for the Planning gaps was settled by the CTO on 2026-10-01 in ADR-0010 and extended on 2026-10-03 in ADR-0011 through ADR-0014.
+
+## 1. Personas
 
 ### CTO
 
-Người dùng duy nhất trong pilot. Có quyền xem raw source, tạo/sửa intake, chạy/retry pipeline, quyết định priority/route, approve, sync và xem audit/operations.
+The only user in the pilot. Has the right to view the raw source, create/edit intakes, run/retry the pipeline, decide priority/route, approve, sync and view audit/operations.
 
-### Nhân sự dự án
+### Project members
 
-Không đăng nhập Intake. Nhận công việc đã duyệt qua GitLab và cập nhật delivery state tại GitLab.
+Do not log in to Intake. Receive approved work through GitLab and update the delivery state in GitLab.
 
 ### Project Owner
 
-Chưa đăng nhập Intake trong pilot. Có thể tham gia discovery qua Plane và delivery planning qua GitLab.
+Does not log in to Intake during the pilot yet. May take part in discovery through Plane and in delivery planning through GitLab.
 
-Từ 2026-10-05 (ADR-0022) được CTO cấp quyền theo dự án: trong dự án được cấp thì xem nội dung gốc, tạo, phê duyệt và đồng bộ Intake, làm việc với cuộc họp; không thấy gì của dự án khác. Báo cáo ngày và Daily Planning theo dự án là đợt 2. Trước đó tài liệu ghi: phase sau có thể được cấp quyền xem và duyệt Planning Run trong các project được phân quyền. CTO luôn giữ quyền override; quyền Project Owner không được mở toàn hệ thống.
+From 2026-10-05 (ADR-0022) the CTO grants permissions per project: within a granted project the Project Owner can view the original content, create, approve and sync Intakes, and work with meetings; they see nothing from other projects. Daily reports and per-project Daily Planning are phase 2. Before that the documentation said: a later phase may grant the right to view and approve Planning Runs in the projects they are authorized for. The CTO always keeps override rights; Project Owner permissions are never opened system-wide.
 
 ## 2. Navigation
 
-| Màn hình | Mục đích |
+| Screen | Purpose |
 |---|---|
-| Login/MFA | Xác thực local account và TOTP |
-| Dashboard | Việc cần CTO quyết định và hàng chờ phê duyệt; trạng thái hệ thống đã chuyển sang Cài đặt |
-| New Intake | Chọn project/channel, nhập text, upload file |
-| All Intakes | List có filter project/stage/priority/đích sync/tìm kiếm và cặp page/cursor trong URL có thể chia sẻ, keyset pagination tự về trang đầu khi cursor không hợp lệ, P0/P1 summary theo project, nút chép liên kết và link work item |
-| Intake Detail | Raw source, attachment, pipeline, AI result, evidence, audit |
-| Approval Queue | Item cần CTO quyết định |
-| Sync Queue | Job chờ/chạy/lỗi và retry có kiểm soát |
-| Projects | Danh sách dự án theo loại và liên kết; wizard tạo dự án bốn bước và màn hình sửa dự án (ADR-0020) |
-| Reports | Báo cáo ngày: thư gốc bên cạnh task đã trích, xác nhận hoặc loại. Tóm tắt ngày/tuần theo project chưa có |
-| Meetings | Danh sách cuộc họp; bản chữ theo người nói, nghe lại, tải xuống, meeting note và chuyển mục thành Intake |
-| Meeting recorder | Sidebar phải ở trang tạo Intake: chọn dự án, nguồn âm, thuật ngữ, bản chữ realtime |
-| Daily Planning | Tổng quan mọi dự án, thứ tự ưu tiên hoặc tùy chỉnh theo tài khoản; Planning Run theo ngày, capacity, hai lane sáng/chiều, conflict/warning và GitLab sync status |
-| Capacity | Default/override theo người/ngày; họp, review, support và OT |
-| Settings | Một trang có tab gom cấu hình ít dùng: Dự án, Nhân sự (gán dự án và người dùng GitLab), Thuật ngữ, Hệ thống, Tài khoản và bảo mật (MFA, recovery code) |
+| Login/MFA | Local account and TOTP authentication |
+| Dashboard | Items the CTO must decide and the approval queue; system status has moved to Settings ("Cài đặt") |
+| New Intake | Choose project/channel, enter text, upload files |
+| All Intakes | List with project/stage/priority/sync target/search filters and a shareable page/cursor pair in the URL, keyset pagination that returns to the first page when the cursor is invalid, P0/P1 summary per project, a copy-link button and work item links |
+| Intake Detail | Raw source, attachments, pipeline, AI result, evidence, audit |
+| Approval Queue | Items that need a CTO decision |
+| Sync Queue | Pending/running/failed jobs and controlled retry |
+| Projects | Project list by type and links; a four-step project creation wizard and a project edit screen (ADR-0020) |
+| Reports | Daily reports: the original email next to the extracted tasks, confirm or discard. Daily/weekly summaries per project are not available yet |
+| Meetings | Meeting list; transcript by speaker, playback, download, meeting note and turning items into Intakes |
+| Meeting recorder | Right sidebar on the Intake creation page: choose project, audio source, glossary, realtime transcript |
+| Daily Planning | Overview of all projects, priority order or a per-account custom order; Planning Run per day, capacity, two morning/afternoon lanes, conflicts/warnings and GitLab sync status |
+| Capacity | Default/override per person/day; meetings, review, support and OT |
+| Settings | One tabbed page that groups rarely used configuration: Projects ("Dự án"), Members ("Nhân sự", assign projects and GitLab users), Glossary ("Thuật ngữ"), System ("Hệ thống"), Account and security ("Tài khoản và bảo mật": MFA, recovery codes) |
 
 ## 3. Use cases
 
-### UC-01 - Tạo intake
+### UC-01 - Create an intake
 
-1. CTO chọn project bắt buộc.
-2. Chọn channel và nhập text hoặc file.
-3. Server validate, encrypt raw text, lưu file quarantine và commit outbox cùng transaction.
-4. UI nhận `201` với public ID và pipeline status.
+1. The CTO selects a project (required).
+2. Selects a channel and enters text or a file.
+3. The server validates, encrypts the raw text, stores the file in quarantine and commits the outbox in the same transaction.
+4. The UI receives `201` with the public ID and pipeline status.
 
-Không được nhận intake nếu project inactive, payload vượt giới hạn hoặc object persistence thất bại.
+An intake must not be accepted if the project is inactive, the payload exceeds the limits or object persistence fails.
 
-### UC-02 - Xử lý AI
+### UC-02 - AI processing
 
-1. CTO hoặc policy enqueue process.
-2. Dispatcher publish run ID.
-3. Worker xử lý source, gọi provider chain, validate output và materialize review fields.
-4. UI hiển thị provider/model, warning, evidence và terminal state.
+1. The CTO or a policy enqueues processing.
+2. The dispatcher publishes the run ID.
+3. The worker processes the source, calls the provider chain, validates the output and materializes the review fields.
+4. The UI shows the provider/model, warnings, evidence and terminal state.
 
-Retry cùng input/prompt/schema không tạo extraction hiện hành trùng ngoài policy versioning.
+A retry with the same input/prompt/schema does not create a duplicate current extraction outside the versioning policy.
 
 ### UC-03 - Review
 
-CTO so raw source với AI proposal, chỉnh type/title/summary/priority/route/acceptance criteria, xử lý duplicate và ghi chú thiếu thông tin. Mọi thay đổi tăng item version.
+The CTO compares the raw source with the AI proposal, edits type/title/summary/priority/route/acceptance criteria, handles duplicates and notes missing information. Every change increments the item version.
 
 ### UC-04 - Approve
 
-CTO phải lưu normalized review trước. CTO gửi `expected_version`; server chỉ cho approve khi item ở `PENDING_APPROVAL` và có normalized title/summary, sau đó validate route prerequisite, redaction, project mapping requirement và tạo immutable snapshot. Kết quả là `APPROVED`; chưa có external write. Approve trực tiếp từ `NEW` trả `REVIEW_REQUIRED`.
+The CTO must save the normalized review first. The CTO sends `expected_version`; the server only allows approval when the item is in `PENDING_APPROVAL` and has a normalized title/summary, then validates route prerequisites, redaction and the project mapping requirement and creates an immutable snapshot. The result is `APPROVED`; there is no external write yet. Approving directly from `NEW` returns `REVIEW_REQUIRED`.
 
 ### UC-05 - Sync
 
-CTO chọn snapshot hợp lệ và bấm Sync. API tạo idempotent sync job/outbox, trả `202`. Integration worker tạo/cập nhật GitLab hoặc GitHub Issue, lưu external link hoặc error terminal. Retry không tạo duplicate.
+The CTO selects a valid snapshot and clicks Sync. The API creates an idempotent sync job/outbox and returns `202`. The integration worker creates/updates the GitLab or GitHub Issue and stores the external link or a terminal error. Retry does not create duplicates.
 
 ### UC-06 - Reject, defer, request information
 
-- Reject: reason bắt buộc, terminal trừ khi reopen theo quyền.
-- Defer: thời điểm tương lai bắt buộc.
-- Request information: ít nhất một câu hỏi cụ thể.
+- Reject: a reason is required; terminal unless reopened with permission.
+- Defer: a future time is required.
+- Request information: at least one specific question.
 
 ### UC-07 - Email report
 
-Worker đọc email mới qua IMAPS, dedupe, mã hóa/lưu, map project và tạo source cho report. Email không tự thay đổi phần trăm GitLab Issue và không tạo outbound mail.
+The worker reads new email over IMAPS, dedupes, encrypts/stores it, maps the project and creates a source for the report. Email does not change the GitLab Issue percentage by itself and does not create outbound mail.
 
 ### UC-08 - Multi-project
 
-CTO có thể thao tác song song nhiều dự án. Project filter luôn hiển thị rõ; P0/P1, chờ duyệt, sync lỗi, tổng kết quả và phân trang đều theo project đang chọn. Worker route theo project ID trong record. Mapping thiếu/disabled làm sync fail closed.
+The CTO can work on several projects in parallel. The project filter is always clearly visible; P0/P1, pending approval, sync errors, total results and pagination all follow the selected project. Workers route by the project ID in the record. A missing/disabled mapping makes sync fail closed.
 
-### UC-09 - Đồng bộ lại một Intake
+### UC-09 - Re-sync an Intake
 
-Một Intake có tối đa một Issue hiện hành trên tuyến delivery đã duyệt. Chọn lại tuyến đã có Issue thì lần Sync sau cập nhật Issue đó (tìm theo dấu của yêu cầu, mở lại nếu đã đóng) thay vì tạo mục thứ hai (ADR-0048). Link Plane phát sinh trước ADR-0066 vẫn được giữ và hiển thị chỉ đọc.
+An Intake has at most one current Issue on the approved delivery route. If the route that already has an Issue is selected again, the next Sync updates that Issue (found by the request's marker, reopened if closed) instead of creating a second item (ADR-0048). Plane links created before ADR-0066 are kept and shown read-only.
 
-### UC-10 - Thu thập và đối chiếu Daily Report
+### UC-10 - Collect and reconcile Daily Reports
 
-1. IMAPS worker đọc liên tục mailbox `report@example.com`, dedupe và lưu encrypted email.
-2. Parser kiểm subject/body theo format Daily Report, liên kết reply/update trong cùng thread và lưu lỗi theo trường.
-3. Report builder tổng hợp lúc 23:30 và refresh lúc 06:45 theo `Asia/Ho_Chi_Minh`.
-4. GitLab cung cấp Issue, state, assignee, priority label, milestone, due date, MR/CI/test; email cung cấp giờ làm, bước tiếp theo, blocker, rủi ro và hỗ trợ.
-5. Conflict được lưu thành warning. Email `DONE` không biến GitLab Issue thành Done; blocker từ email vẫn được cảnh báo dù GitLab còn Doing.
-6. Report thiếu, muộn hoặc sai format không dừng luồng. Cuối tuần chỉ kỳ vọng report của người có OT capacity hoặc work evidence.
+1. The IMAPS worker continuously reads the `report@example.com` mailbox, dedupes and stores encrypted email.
+2. The parser checks the subject/body against the Daily Report format, links replies/updates in the same thread and stores errors per field.
+3. The report builder aggregates at 23:30 and refreshes at 06:45 in `Asia/Ho_Chi_Minh`.
+4. GitLab provides the Issue, state, assignee, priority label, milestone, due date, MR/CI/test; email provides hours worked, next steps, blockers, risks and support needs.
+5. Conflicts are stored as warnings. An email `DONE` does not turn the GitLab Issue into Done; a blocker from email is still flagged even if GitLab is still Doing.
+6. A missing, late or malformed report does not stop the flow. On weekends, reports are only expected from people with OT capacity or work evidence.
 
-### UC-10A - CTO xem Daily Report trước khi dùng cho kế hoạch
+### UC-10A - The CTO reviews a Daily Report before it is used for planning
 
-1. CTO mở trang Báo cáo ngày, chọn ngày và một báo cáo; thấy nhãn báo cáo do bộ quy tắc hay AI đọc và các cảnh báo.
-2. CTO mở thư gốc (ghi audit). Chữ ký sau dòng `--` nằm trong mục thu gọn.
-3. CTO sửa hoặc xóa từng task nếu trích sai.
-4. CTO bấm "Xác nhận đúng": nút khóa lại, màn hình báo task sẽ sang Daily Planning và dẫn tới báo cáo chưa xem tiếp theo.
-5. CTO bấm "Loại báo cáo": hệ thống hỏi lại vì việc loại gỡ task khỏi Planning và không hoàn tác được trên giao diện.
-6. Báo cáo do AI đọc không được dùng cho Planning cho tới khi được xác nhận.
+1. The CTO opens the Daily reports ("Báo cáo ngày") page, selects a date and a report; sees a label showing whether the report was read by the rule set or by AI, and the warnings.
+2. The CTO opens the original email (audited). The signature after the `--` line is in a collapsed section.
+3. The CTO edits or deletes each task if it was extracted incorrectly.
+4. The CTO clicks "Confirm correct" ("Xác nhận đúng"): the button locks, the screen says the tasks will go to Daily Planning and leads to the next unreviewed report.
+5. The CTO clicks "Discard report" ("Loại báo cáo"): the system asks again because discarding removes the tasks from Planning and cannot be undone in the UI.
+6. A report read by AI is not used for Planning until it is confirmed.
 
-### UC-11 - Tạo Planning Run lúc 07:00
+### UC-11 - Create the Planning Run at 07:00
 
-1. Scheduler tạo một run cho plan date, kể cả thứ Bảy/Chủ nhật.
-2. Load capacity: ngày thường mặc định 8 giờ, cuối tuần 0 giờ, sau đó áp dụng CTO override.
-3. Trừ họp, review, support và hoạt động cố định để có available capacity.
-4. Sinh candidate theo thứ tự P0/P1 đã duyệt, carry-over `Doing`, review/QA, milestone gần, Issue `Ready`, rồi P2/P3 nếu còn capacity. Priority lấy từ Planning snapshot đã duyệt gần nhất có chứa Issue; nếu chưa có thì dùng GitLab priority label (ADR-0013). Runtime 1.2 mới đọc GitLab label.
-5. Chia assignment vào `MORNING`/`AFTERNOON`; một task có thể xuất hiện ở cả hai slot nhưng vẫn là một primary development task.
-6. Cảnh báo over-capacity, overlap, blocked dependency, source conflict và nhiều hơn một primary development task.
+1. The scheduler creates one run for the plan date, including Saturday/Sunday.
+2. Load capacity: weekdays default to 8 hours, weekends to 0 hours, then apply CTO overrides.
+3. Subtract meetings, review, support and fixed activities to get the available capacity.
+4. Generate candidates in the order: approved P0/P1, `Doing` carry-over, review/QA, near milestones, `Ready` Issues, then P2/P3 if capacity remains. Priority comes from the most recent approved Planning snapshot that contains the Issue; if there is none, the GitLab priority label is used (ADR-0013). Runtime 1.2 only reads the GitLab label.
+5. Split assignments into `MORNING`/`AFTERNOON`; a task may appear in both slots but is still one primary development task.
+6. Warn about over-capacity, overlap, blocked dependencies, source conflicts and more than one primary development task.
 
-### UC-11A - Task trong báo cáo thành ứng viên Planning
+### UC-11A - Tasks in a report become Planning candidates
 
-1. Khi run được tạo hoặc mở lại lúc còn sửa được, task chưa xong (`PLANNED`, `IN_PROGRESS`, `PENDING_REVIEW`, `BLOCKED`) của báo cáo dùng được hiện ở mục "Yêu cầu cần phân loại" với nhãn "Báo cáo ngày", tên nhân sự, bước tiếp theo và số giờ nếu có.
-2. Task không có GitLab Issue vẫn hiện, ở trạng thái chờ phân loại; CTO nhập số Issue trên thẻ rồi promote.
-3. Task có Issue đã được planner tự đề xuất cho cùng nhân sự thì không hiện trùng.
+1. When the run is created or reopened while still editable, unfinished tasks (`PLANNED`, `IN_PROGRESS`, `PENDING_REVIEW`, `BLOCKED`) from usable reports appear in the "Requests to triage" ("Yêu cầu cần phân loại") section with the "Daily report" label, the member's name, the next step and the hours if any.
+2. Tasks without a GitLab Issue still appear, in pending triage state; the CTO enters the Issue number on the card and then promotes.
+3. Tasks whose Issue the planner already proposed for the same member are not shown twice.
 
-### UC-11A.1 - Sắp thứ tự dự án trong tổng quan Daily Planning
+### UC-11A.1 - Order projects in the Daily Planning overview
 
-1. CTO hoặc Project Owner mở phạm vi "Tất cả dự án"; đây là tổng quan chỉ đọc và chỉ gồm dự án phần mềm đang hoạt động trong phạm vi quyền hiện tại.
-2. Chế độ mặc định "Ưu tiên xử lý" đưa dự án chưa có Project Owner lên trước với CTO, sau đó lần lượt ưu tiên dự án có việc chờ phân công, cảnh báo chưa xem và kế hoạch chưa chốt; các dự án cùng mức xếp theo tên.
-3. Người dùng chọn "Tùy chỉnh" để kéo thả hoặc dùng nút lên/xuống. Server lưu danh sách ID theo tài khoản, không theo trình duyệt và không dùng chung giữa CTO với Project Owner.
-4. Dự án mới hoặc vừa được cấp quyền chưa có trong danh sách đã lưu được nối sau các dự án đã xếp, theo quy tắc ưu tiên mặc định. Dự án mất quyền bị lọc khỏi response.
-5. "Khôi phục ưu tiên" chuyển về `PRIORITY` và xóa danh sách tùy chỉnh; không thay đổi kế hoạch hay dữ liệu dự án.
+1. The CTO or Project Owner opens the "All projects" ("Tất cả dự án") scope; this is a read-only overview and only includes active software projects within the current permission scope.
+2. The default "Priority" ("Ưu tiên xử lý") mode puts projects without a Project Owner first for the CTO, then in turn prioritizes projects with work waiting for assignment, unread warnings and unfinalized plans; projects at the same level are sorted by name.
+3. The user selects "Custom" ("Tùy chỉnh") to drag and drop or use the up/down buttons. The server stores the ID list per account, not per browser, and it is not shared between the CTO and a Project Owner.
+4. New or newly granted projects that are not in the saved list are appended after the ordered projects, following the default priority rule. Projects the user lost access to are filtered out of the response.
+5. "Restore priority" ("Khôi phục ưu tiên") switches back to `PRIORITY` and deletes the custom list; it does not change any plan or project data.
 
-### UC-11B - Thêm việc vào kế hoạch trong ngày (ADR-0024)
+### UC-11B - Add work to the plan during the day (ADR-0024)
 
-1. CTO bấm "Thêm việc vào kế hoạch"; khung mở ở sidebar phải.
-2. Việc đã có: gõ vài chữ, chọn một Issue đang mở hoặc Intake chờ duyệt. Việc mới: nhập tiêu đề, mô tả, loại, ưu tiên.
-3. Chọn người làm, buổi, số giờ. Nếu việc chưa có Issue, nhập lý do; hệ thống ghi đó là quyết định phê duyệt, tạo Issue ở nơi giao việc của dự án, rồi đưa việc vào kế hoạch khi Issue có.
-4. Việc từ báo cáo ngày nằm ở danh sách "Việc chờ phân công" dưới hai cột kế hoạch. Mỗi dòng có "Xếp việc" (gắn Issue có sẵn hoặc tạo mới, rồi phân công) và "Bỏ qua" (ẩn khỏi kế hoạch hôm nay, đưa lại được).
-5. Khi kế hoạch còn mở, kéo thẻ sang ô sáng hoặc chiều của người khác để đổi người làm và có thể đổi buổi trong một thao tác. Người nhận phải còn thuộc dự án và có mapping tracker cho việc delivery. Nếu vượt capacity ngày, 4 giờ/buổi hoặc đã có việc phát triển chính khác, giao diện hỏi CTO/Project Owner xác nhận ngoại lệ rồi gửi lý do để lưu audit.
+1. The CTO clicks "Add work to plan" ("Thêm việc vào kế hoạch"); a panel opens in the right sidebar.
+2. Existing work: type a few characters, pick an open Issue or an Intake pending approval. New work: enter title, description, type, priority.
+3. Choose the assignee, session and hours. If the work has no Issue yet, enter a reason; the system records it as an approval decision, creates the Issue in the project's delivery target, then adds the work to the plan once the Issue exists.
+4. Work from daily reports is in the "Work awaiting assignment" ("Việc chờ phân công") list below the two plan columns. Each row has "Schedule" ("Xếp việc": attach an existing Issue or create a new one, then assign) and "Skip" ("Bỏ qua": hide from today's plan, can be restored).
+5. While the plan is still open, drag a card to another person's morning or afternoon cell to change the assignee and optionally the session in one action. The recipient must still belong to the project and have a tracker mapping for delivery work. If it exceeds the daily capacity, 4 hours/session, or the person already has another primary development task, the UI asks the CTO/Project Owner to confirm the exception and then sends the reason to be stored in the audit.
 
-Luồng dưới đây (UC-12) là thiết kế trước ADR-0024; API của nó vẫn còn nhưng giao diện không dùng nữa.
+The flow below (UC-12) is the design from before ADR-0024; its API still exists but the UI no longer uses it.
 
 ### UC-12 - Unified Quick Add
 
-CTO có ba đường vào trên cùng màn hình Planning:
+The CTO has three entry points on the same Planning screen:
 
-1. Chọn GitLab Issue hoặc Intake item hiện hữu.
-2. Nhập form nhanh để tạo Intake nguồn `MANUAL`/`MEETING`.
-3. Paste chat, email khách hàng hoặc meeting note để tạo Intake; sau khi transaction tạo Intake + candidate commit, target enqueue normalize/dedupe bất đồng bộ. Lỗi enqueue được retry/hiển thị trạng thái nhưng không rollback thao tác Quick Add. Runtime 1.2 mới tạo Intake + candidate, chưa tự enqueue AI pipeline.
+1. Pick an existing GitLab Issue or Intake item.
+2. Fill in a quick form to create an Intake with source `MANUAL`/`MEETING`.
+3. Paste a chat, customer email or meeting note to create an Intake; after the transaction that creates Intake + candidate commits, the target enqueues normalize/dedupe asynchronously. Enqueue errors are retried/shown as status but do not roll back the Quick Add action. Runtime 1.2 only creates Intake + candidate and does not enqueue the AI pipeline automatically yet.
 
-Item chưa có GitLab Issue phải hoàn tất triage/promote trước planning approval. Với P0, CTO dùng `Emergency Add`: nhập nội dung tối thiểu và lý do, Intake tự tạo ngay GitLab Issue mà không qua hai bước `Approve` rồi `Sync`, ghi audit và đưa Issue thành candidate (ADR-0012). `Emergency Add` vẫn là target chưa có endpoint/UI ở runtime 1.2.
+Items without a GitLab Issue must complete triage/promote before planning approval. For P0, the CTO uses `Emergency Add`: enter the minimum content and a reason, and Intake immediately creates the GitLab Issue without going through the two steps `Approve` then `Sync`, records an audit entry and makes the Issue a candidate (ADR-0012). `Emergency Add` is still a target with no endpoint/UI in runtime 1.2.
 
-### UC-13 - Duyệt và cập nhật GitLab
+### UC-13 - Approve and update GitLab
 
-1. CTO review và được sửa trực tiếp priority, assignee, milestone, due date, slot và planned hours trước approval.
-2. API kiểm expected version, capacity/WIP, GitLab user mapping, Issue reference và milestone hiện hữu. Thiếu milestone hoặc due date là warning: CTO acknowledge rồi vẫn duyệt được và job chỉ gửi trường có giá trị (ADR-0013). Runtime 1.2 vẫn chặn approval khi thiếu.
-3. Approval tạo immutable planning snapshot và enqueue một update job cho từng Issue.
-4. Integration worker cập nhật assignee, milestone và due date. Priority đã duyệt cùng chi tiết sáng/chiều chỉ lưu trong Intake ở pilot; worker không thay đổi GitLab priority label.
-5. Thành công từng Issue được ghi riêng. Lỗi một Issue làm run `PARTIAL`, không rollback Issue đã thành công; retry chỉ xử lý job lỗi bằng idempotency key cũ.
-6. Target: sửa kế hoạch đã duyệt tạo revision mới của toàn run, liên kết `supersedes_run_id`, tạo snapshot mới và chỉ đồng bộ per-Issue delta đã được CTO duyệt. Runtime 1.2 khóa run đã duyệt và chưa có amendment/supersede API.
+1. The CTO reviews and may directly edit priority, assignee, milestone, due date, slot and planned hours before approval.
+2. The API checks the expected version, capacity/WIP, GitLab user mapping, Issue reference and existing milestone. A missing milestone or due date is a warning: the CTO acknowledges it and can still approve, and the job only sends fields that have values (ADR-0013). Runtime 1.2 still blocks approval when they are missing.
+3. Approval creates an immutable planning snapshot and enqueues one update job per Issue.
+4. The integration worker updates assignee, milestone and due date. The approved priority and the morning/afternoon details are only stored in Intake during the pilot; the worker does not change the GitLab priority label.
+5. Success is recorded per Issue. A failure on one Issue makes the run `PARTIAL` without rolling back Issues that succeeded; retry only processes failed jobs with the original idempotency key.
+6. Target: editing an approved plan creates a new revision of the whole run, linked by `supersedes_run_id`, creates a new snapshot and only syncs the per-Issue delta approved by the CTO. Runtime 1.2 locks approved runs and has no amendment/supersede API yet.
 
-### UC-13A - Dự án giao việc trên GitHub của khách hàng
+### UC-13A - Projects that deliver on the customer's GitHub
 
-1. CTO dán token của khách ở Cài đặt > Dự án, mục Token GitHub (lưu mã hóa, FR-INTG-21; token đặt trong `.env.github` vẫn dùng được), rồi trong wizard chọn loại Phần mềm, nơi giao việc "GitHub của khách hàng", token theo tên và repository; kiểm tra kết nối xong mới lưu được.
-2. Khi duyệt một Intake của dự án, tuyến giao việc là GitHub; Sync tạo một Issue chỉ gồm tiêu đề và mô tả đã duyệt.
-3. Mỗi sáng Issue của repository được làm mới cùng lúc với GitLab; planner đề xuất việc từ các Issue đang mở được giao cho nhân sự đã gán người dùng GitHub.
-4. CTO duyệt kế hoạch; kế hoạch được lưu và xem trong Intake, không có gì được ghi lên repository của khách.
+1. The CTO pastes the customer's token in Settings > Projects, GitHub Token ("Token GitHub") section (stored encrypted, FR-INTG-21; tokens placed in `.env.github` still work), then in the wizard chooses the Software ("Phần mềm") type, the delivery target "Customer's GitHub" ("GitHub của khách hàng"), the token by name and the repository; it can only be saved after the connection check passes.
+2. When an Intake of the project is approved, the delivery route is GitHub; Sync creates an Issue containing only the approved title and description.
+3. Every morning the repository's Issues are refreshed at the same time as GitLab; the planner proposes work from open Issues assigned to members who have been mapped to a GitHub user.
+4. The CTO approves the plan; the plan is stored and viewed in Intake, and nothing is written to the customer's repository.
 
-### UC-14 - Ghi âm cuộc họp và meeting note
+### UC-14 - Meeting recording and meeting note
 
-1. CTO mở "Ghi âm họp", chọn dự án của cuộc họp (bắt buộc) và nguồn âm: tab cuộc họp + micro, chỉ micro, hoặc tải file có sẵn.
-2. Trong lúc họp, bản chữ hiện dần; thuật ngữ chung và của dự án được nạp để nhận đúng tên riêng.
-3. Sau khi kết thúc, hệ thống chuyển chữ lại có tách người nói ("Thành viên 1, 2…"), xóa bản sao phía ElevenLabs và AI tạo meeting note gồm tóm tắt và bốn nhóm: quyết định; yêu cầu, bug, thay đổi phạm vi; việc cần làm; câu hỏi mở và rủi ro.
-4. Ở trang Cuộc họp, CTO đặt tên thật cho người nói, nghe lại hoặc tải bản ghi, sửa tóm tắt và từng mục, tạo lại note, đổi dự án của cuộc họp.
-5. CTO bấm "Tạo Intake" trên một yêu cầu, bug, thay đổi phạm vi hoặc việc cần làm; Intake kênh `MEETING` đi qua pipeline và chờ phê duyệt như mọi Intake.
-6. Audio, bản chữ và note bị purge theo retention 90 ngày.
+1. The CTO opens "Record meeting" ("Ghi âm họp"), chooses the meeting's project (required) and the audio source: meeting tab + microphone, microphone only, or upload an existing file.
+2. During the meeting, the transcript appears progressively; the shared and project glossaries are loaded so proper names are recognized correctly.
+3. After it ends, the system transcribes again with speaker separation ("Member 1, 2…" ("Thành viên 1, 2…")), deletes the copy on the ElevenLabs side, and AI creates a meeting note with a summary and four groups: decisions; requests, bugs, scope changes; action items; open questions and risks.
+4. On the Meetings ("Cuộc họp") page, the CTO sets real names for speakers, plays back or downloads the recording, edits the summary and each item, regenerates the note, and changes the meeting's project.
+5. The CTO clicks "Create Intake" ("Tạo Intake") on a request, bug, scope change or action item; the `MEETING` channel Intake goes through the pipeline and waits for approval like any Intake.
+6. Audio, transcripts and notes are purged under the 90-day retention.
 
 ## 4. State machines
 
@@ -214,42 +216,42 @@ DRAFT | REVIEW_REQUIRED -> SUPERSEDED
 APPROVED | SYNCED | PARTIAL -> SUPERSEDED (khi CTO duyệt version mới)
 ```
 
-Planning Run đã approved không bị sửa tại chỗ. Mọi amendment tạo revision mới cho toàn run, liên kết `supersedes_run_id`; snapshot cũ bất biến và chỉ per-Issue delta của revision mới được enqueue.
+An approved Planning Run is not edited in place. Every amendment creates a new revision of the whole run, linked by `supersedes_run_id`; the old snapshot is immutable and only the per-Issue delta of the new revision is enqueued.
 
-Mọi transition khác phải trả `409 INVALID_STATE_TRANSITION`.
+Every other transition must return `409 INVALID_STATE_TRANSITION`.
 
-## 5. Classification và route
+## 5. Classification and route
 
-| Type | Mô tả | Route mặc định |
+| Type | Description | Default route |
 |---|---|---|
-| BUG | Actual khác expected | GitLab nếu có evidence/AC |
-| TASK | Việc đã nằm trong scope | GitLab nếu đủ dữ liệu |
-| FEATURE | Nhu cầu mới cần discovery | Việc nội bộ |
-| SCOPE_CHANGE | Thay đổi cam kết/phạm vi | Việc nội bộ |
-| FEEDBACK | Ý kiến chưa đủ thành requirement | Response hoặc needs info |
-| QUESTION | Cần phản hồi/thông tin | Response draft |
-| UNCLEAR | Không đủ phân loại | Needs information |
+| BUG | Actual differs from expected | GitLab if there is evidence/AC |
+| TASK | Work already within scope | GitLab if there is enough data |
+| FEATURE | New need that requires discovery | Internal tasks |
+| SCOPE_CHANGE | Change to a commitment/scope | Internal tasks |
+| FEEDBACK | Opinion not yet enough to be a requirement | Response or needs info |
+| QUESTION | Needs a response/information | Response draft |
+| UNCLEAR | Not enough to classify | Needs information |
 
 ## 6. Priority
 
-AI chỉ đề xuất. CTO quyết định P0-P3 trong pilot.
+AI only proposes. The CTO decides P0-P3 during the pilot.
 
-| Priority | Tiêu chí |
+| Priority | Criteria |
 |---|---|
-| P0 | Outage, data loss, critical security hoặc business stop nghiêm trọng |
-| P1 | Ảnh hưởng cam kết gần/nhiều người dùng, không có workaround hợp lý |
-| P2 | Công việc kế hoạch thông thường hoặc bug có workaround |
-| P3 | Cải tiến, tối ưu, nice-to-have hoặc backlog nghiên cứu |
+| P0 | Outage, data loss, critical security issue or severe business stoppage |
+| P1 | Affects a near-term commitment/many users, no reasonable workaround |
+| P2 | Normal planned work or a bug with a workaround |
+| P3 | Improvement, optimization, nice-to-have or research backlog |
 
 ## 7. UX rules
 
-- Luôn hiển thị project và public ID trên detail/review/sync.
-- Phân biệt AI suggestion với CTO-approved value.
-- Hiển thị rõ `Approve` không đồng nghĩa `Synced`.
-- Warning `PARTIAL`, stale snapshot và lỗi provider không được ẩn; pilot không có provider fallback (ADR-0011).
-- Action nguy hiểm có confirmation và kết quả idempotent.
-- Không render raw HTML từ chat/email nếu chưa sanitize.
-- Planning luôn hiển thị source-of-truth cạnh giá trị self-report và không tự ẩn conflict.
-- Lane sáng/chiều hiển thị planned hours, work type, primary/secondary và capacity còn lại.
-- `Approve & Sync` phải nêu rõ sẽ cập nhật assignee, milestone và due date trên GitLab.
-- Per-Issue sync failure có retry riêng; không trình bày `PARTIAL` như đã đồng bộ hoàn tất.
+- Always show the project and public ID on detail/review/sync.
+- Distinguish AI suggestions from CTO-approved values.
+- Make it clear that `Approve` does not mean `Synced`.
+- `PARTIAL` warnings, stale snapshots and provider errors must not be hidden; the pilot has no provider fallback (ADR-0011).
+- Dangerous actions have a confirmation and an idempotent result.
+- Do not render raw HTML from chat/email unless it has been sanitized.
+- Planning always shows the source of truth next to the self-reported value and never hides conflicts automatically.
+- Morning/afternoon lanes show planned hours, work type, primary/secondary and remaining capacity.
+- `Approve & Sync` must state clearly that it will update assignee, milestone and due date on GitLab.
+- Per-Issue sync failures have their own retry; never present `PARTIAL` as a completed sync.

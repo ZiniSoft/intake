@@ -18,6 +18,7 @@ cd frontend && npx tsc -b    # frontend types
 - Migrations are append-only: add `app/migrations/postgresql/NNN_*.sql`, never edit an old one.
 - A new requirement gets an FR code in the SRS; an architecture decision gets an ADR.
 - Code and comments in English. The UI is Vietnamese for now; internationalization is planned.
+- Documentation under `docs/` is bilingual: `X.md` is English (the default), `X.vi.md` is Vietnamese. Change both in the same pull request; if you can only write one language, say so in the PR and a maintainer will update the other.
 - No secrets in files and no real customer data in tests or fixtures.
 
 By contributing you agree your work is licensed under Apache-2.0.

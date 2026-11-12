@@ -1,26 +1,28 @@
-# Kiến trúc hệ thống 1.2
+English | [Tiếng Việt](system-overview.vi.md)
+
+# System architecture 1.2
 
 _Target architecture + runtime snapshot 2026-10-01_
 
-## 1. Mục tiêu
+## 1. Objectives
 
-Intake là control plane riêng tư cho việc tiếp nhận, chuẩn hóa, phê duyệt, quản lý việc nội bộ và điều phối delivery sang GitLab/GitHub. Plane đã ngừng vận hành; link cũ chỉ đọc. Kiến trúc ưu tiên audit, idempotency, tách project và khả năng khôi phục hơn tự chủ AI.
+Intake is a private control plane for intake, normalization, approval, managing internal tasks and coordinating delivery to GitLab/GitHub. Plane has been decommissioned; old links are read-only. The architecture prioritizes audit, idempotency, project separation and recoverability over AI autonomy.
 
-## 2. Thành phần
+## 2. Components
 
-| Thành phần | Công nghệ | Trách nhiệm |
+| Component | Technology | Responsibility |
 |---|---|---|
-| Web | React/Vite/Nginx | UI CTO, không giữ secret |
-| API | FastAPI/Python | Auth, validation, transaction, query và review |
-| PostgreSQL | PostgreSQL | Nguồn sự thật nghiệp vụ/job/audit |
-| Redis | Redis | Celery broker, không phải nguồn bền vững |
-| Dispatcher | Python worker | Claim outbox và enqueue ID |
-| AI worker | Celery/Python | Extract/normalize, đọc lại Daily Report sai mẫu, tạo meeting note; không có external write token |
-| Integration worker | Python | GitLab/GitHub sync từ approved snapshot |
-| IMAPS worker | Python | Đọc report mailbox read-only |
-| Meeting gateway | FastAPI/WebSocket | Chuyển tiếp audio tới ElevenLabs, chuyển chữ lại có tách người nói, xóa bản sao phía nhà cung cấp, purge cuộc họp hết hạn; container duy nhất giữ `ELEVENLABS_API_KEY` |
-| Planning scheduler | Celery Beat | Phát lịch report snapshot/GitLab refresh/Planning Run |
-| Planning worker | Celery/Python | Tạo snapshot report và Planning Run, không giữ external token |
+| Web | React/Vite/Nginx | CTO UI, holds no secrets |
+| API | FastAPI/Python | Auth, validation, transactions, queries and review |
+| PostgreSQL | PostgreSQL | Source of truth for business/job/audit data |
+| Redis | Redis | Celery broker, not a durable source |
+| Dispatcher | Python worker | Claims the outbox and enqueues IDs |
+| AI worker | Celery/Python | Extract/normalize, re-read malformed Daily Reports, create meeting notes; has no external write token |
+| Integration worker | Python | GitLab/GitHub sync from the approved snapshot |
+| IMAPS worker | Python | Reads the report mailbox read-only |
+| Meeting gateway | FastAPI/WebSocket | Forwards audio to ElevenLabs, relays text back with speaker separation, deletes the provider-side copy, purges expired meetings; the only container holding `ELEVENLABS_API_KEY` |
+| Planning scheduler | Celery Beat | Emits the schedule for report snapshot/GitLab refresh/Planning Run |
+| Planning worker | Celery/Python | Creates the report snapshot and Planning Run, holds no external token |
 | Object storage | SeaweedFS S3 gateway | Quarantine/trusted binary |
 
 ## 3. Context
@@ -48,24 +50,24 @@ flowchart LR
 
 ## 4. Trust boundaries
 
-- Browser chỉ gọi Intake API qua reverse proxy.
-- PostgreSQL, Redis và SeaweedFS chỉ ở Docker internal network.
-- AI worker chỉ outbound tới allowlisted AI endpoints.
-- Integration worker mới có token GitLab/GitHub write.
-- Planning worker/scheduler chỉ đọc PostgreSQL/Redis; mốc 06:45 route read-only GitLab refresh sang integration worker.
-- IMAPS worker chỉ có credential đọc mailbox và bị chặn outbound SMTP.
-- GitLab/Intake không công khai ra Internet; truy cập người dùng qua VPN.
+- The browser only calls the Intake API through the reverse proxy.
+- PostgreSQL, Redis and SeaweedFS live only on the Docker internal network.
+- The AI worker only goes outbound to allowlisted AI endpoints.
+- Only the integration worker has GitLab/GitHub write tokens.
+- The planning worker/scheduler only reads PostgreSQL/Redis; the 06:45 checkpoint routes the read-only GitLab refresh to the integration worker.
+- The IMAPS worker only has mailbox read credentials and is blocked from outbound SMTP.
+- GitLab/Intake are not exposed to the Internet; users access them via VPN.
 
 ## 5. Reliability patterns
 
-- Transactional outbox chống mất việc giữa DB commit và queue publish.
-- Idempotency key bảo vệ side effect bên ngoài.
-- Lease + `SKIP LOCKED` chống hai worker cùng claim.
-- Exponential backoff có jitter cho lỗi transient.
-- Dead/terminal state hiển thị cho CTO; không retry vô hạn.
-- Payload queue chỉ có identifier, không có raw binary/content.
+- Transactional outbox prevents losing work between DB commit and queue publish.
+- Idempotency keys protect external side effects.
+- Lease + `SKIP LOCKED` prevents two workers from claiming the same item.
+- Exponential backoff with jitter for transient errors.
+- Dead/terminal states are shown to the CTO; no infinite retries.
+- Queue payloads contain only identifiers, no raw binary/content.
 
-## 6. Ranh giới module
+## 6. Module boundaries
 
 ```text
 identity       authentication, MFA, sessions, authorization
@@ -80,5 +82,5 @@ audit          append-only security/business audit
 operations     health, metrics, retention, backup hooks
 ```
 
-Module chỉ giao tiếp qua service contract hoặc event có version; không truy cập table của module khác bằng query tùy tiện.
+Modules communicate only through service contracts or versioned events; they do not access another module's tables with ad hoc queries.
 

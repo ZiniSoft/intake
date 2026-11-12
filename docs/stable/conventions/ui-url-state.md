@@ -1,40 +1,42 @@
-# Quy ước URL state cho giao diện danh sách
+English | [Tiếng Việt](ui-url-state.vi.md)
 
-Tài liệu này là quy tắc bắt buộc khi tạo mới hoặc sửa một module có danh sách, bộ lọc, tìm kiếm, sắp xếp hoặc phân trang. Mục tiêu là để người dùng refresh, dùng Back/Forward và chép liên kết cho người khác mà vẫn mở đúng ngữ cảnh đang xem.
+# URL state convention for list screens
 
-## 1. Trạng thái nào phải nằm trên URL
+This document is a mandatory rule when creating or changing a module that has a list, filters, search, sorting or pagination. The goal is that users can refresh, use Back/Forward and copy a link for someone else and still open exactly the context they were viewing.
 
-- Mọi trạng thái làm thay đổi tập kết quả hoặc cách nhìn có ý nghĩa chia sẻ phải là query param: dự án/phạm vi, trạng thái, đích, ưu tiên, từ khóa, ngày, tab/view, sort và vị trí trang.
-- Trạng thái chỉ phục vụ thao tác tạm thời không đưa lên URL: dialog đang mở, dòng đang hover, draft chưa lưu, loading và thông báo nhất thời.
-- Dùng key ổn định, viết thường, có nghĩa nghiệp vụ. Giá trị chia sẻ ưu tiên mã ổn định như `project=<code>`; không lộ UUID nội bộ nếu đã có mã công khai.
-- Giá trị mặc định phải được bỏ khỏi URL để link chuẩn ngắn và tránh nhiều URL cho cùng một màn hình.
+## 1. Which state must be in the URL
 
-## 2. Filter, tìm kiếm và browser history
+- Every state that changes the result set, or a view that is meaningful to share, must be a query param: project/scope, status, target, priority, keyword, date, tab/view, sort and page position.
+- State that only serves a temporary interaction does not go into the URL: an open dialog, a hovered row, an unsaved draft, loading and transient notices.
+- Use stable, lowercase keys with business meaning. Shared values should prefer stable codes such as `project=<code>`; do not expose internal UUIDs when a public code exists.
+- Default values must be omitted from the URL so the canonical link is short and there are not multiple URLs for the same screen.
 
-- Chọn filter, sort, tab hoặc ngày bằng hành động rõ ràng phải tạo một history entry (`push`) để Back/Forward khôi phục từng lựa chọn.
-- Từ khóa gõ liên tục phải debounce và thay history entry hiện tại (`replace`), không tạo một entry cho mỗi phím.
-- Mỗi khi filter, search, sort hoặc page size thay đổi, phải xóa toàn bộ trạng thái phân trang trước khi gọi API.
-- Link cũ có thể được đọc để tương thích, nhưng phải chuẩn hóa về key/value hiện hành bằng `replace`.
-- Giá trị không hợp lệ phải được bỏ khỏi URL. Giá trị hợp lệ nhưng người dùng không có quyền phải hiện empty/error state rõ ràng, không âm thầm đổi sang phạm vi khác.
+## 2. Filters, search and browser history
+
+- Choosing a filter, sort, tab or date through an explicit action must create a history entry (`push`) so Back/Forward restores each choice.
+- Continuously typed keywords must be debounced and replace the current history entry (`replace`), not create one entry per keystroke.
+- Whenever the filter, search, sort or page size changes, all pagination state must be cleared before calling the API.
+- Old links may be read for compatibility, but must be normalized to the current keys/values using `replace`.
+- Invalid values must be removed from the URL. A valid value the user has no permission for must show a clear empty/error state, not silently switch to another scope.
 
 ## 3. Keyset pagination
 
-- API tiếp tục dùng cursor làm nguồn sự thật; UI không biến `page` thành offset.
-- Từ trang 2 trở đi URL phải có đủ cặp `page=<số hiển thị>` và `cursor=<opaque>`; chỉ `page` là không đủ để phục hồi dữ liệu.
-- Trang 1 bỏ cả `page` và `cursor`. Hai param thiếu một, `page` sai định dạng hoặc cursor bị API trả `INVALID_CURSOR` thì chuẩn hóa về trang 1 bằng `replace` và báo ngắn cho người dùng.
-- Nút Tiếp ghi page/cursor mới lên URL. Nút Trước dùng cursor đã thấy trong phiên; nếu mở trực tiếp một trang sâu và không có cursor trang trước, đưa về trang đầu thay vì đoán offset hoặc tải sai dữ liệu.
-- Cursor là chuỗi opaque: không parse, sửa, log nội dung hay dùng làm định danh nghiệp vụ.
+- The API keeps using the cursor as the source of truth; the UI does not turn `page` into an offset.
+- From page 2 on, the URL must have both `page=<displayed number>` and `cursor=<opaque>`; `page` alone is not enough to restore the data.
+- Page 1 omits both `page` and `cursor`. If one of the two params is missing, `page` is malformed, or the API returns `INVALID_CURSOR` for the cursor, normalize to page 1 using `replace` and briefly notify the user.
+- The Next ("Tiếp") button writes the new page/cursor to the URL. The Previous ("Trước") button uses cursors seen during the session; if a deep page is opened directly and there is no cursor for the previous page, go back to the first page instead of guessing an offset or loading the wrong data.
+- The cursor is an opaque string: do not parse it, modify it, log its content or use it as a business identifier.
 
-## 4. Chia sẻ và khả năng phục hồi
+## 4. Sharing and recoverability
 
-- Nút “Chép liên kết” phải chép URL chuẩn hiện tại, gồm cả filter và vị trí trang nếu đang ở trang sau.
-- Refresh và mở link ở tab/máy khác phải gọi API với đúng params trên URL.
-- Back/Forward phải phục hồi màn hình từ URL, không dựa riêng vào component state hoặc `localStorage`.
-- Nếu dữ liệu đổi làm cursor hết hạn, màn hình về trang 1 có thông báo; không để người dùng mắc kẹt ở lỗi kỹ thuật.
+- The "Copy link" ("Chép liên kết") button must copy the current canonical URL, including filters and page position if on a later page.
+- Refreshing and opening the link in another tab/machine must call the API with exactly the params in the URL.
+- Back/Forward must restore the screen from the URL, not rely solely on component state or `localStorage`.
+- If data changes make the cursor expire, the screen returns to page 1 with a notice; do not leave the user stuck on a technical error.
 
-## 5. Cách triển khai và kiểm thử
+## 5. Implementation and testing
 
-- Với React, dùng `useSearchParams`; helper dùng chung cho keyset pagination nằm ở `frontend/src/list-url.ts`.
-- Query cache key phải chứa mọi URL state ảnh hưởng request, kể cả cursor.
-- Test tối thiểu: mặc định không có param; filter giữ được sau refresh; đổi filter xóa page/cursor; trang 2 có đủ page/cursor; link thiếu/sai param về trang 1; `INVALID_CURSOR` về trang 1; Back/Forward phục hồi; chép link giữ đủ trạng thái.
-- Review module danh sách mới không đạt nếu trạng thái chia sẻ vẫn chỉ nằm trong React state.
+- With React, use `useSearchParams`; the shared helper for keyset pagination is in `frontend/src/list-url.ts`.
+- The query cache key must contain every URL state that affects the request, including the cursor.
+- Minimum tests: no params by default; filter survives refresh; changing the filter clears page/cursor; page 2 has both page/cursor; a link with missing/invalid params goes to page 1; `INVALID_CURSOR` goes to page 1; Back/Forward restores; the copied link keeps the full state.
+- A review of a new list module fails if shareable state still lives only in React state.
