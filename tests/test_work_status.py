@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.db import get_session
 from app.main import app
-from app.models import ApiToken, IssueVerification, PlanningApprovalSnapshot, PlanningAssignment, PlanningCandidate, PlanningRun, PlanningWarning, Project, User, WorkforceMember, WorkforceProjectMembership
+from app.models import ApiToken, IssueEvidenceLink, IssueVerification, PlanningApprovalSnapshot, PlanningAssignment, PlanningCandidate, PlanningRun, PlanningWarning, Project, User, WorkforceMember, WorkforceProjectMembership
 
 cto = TestClient(app, headers={"X-User-Subject": "cto"})
 owner = TestClient(app, headers={"X-User-Subject": "project-owner"})
@@ -24,6 +24,8 @@ def _cleanup(project_id: str, member_ids: list[str], user_id: str | None) -> Non
                     session.delete(row)
             session.delete(run)
         for row in session.scalars(select(IssueVerification).where(IssueVerification.project_id == project_id, IssueVerification.issue_external_id.in_(("811", "812", "812")))).all():
+            session.delete(row)
+        for row in session.scalars(select(IssueEvidenceLink).where(IssueEvidenceLink.project_id == project_id, IssueEvidenceLink.issue_external_id.in_(("811", "812")))).all():
             session.delete(row)
         if user_id:
             for row in session.scalars(select(ApiToken).where(ApiToken.user_id == user_id)).all():
@@ -119,14 +121,14 @@ def test_work_status_from_the_web_feeds_acceptance_and_the_next_day() -> None:
         _cleanup(project_id, [first["id"], second["id"]], user_id)
 
 
-def test_done_said_from_a_page_opened_before_the_plan_was_reopened_lands_on_the_live_plan() -> None:
-    """INT-26W45-001: the plan was reopened (new assignment ids) while the Developer's page still held the old ids;
-    "done" with a link must reach the live assignment instead of failing or vanishing on the superseded copy."""
+def test_done_with_commit_from_stale_my_day_page_lands_on_the_reopened_plan() -> None:
+    """INT-26W46-002: a reopened plan has new assignment ids, but a My Day page may still submit the old ids.
+    The done status and its GitLab commit evidence must land on the live assignment instead of returning 404."""
     with get_session() as session:
         project_id = str(session.scalar(select(Project).where(Project.code == "orbit")).id)
     tag = uuid4().hex[:6]
     member = cto.post("/api/v1/planning/members", json={
-        "display_name": "Stale Page Dev", "email_reference": f"stale-{tag}@example.test",
+        "display_name": "Stale Evidence Dev", "email_reference": f"stale-evidence-{tag}@example.test",
         "project_mappings": [{"project_id": project_id, "gitlab_user_external_id": "424331", "role": "Developer"}],
     }).json()["data"]
     user_id = None
@@ -138,14 +140,16 @@ def test_done_said_from_a_page_opened_before_the_plan_was_reopened_lands_on_the_
             "gitlab_issue_external_id": "811", "approved_priority": "P1",
         })
         assert placed.status_code == 201, placed.text
-        old_id = placed.json()["data"]["id"]
-        created = cto.post("/api/v1/users", json={"subject": f"stale{tag}", "role": "DEVELOPER", "member_id": member["id"]})
+        old_assignment_id = placed.json()["data"]["id"]
+        created = cto.post("/api/v1/users", json={"subject": f"staleevidence{tag}", "role": "DEVELOPER", "member_id": member["id"]})
         assert created.status_code == 201, created.text
         user_id = created.json()["data"]["account"]["id"]
-        dev = TestClient(app, headers={"X-User-Subject": f"stale{tag}"})
-        assert dev.post("/api/v1/auth/password", json={"current_password": created.json()["data"]["temporary_password"], "new_password": f"stale-pass-{tag}-long"}).status_code == 200
-        stale_items = dev.get(f"/api/v1/planning/my-day/{DAY_ONE}").json()["data"]["items"]
-        assert [row["assignment_id"] for row in stale_items] == [old_id]
+        developer = TestClient(app, headers={"X-User-Subject": f"staleevidence{tag}"})
+        assert developer.post("/api/v1/auth/password", json={
+            "current_password": created.json()["data"]["temporary_password"], "new_password": f"stale-evidence-pass-{tag}-long",
+        }).status_code == 200
+        stale_items = developer.get(f"/api/v1/planning/my-day/{DAY_ONE}").json()["data"]["items"]
+        assert [row["assignment_id"] for row in stale_items] == [old_assignment_id]
 
         with get_session() as session:
             closed = session.get(PlanningRun, run["id"])
@@ -156,10 +160,23 @@ def test_done_said_from_a_page_opened_before_the_plan_was_reopened_lands_on_the_
         assert reopened.status_code == 201, reopened.text
         live_run_id = reopened.json()["data"]["id"]
 
-        done = dev.patch(f"/api/v1/planning/runs/{run['id']}/assignments/{old_id}/work-status", json={"status": "DONE", "note": "Đã merge"})
+        commit_url = "https://gitlab.example.test/2026/orbit-platform/-/commit/0123abcd"
+        done = developer.patch(
+            f"/api/v1/planning/runs/{run['id']}/assignments/{old_assignment_id}/work-status",
+            json={"status": "DONE", "evidence": [{"kind": "COMMIT", "url": commit_url}]},
+        )
         assert done.status_code == 200, done.text
-        live = dev.get(f"/api/v1/planning/my-day/{DAY_ONE}").json()["data"]["items"]
-        assert [(row["run_id"], row["work_status"]) for row in live] == [(live_run_id, "DONE")]
+        assert done.json()["data"]["evidence_added"] == 1
+        assert done.json()["data"]["acceptance_queued"] is True
+        live_items = developer.get(f"/api/v1/planning/my-day/{DAY_ONE}").json()["data"]["items"]
+        assert [(row["run_id"], row["work_status"]) for row in live_items] == [(live_run_id, "DONE")]
+        with get_session() as session:
+            evidence = session.scalar(select(IssueEvidenceLink).where(
+                IssueEvidenceLink.project_id == project_id,
+                IssueEvidenceLink.issue_external_id == "811",
+                IssueEvidenceLink.kind == "COMMIT",
+            ))
+            assert evidence is not None and evidence.url == commit_url
     finally:
         _cleanup(project_id, [member["id"]], user_id)
 
