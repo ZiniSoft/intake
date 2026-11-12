@@ -2,7 +2,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.modules.changelog import CHANGELOG_PATH, parse_changelog
+from app.modules.changelog import CHANGELOG_EN_PATH, CHANGELOG_PATH, parse_changelog
 
 cto = TestClient(app, headers={"X-User-Subject": "cto"})
 owner = TestClient(app, headers={"X-User-Subject": "project-owner"})
@@ -39,6 +39,16 @@ def test_the_file_is_read_into_dated_entries_with_commits_refs_and_bullets() -> 
     assert last["commits"] == ["6fb8dd9"] and last["refs"] == [] and last["bullets"] == ["Ô chọn dự án theo tên."]
 
 
+def test_english_reference_lines_are_parsed() -> None:
+    entries = parse_changelog("""## 2026-11-11
+### English entry `abcdef0`
+References: FR-UI-14, ADR-0078
+- English bullet.
+""")
+    assert entries[0]["refs"] == ["FR-UI-14", "ADR-0078"]
+    assert entries[0]["bullets"] == ["English bullet."]
+
+
 def test_the_real_changelog_parses_and_the_cto_sees_private_entries_the_owner_does_not() -> None:
     assert CHANGELOG_PATH.exists()
     entries = parse_changelog(CHANGELOG_PATH.read_text(encoding="utf-8"))
@@ -53,3 +63,18 @@ def test_the_real_changelog_parses_and_the_cto_sees_private_entries_the_owner_do
     theirs = owner.get("/api/v1/changelog").json()["data"]
     assert theirs["entries"] and not any(row["cto_only"] for row in theirs["entries"])
     assert TestClient(app).get("/api/v1/changelog").status_code in (401, 403)
+
+
+def test_the_changelog_api_returns_english_entries_when_requested() -> None:
+    assert CHANGELOG_EN_PATH.exists()
+    english = parse_changelog(CHANGELOG_EN_PATH.read_text(encoding="utf-8"))
+    assert len(english) >= 10
+
+    shown = cto.get("/api/v1/changelog?lang=en")
+    assert shown.status_code == 200, shown.text
+    data = shown.json()["data"]
+    assert data["latest"] == english[0]["date"]
+    assert data["entries"][0]["title"] == english[0]["title"]
+    assert not any(character in data["entries"][0]["title"] for character in "ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠƯàáâãèéêìíòóôõùúăđĩũơư")
+
+    assert cto.get("/api/v1/changelog?lang=fr").status_code == 422

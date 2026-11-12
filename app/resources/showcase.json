@@ -1,8 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "groups": {
     "sample": "Dự án mẫu để thử",
     "author_oss": "Dự án open source của Thanh"
+  },
+  "groups_en": {
+    "sample": "Sample projects to try",
+    "author_oss": "Thanh's open-source projects"
   },
   "items": [
     {
@@ -10,10 +14,13 @@
       "kind": "demo",
       "group": "sample",
       "name": "Dự án mẫu",
+      "name_en": "Sample project",
       "summary": "Dự án hư cấu có sẵn vài yêu cầu và kế hoạch ngày để xem Intake chạy mà không cần khóa AI. Không gửi gì ra ngoài.",
+      "summary_en": "A fictional project with sample requests and a daily plan, so you can explore Intake without an AI key. Nothing is sent outside Intake.",
       "repo_url": "https://github.com/ZiniSoft/minigames",
       "languages": [],
       "license": "Dữ liệu hư cấu",
+      "license_en": "Fictional data",
       "default_enabled": false,
       "sample_requests": []
     },
@@ -22,12 +29,15 @@
       "kind": "real",
       "group": "author_oss",
       "name": "Minigames",
+      "name_en": "Minigames",
       "summary": "Bộ mini-game HTML5 cho chiến dịch đồ ăn, đồ uống và cửa hàng trực tuyến. Hiện có Guess Me và Lucky Spin.",
+      "summary_en": "An HTML5 mini-game collection for food, beverage, and online-store campaigns. It currently includes Guess Me and Lucky Spin.",
       "project_code": "minigames",
       "intake_key": "MGM",
       "repo_url": "https://github.com/ZiniSoft/minigames",
       "languages": ["HTML5", "JavaScript"],
       "license": "MIT (mã nguồn), CC BY 4.0 (nội dung gốc)",
+      "license_en": "MIT (source code), CC BY 4.0 (original content)",
       "default_enabled": false,
       "sample_requests": []
     }

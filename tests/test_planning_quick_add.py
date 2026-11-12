@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.db import get_session
 from app.main import app
-from app.models import GitLabIssueSnapshot, Project
+from app.models import GitLabIssueSnapshot, IntakeItem, Project
 
 
 client = TestClient(app, headers={"X-User-Subject": "cto"})
@@ -59,6 +59,11 @@ def test_unified_quick_add_creates_intake_and_promotes_only_with_gitlab_issue() 
     assert form_candidate["source_type"] == "FORM"
     assert form_candidate["status"] == "PENDING_TRIAGE"
     assert form_candidate["intake_id"] is not None
+    with get_session() as session:
+        intake = session.get(IntakeItem, form_candidate["intake_id"])
+        assert intake is not None
+        assert intake.normalized_title is None
+        assert intake.normalized_summary is None
 
     replay = client.post(
         f"/api/v1/planning/runs/{run['id']}/quick-add",

@@ -25,7 +25,7 @@ await page.routeWebSocket(/\/api\/v1\/meetings\/.*\/stream/, (ws) => {
   ws.onMessage(() => {})
   setTimeout(() => ws.send(JSON.stringify({ type: 'health', backlog_seconds: 6.5, client_gap_ms: 300, provider_rtt_ms: 210, dropped: 0 })), 3000)
 })
-await page.goto(`${base}/login`)
+await page.goto(`${base}/login?lang=vi`)
 await page.getByLabel(/Tên đăng nhập|Tài khoản/).fill('cto')
 await page.getByLabel(/Mật khẩu/).fill(password)
 await page.getByRole('button', { name: /Đăng nhập/ }).click()

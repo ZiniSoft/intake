@@ -29,7 +29,7 @@ Intake is a private control plane for intake, normalization, approval, managing 
 
 ```mermaid
 flowchart LR
-    CTO[CTO qua VPN] --> WEB[Intake Web]
+    CTO[CTO through VPN] --> WEB[Intake Web]
     WEB --> API[Intake API]
     API --> PG[(PostgreSQL)]
     API --> SW[(SeaweedFS)]
@@ -37,7 +37,7 @@ flowchart LR
     OB --> REDIS[(Redis)]
     REDIS --> AI[AI worker]
     AI --> UM[UModelVerse SG]
-    AI -. fallback sau pilot, ADR-0011 .-> OR[OpenRouter]
+    AI -. fallback after pilot, ADR-0011 .-> OR[OpenRouter]
     REDIS --> INT[Integration worker]
     REDIS --> PLAN[Planning worker]
     INT --> GL[GitLab CE]

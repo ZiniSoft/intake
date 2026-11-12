@@ -13,7 +13,12 @@
     "test:e2e:gate-e": "node e2e/gate-e.mjs",
     "test:e2e:gitlab": "node e2e/gate-gitlab.mjs",
     "test:e2e:planning": "node e2e/planning-ui.mjs",
+    "test:e2e:planning-locale": "node e2e/planning-locale.mjs",
+    "test:e2e:settings-projects-locale": "node e2e/settings-projects-locale.mjs",
+    "test:e2e:settings-tabs-locale": "node e2e/settings-tabs-locale.mjs",
+    "test:e2e:header-locale": "node e2e/header-locale.mjs",
     "test:e2e:composer": "node e2e/intake-composer.mjs",
+    "test:e2e:locale": "node e2e/setup-locale.mjs",
     "test:e2e:meeting": "node e2e/meeting-capture.mjs",
     "test:e2e:planning-live": "node e2e/planning-live-mutation.mjs"
   },

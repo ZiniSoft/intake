@@ -5,7 +5,7 @@ import { PublicGuidePage } from './guide'
 import { LocaleProvider } from './i18n'
 import './styles.css'
 
-// Entry of the static guide published on GitHub Pages (FR-UI-18). No API, no session: the same content as /huong-dan.
+// Entry of the static guide published on GitHub Pages (FR-UI-18). No API, no session: the same content as /guide.
 // The router is only there because the guide module imports Link; the public view renders no Link.
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

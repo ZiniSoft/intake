@@ -255,3 +255,4 @@ AI only proposes. The CTO decides P0-P3 during the pilot.
 - Morning/afternoon lanes show planned hours, work type, primary/secondary and remaining capacity.
 - `Approve & Sync` must state clearly that it will update assignee, milestone and due date on GitLab.
 - Per-Issue sync failures have their own retry; never present `PARTIAL` as a completed sync.
+- The interface defaults to English and offers an `EN | VI` selector before and after sign-in. The choice stays in that browser only. Application chrome follows the selected locale; user-entered requests and evidence retain their source language (FR-UI-19, ADR-0083).

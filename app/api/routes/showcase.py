@@ -1,5 +1,7 @@
+from typing import Literal
+
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.api.errors import api_exception
 from app.api.security import AuthContext, require_cto
@@ -46,14 +48,22 @@ def _raise(error: ShowcaseError):
 
 
 @router.get("", response_model=ShowcaseOut, openapi_extra={"x-requirement-ids": ["FR-SETUP-15"]})
-async def list_showcase(context: AuthContext = Depends(require_cto)) -> ShowcaseOut:
-    return ShowcaseOut.model_validate(service.list_items())
+async def list_showcase(
+    locale: Literal["en", "vi"] = Query(default="en"),
+    context: AuthContext = Depends(require_cto),
+) -> ShowcaseOut:
+    return ShowcaseOut.model_validate(service.list_items(locale))
 
 
 @router.put("/{key}", response_model=ShowcaseOut, openapi_extra={"x-requirement-ids": ["FR-SETUP-15"]})
-async def toggle_showcase(key: str, payload: ShowcaseToggleIn, context: AuthContext = Depends(require_cto)) -> ShowcaseOut:
+async def toggle_showcase(
+    key: str,
+    payload: ShowcaseToggleIn,
+    locale: Literal["en", "vi"] = Query(default="en"),
+    context: AuthContext = Depends(require_cto),
+) -> ShowcaseOut:
     try:
-        return ShowcaseOut.model_validate(service.set_enabled(key, payload.enabled, context.user_id))
+        return ShowcaseOut.model_validate(service.set_enabled(key, payload.enabled, context.user_id, locale))
     except ShowcaseError as error:
         raise _raise(error) from error
 

@@ -20,7 +20,19 @@ try {
   await page.route('**/api/v1/**', (r) => json(r, r.request().url().endsWith('/changelog') ? { entries: [], build: { sha: '' } } : []))
   await page.route('**/api/v1/auth/agent-commands', (r) => json(r, { commands: [] }))
   await page.route('**/api/v1/auth/me', (r) => json(r, { subject: 'cto', email: 'cto@example.test', display_name: 'CTO', role: 'CTO', can_view_raw: true, can_approve: true, mfa_enabled: false, project_ids: null, must_change_password: false, member_id: null }))
-  await page.route('**/api/v1/showcase', (r) => json(r, { items: [] }))
+  await page.route('**/api/v1/showcase?*', (r) => {
+    const english = new URL(r.request().url()).searchParams.get('locale') === 'en'
+    return json(r, {
+      version: 2,
+      groups: { sample: english ? 'Sample projects to try' : 'Dự án mẫu để thử' },
+      items: [{
+        key: 'intake-demo', kind: 'demo', group: 'sample', name: english ? 'Sample project' : 'Dự án mẫu',
+        summary: english ? 'Fictional requests and a daily plan.' : 'Yêu cầu và kế hoạch ngày hư cấu.', repo_url: '',
+        languages: [], license: english ? 'Fictional data' : 'Dữ liệu hư cấu', state: 'on', project_code: 'demo',
+        sample_requests: 0, in_catalog: true,
+      }],
+    })
+  })
   await page.route('**/api/v1/setup', (r) => json(r, state))
   await page.route('**/api/v1/integrations/gitlab-connection', (r) => json(r, { configured: false, source: 'NONE', base_url: null, key_hint: null, updated_at: null, linked_projects: 0 }))
   await page.route('**/api/v1/integrations/github-tokens', (r) => json(r, [{ name: 'GITHUB_TOKEN_ZTEST', key_hint: 'WXYZ', source: 'APP' }]))
@@ -32,7 +44,7 @@ try {
   })
 
   page.on('pageerror', (e) => console.log('page error:', e.stack))
-  await page.goto(`${baseUrl}/setup`, { waitUntil: 'networkidle' })
+  await page.goto(`${baseUrl}/setup?lang=vi`, { waitUntil: 'networkidle' })
   await page.getByRole('heading', { name: 'Xong, vào làm việc' }).waitFor({ timeout: 4000 })
   await page.getByRole('button', { name: 'Nối GitLab/GitHub' }).click()
   await page.getByRole('heading', { name: /Nối GitLab hoặc GitHub/ }).waitFor({ timeout: 4000 })
@@ -52,12 +64,18 @@ try {
   await page.getByText(/Repository access đang là "Public repositories"/).waitFor({ timeout: 4000 })
   assert(!(await page.getByText('public_read_only').count()), 'the cause code must not show as text')
   const mistakes = await page.getByRole('link', { name: 'Xem các lỗi thường gặp khi tạo token' }).getAttribute('href')
-  assert(mistakes === '/huong-dan#guide-token-mistakes', `unexpected mistakes link ${mistakes}`)
+  assert(mistakes === '/guide#guide-token-mistakes', `unexpected mistakes link ${mistakes}`)
   assert(probes.length === 1 && probes[0].action === 'ACCESS' && probes[0].token_ref === 'GITHUB_TOKEN_ZTEST', `unexpected probe ${JSON.stringify(probes)}`)
   if (shots) await page.screenshot({ path: `${shots}/setup-github.png`, fullPage: true })
 
   await page.getByRole('button', { name: 'Để sau' }).click()
   await page.getByRole('heading', { name: 'Xong, vào làm việc' }).waitFor({ timeout: 4000 })
+  await page.goto(`${baseUrl}/setup?lang=en`, { waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'All set' }).waitFor({ timeout: 4000 })
+  await page.getByText('Optional: sample and open-source projects').click()
+  await page.getByText('Sample projects to try').waitFor({ timeout: 4000 })
+  await page.getByRole('heading', { name: /Sample project Sample/ }).waitFor({ timeout: 4000 })
+  assert(!(await page.getByText('Dự án mẫu để thử').count()), 'the English showcase must not render Vietnamese catalog text')
   console.log('setup tracker step: ok')
 } catch (error) {
   console.log(page.url(), (await page.locator('body').innerText()).slice(0, 600))

@@ -255,3 +255,4 @@ AI chỉ đề xuất. CTO quyết định P0-P3 trong pilot.
 - Lane sáng/chiều hiển thị planned hours, work type, primary/secondary và capacity còn lại.
 - `Approve & Sync` phải nêu rõ sẽ cập nhật assignee, milestone và due date trên GitLab.
 - Per-Issue sync failure có retry riêng; không trình bày `PARTIAL` như đã đồng bộ hoàn tất.
+- Giao diện mặc định English và có bộ chọn `EN | VI` trước lẫn sau đăng nhập. Lựa chọn chỉ lưu trong trình duyệt đó. Chữ của ứng dụng theo locale đã chọn; yêu cầu và bằng chứng do người dùng nhập giữ nguyên ngôn ngữ nguồn (FR-UI-19, ADR-0083).

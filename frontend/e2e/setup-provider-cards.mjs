@@ -49,7 +49,7 @@ try {
     await r.fulfill({ contentType: 'application/json', body: envelope(data) })
   })
 
-  await page.goto(`${baseUrl}/setup`, { waitUntil: 'networkidle' })
+  await page.goto(`${baseUrl}/setup?lang=vi`, { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: /Nối khóa AI của tôi/ }).click()
   for (const label of ['Gemini', 'Groq', 'OpenRouter (chỉ để thử)', 'OpenAI', 'Claude (Anthropic)', 'Khác']) {
     assert(await page.getByRole('radio', { name: new RegExp(`^${label.replace(/[()]/g, '\\$&')}`) }).count() === 1, `missing card ${label}`)

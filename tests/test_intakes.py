@@ -35,7 +35,19 @@ def test_create_intake_success() -> None:
     body = response.json()["data"]
     assert body["channel"] == "ZALO"
     assert body["status"] == "NEW"
+    assert body["normalized_title"] is None
+    assert body["normalized_summary"] is None
     assert re.fullmatch(r"ORB-\d{2}W\d{2}-\d{3}", body["public_id"])
+
+
+def test_create_intake_rejects_oversized_raw_text() -> None:
+    response = client.post("/api/v1/intakes", json={
+        "project_id": "orbit",
+        "channel": "ZALO",
+        "raw_text": "x" * 50_001,
+    })
+
+    assert response.status_code == 422
 
 
 def test_approve_intake_requires_expected_version() -> None:

@@ -143,6 +143,8 @@ class Settings(BaseSettings):
             errors.append("PROJECT_OWNER_INITIAL_PASSWORD must be at least 8 characters and must not use a repository default")
         if not self.cookie_secure:
             errors.append("COOKIE_SECURE must be true outside local and test environments")
+        if self.allow_subject_header_auth:
+            errors.append("ALLOW_SUBJECT_HEADER_AUTH must be false outside local and test environments")
         if errors:
             raise ValueError("Unsafe deployed configuration: " + "; ".join(errors))
         return self

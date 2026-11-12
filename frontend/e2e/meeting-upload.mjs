@@ -31,7 +31,7 @@ page.on('pageerror', (error) => pageErrors.push(error.message))
 const result = { base_url: baseUrl }
 
 try {
-  await page.goto(`${baseUrl}/login`, { waitUntil: 'networkidle' })
+  await page.goto(`${baseUrl}/login?lang=vi`, { waitUntil: 'networkidle' })
   await page.getByLabel('Tài khoản').fill('cto')
   await page.getByLabel('Mật khẩu').fill(env.CTO_INITIAL_PASSWORD)
   await page.getByRole('button', { name: 'Đăng nhập an toàn' }).click()

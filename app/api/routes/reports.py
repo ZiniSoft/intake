@@ -119,6 +119,10 @@ async def get_daily_report(report_id: str, context: AuthContext = Depends(requir
 )
 async def get_daily_report_source(report_id: str, context: AuthContext = Depends(require_member)) -> DailyReportSourceOut:
     _own_report(context, report_id)
+    if context.project_ids is not None:
+        detail = _detail(context, report_id)
+        if detail.hidden_items:
+            raise api_exception(status.HTTP_403_FORBIDDEN, "REPORT_MIXED_PROJECTS", "Thư có việc ở dự án khác; chỉ CTO được xem nguyên văn")
     source = daily_report_service.report_source(report_id, context.user_id)
     if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Daily report not found")

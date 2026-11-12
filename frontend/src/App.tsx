@@ -91,7 +91,8 @@ import {
 import { api, ApiError, AUTH_EXPIRED_EVENT, formatError } from './api'
 import { clearCursorPagination, readCursorPagination, writeCursorPagination } from './list-url'
 import { ALL_HINTS, ALL_INTROS, type HintKey, type PageIntroKey } from './hints'
-import { useLocale } from './i18n'
+import { HINTS_EN, INTROS_EN } from './hints_en'
+import { LocaleSwitch, useLocale } from './i18n'
 import { AccessResultList, GuideContent, PublicGuidePage, TokenGuide } from './guide'
 import { movePlanningProject, orderPlanningProjects, type PlanningProjectOrder } from './planning-order'
 import { MemberPlanPage } from './member-plan'
@@ -313,6 +314,20 @@ const statusLabels: Record<IntakeStatus, string> = {
   CLOSED: 'Đã đóng',
 }
 
+const statusLabelsEn: Record<IntakeStatus, string> = {
+  NEW: 'New',
+  PROCESSING: 'Processing',
+  PENDING_APPROVAL: 'Pending approval',
+  NEEDS_INFORMATION: 'Needs information',
+  PROCESSING_FAILED: 'Processing failed',
+  DEFERRED: 'Deferred',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  SYNC_PENDING: 'Sync pending',
+  SYNCED: 'Synced',
+  CLOSED: 'Closed',
+}
+
 const lifecycleLabels: Record<IntakeLifecycleStage, string> = {
   RECEIVED: 'Tiếp nhận',
   NEEDS_INFORMATION: 'Cần làm rõ',
@@ -322,6 +337,17 @@ const lifecycleLabels: Record<IntakeLifecycleStage, string> = {
   PENDING_ACCEPTANCE: 'Chờ nghiệm thu',
   ACCEPTED: 'Đã nghiệm thu',
   STOPPED: 'Đã dừng',
+}
+
+const lifecycleLabelsEn: Record<IntakeLifecycleStage, string> = {
+  RECEIVED: 'Received',
+  NEEDS_INFORMATION: 'Needs information',
+  PENDING_APPROVAL: 'Pending approval',
+  WAITING_PLANNING: 'Waiting for planning',
+  IN_PROGRESS: 'In progress',
+  PENDING_ACCEPTANCE: 'Pending acceptance',
+  ACCEPTED: 'Accepted',
+  STOPPED: 'Stopped',
 }
 
 const legacyStatusStages: Partial<Record<IntakeStatus, IntakeLifecycleStage>> = {
@@ -378,20 +404,20 @@ function formatDay(value: string) {
   return `${day}/${month}`
 }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('vi-VN', {
+function formatDate(value: string, locale: 'vi' | 'en' = 'vi') {
+  return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'vi-VN', {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))
 }
 
-function greeting(user: User) {
+function greeting(user: User, locale: 'vi' | 'en' = 'vi') {
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', hourCycle: 'h23' }).format(new Date()))
-  const period = hour < 12 ? 'sáng' : hour < 18 ? 'chiều' : 'tối'
   const displayName = user.display_name?.trim()
   // Seeded accounts carry the email local part as display name; address those by role instead.
   const name = displayName && displayName !== user.email.split('@')[0] ? displayName : user.role
-  return `Chào buổi ${period}, ${name}`
+  if (locale === 'en') return `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}, ${name}`
+  return `Chào buổi ${hour < 12 ? 'sáng' : hour < 18 ? 'chiều' : 'tối'}, ${name}`
 }
 
 function todayInPlanningTimezone() {
@@ -404,11 +430,13 @@ function todayInPlanningTimezone() {
 }
 
 function StatusBadge({ status }: { status: IntakeStatus }) {
-  return <span className={`status status-${status.toLowerCase()}`}>{statusLabels[status]}</span>
+  const { locale } = useLocale()
+  return <span className={`status status-${status.toLowerCase()}`}>{(locale === 'vi' ? statusLabels : statusLabelsEn)[status]}</span>
 }
 
 function LifecycleBadge({ stage }: { stage: IntakeLifecycleStage }) {
-  return <span className={`status lifecycle lifecycle-${stage.toLowerCase()}`}>{lifecycleLabels[stage]}</span>
+  const { locale } = useLocale()
+  return <span className={`status lifecycle lifecycle-${stage.toLowerCase()}`}>{(locale === 'vi' ? lifecycleLabels : lifecycleLabelsEn)[stage]}</span>
 }
 
 function PriorityBadge({ priority }: { priority: Priority | null }) {
@@ -422,6 +450,7 @@ const TopBarSlots = createContext<{ title: HTMLElement | null; action: HTMLEleme
 // helper: one sentence, or several points shown as a bulleted list in the tooltip.
 function PageHeader({ title, description, helper, action }: { title: string; description?: string; helper?: string | string[]; action?: ReactNode }) {
   const slots = useContext(TopBarSlots)
+  const { text } = useLocale()
   return (
     <>
       {slots.title && createPortal(
@@ -429,7 +458,7 @@ function PageHeader({ title, description, helper, action }: { title: string; des
           <h1>{title}</h1>
           {helper && (
             <span className="page-helper">
-              <button type="button" aria-label="Quy tắc nguồn dữ liệu và phê duyệt" aria-describedby="page-header-helper"><CircleHelp size={16} /></button>
+              <button type="button" aria-label={text('Quy tắc nguồn dữ liệu và phê duyệt', 'Data source and approval rules')} aria-describedby="page-header-helper"><CircleHelp size={16} /></button>
               <span className="page-helper-tooltip" id="page-header-helper" role="tooltip">{Array.isArray(helper) ? helper.map((point) => <span className="page-helper-point" key={point}>{point}</span>) : helper}</span>
             </span>
           )}
@@ -452,8 +481,17 @@ const watchReasons: Record<NonNullable<WatchHealth['tracks'][number]['reason']>,
   NOTHING_SENT: 'Công cụ quét vẫn gọi Intake nhưng không gửi bài nào.',
 }
 
+const watchReasonsEn: Record<NonNullable<WatchHealth['tracks'][number]['reason']>, string> = {
+  ROUTES_CLOSED: 'Server routes are locked, so the scanner cannot call Intake.',
+  NO_SOURCES: 'This track has no enabled sources.',
+  NO_KEYWORDS: 'No pillar in this track has search keywords.',
+  FLOW_SILENT: 'The scanner has not called Intake and may have stopped.',
+  NOTHING_SENT: 'The scanner is calling Intake but has not submitted any posts.',
+}
+
 function AlertBell() {
   const { user } = useAuth()
+  const { locale, text } = useLocale()
   const { pathname } = useLocation()
   const isCto = user?.role === 'CTO'
   const [open, setOpen] = useState(false)
@@ -485,30 +523,32 @@ function AlertBell() {
   const ctoShare = (board.data?.projects || []).reduce((sum, row) => sum + row.approvals.cto, 0)
   const poShare = (board.data?.projects || []).reduce((sum, row) => sum + row.approvals.po, 0)
   const alerts: { key: string; urgent: boolean; icon: ReactNode; title: string; text: string; to: string }[] = [
-    ...(backup && backup.state !== 'healthy' ? [{ key: 'backup', urgent: true, icon: <TriangleAlert size={15} />, title: 'Dữ liệu chưa được sao lưu trong 24 giờ qua', text: backupSummary(backup), to: '/settings/system' }] : []),
-    ...(isCto && user && !user.mfa_enabled ? [{ key: 'mfa', urgent: true, icon: <ShieldCheck size={15} />, title: 'Tài khoản CTO chưa bật xác thực hai lớp', text: 'Tài khoản này xem được nội dung gốc và phê duyệt mọi dự án; hiện chỉ có mật khẩu bảo vệ.', to: '/settings/account' }] : []),
+    ...(backup && backup.state !== 'healthy' ? [{ key: 'backup', urgent: true, icon: <TriangleAlert size={15} />, title: text('Dữ liệu chưa được sao lưu trong 24 giờ qua', 'Data has not been backed up in the last 24 hours'), text: locale === 'vi' ? backupSummary(backup) : 'Open system settings to review backup status.', to: '/settings/system' }] : []),
+    ...(isCto && user && !user.mfa_enabled ? [{ key: 'mfa', urgent: true, icon: <ShieldCheck size={15} />, title: text('Tài khoản CTO chưa bật xác thực hai lớp', 'The CTO account does not have two-factor authentication enabled'), text: text('Tài khoản này xem được nội dung gốc và phê duyệt mọi dự án; hiện chỉ có mật khẩu bảo vệ.', 'This account can view original content and approve every project; it is currently protected only by a password.'), to: '/settings/account' }] : []),
     ...(watch.data?.tracks || []).filter((track) => track.warning).map((track) => ({
       key: `watch-${track.track}`, urgent: false, icon: <Eye size={15} />,
-      title: `Mạch ${track.name}: ${watch.data!.check_hours} giờ qua chưa có bài quét về`,
-      text: `${watchReasons[track.reason || 'NOTHING_SENT']} Còn thiếu ${track.remaining}/${track.wanted_per_week}${track.deadline ? `, hạn ${formatMoment(track.deadline)}` : ''}.`,
+      title: text(`Mạch ${track.name}: ${watch.data!.check_hours} giờ qua chưa có bài quét về`, `${track.name} track: no scanned posts in the last ${watch.data!.check_hours} hours`),
+      text: locale === 'vi'
+        ? `${watchReasons[track.reason || 'NOTHING_SENT']} Còn thiếu ${track.remaining}/${track.wanted_per_week}${track.deadline ? `, hạn ${formatMoment(track.deadline)}` : ''}.`
+        : `${watchReasonsEn[track.reason || 'NOTHING_SENT']} ${track.remaining}/${track.wanted_per_week} still needed${track.deadline ? `, due ${formatMoment(track.deadline)}` : ''}.`,
       to: '/rieng/nguon',
     })),
-    ...(overdueTotal > 0 ? [{ key: 'overdue', urgent: false, icon: <TriangleAlert size={15} />, title: `${overdueTotal} việc chờ quá hạn`, text: overdueText(board.data!), to: '/' }] : []),
-    ...(isCto && board.data ? (ctoShare > 0 ? [{ key: 'approvals', urgent: false, icon: <ClipboardCheck size={15} />, title: `${ctoShare} yêu cầu chờ anh duyệt`, text: poShare > 0 ? `${poShare} yêu cầu khác thuộc Project Owner.` : 'P0/P1, dự án chưa có Project Owner, hoặc chờ quá một ngày.', to: '/approvals' }] : []) : pending > 0 ? [{ key: 'approvals', urgent: false, icon: <ClipboardCheck size={15} />, title: `${pending} yêu cầu chờ phê duyệt`, text: 'Quyết định có làm không, ưu tiên nào, đi đâu.', to: '/approvals' }] : []),
-    ...(unsynced > 0 ? [{ key: 'unsynced', urgent: false, icon: <ArrowUpRight size={15} />, title: `${unsynced} yêu cầu đã duyệt chưa đồng bộ`, text: 'Chưa có Issue nên chưa xếp được vào kế hoạch.', to: '/intakes?status=APPROVED' }] : []),
-    ...(unread > 0 ? [{ key: 'reports', urgent: false, icon: <FileText size={15} />, title: `${unread} báo cáo do AI đọc chờ xác nhận`, text: 'Task trong các báo cáo này chưa được dùng cho kế hoạch.', to: '/reports' }] : []),
+    ...(overdueTotal > 0 ? [{ key: 'overdue', urgent: false, icon: <TriangleAlert size={15} />, title: text(`${overdueTotal} việc chờ quá hạn`, `${overdueTotal} overdue pending items`), text: locale === 'vi' ? overdueText(board.data!) : 'Open Today to review overdue work.', to: '/' }] : []),
+    ...(isCto && board.data ? (ctoShare > 0 ? [{ key: 'approvals', urgent: false, icon: <ClipboardCheck size={15} />, title: text(`${ctoShare} yêu cầu chờ anh duyệt`, `${ctoShare} requests await your approval`), text: poShare > 0 ? text(`${poShare} yêu cầu khác thuộc Project Owner.`, `${poShare} other requests belong to Project Owners.`) : text('P0/P1, dự án chưa có Project Owner, hoặc chờ quá một ngày.', 'P0/P1, projects without a Project Owner, or requests waiting more than one day.'), to: '/approvals' }] : []) : pending > 0 ? [{ key: 'approvals', urgent: false, icon: <ClipboardCheck size={15} />, title: text(`${pending} yêu cầu chờ phê duyệt`, `${pending} requests pending approval`), text: text('Quyết định có làm không, ưu tiên nào, đi đâu.', 'Decide whether to proceed, the priority, and the destination.'), to: '/approvals' }] : []),
+    ...(unsynced > 0 ? [{ key: 'unsynced', urgent: false, icon: <ArrowUpRight size={15} />, title: text(`${unsynced} yêu cầu đã duyệt chưa đồng bộ`, `${unsynced} approved requests are not synced`), text: text('Chưa có Issue nên chưa xếp được vào kế hoạch.', 'They cannot be planned until an Issue exists.'), to: '/intakes?status=APPROVED' }] : []),
+    ...(unread > 0 ? [{ key: 'reports', urgent: false, icon: <FileText size={15} />, title: text(`${unread} báo cáo do AI đọc chờ xác nhận`, `${unread} AI-read reports await confirmation`), text: text('Task trong các báo cáo này chưa được dùng cho kế hoạch.', 'Tasks in these reports are not yet available for planning.'), to: '/reports' }] : []),
   ]
   const urgent = alerts.some((alert) => alert.urgent)
   return (
     <div className="alert-bell" ref={box}>
-      <button type="button" className="icon-button" aria-label={alerts.length > 0 ? `Việc cần chú ý: ${alerts.length}` : 'Không có việc cần chú ý'} aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className="icon-button" aria-label={alerts.length > 0 ? text(`Việc cần chú ý: ${alerts.length}`, `Items needing attention: ${alerts.length}`) : text('Không có việc cần chú ý', 'No items need attention')} aria-expanded={open} onClick={() => setOpen(!open)}>
         <Bell size={17} />
         {alerts.length > 0 && <span className={urgent ? 'alert-count urgent' : 'alert-count'}>{alerts.length}</span>}
       </button>
       {open && (
         <div className="alert-menu" role="menu">
-          <header><strong>Việc cần chú ý</strong>{alerts.length > 0 && <span>{alerts.length}</span>}</header>
-          {alerts.length === 0 ? <p><CircleCheck size={16} aria-hidden="true" /> Không có việc nào đang chờ bạn.</p> : alerts.map((alert) => (
+          <header><strong>{text('Việc cần chú ý', 'Needs attention')}</strong>{alerts.length > 0 && <span>{alerts.length}</span>}</header>
+          {alerts.length === 0 ? <p><CircleCheck size={16} aria-hidden="true" /> {text('Không có việc nào đang chờ bạn.', 'Nothing is waiting for you.')}</p> : alerts.map((alert) => (
             <Link key={alert.key} to={alert.to} role="menuitem" className={alert.urgent ? 'urgent' : undefined}>
               <span className="alert-icon" aria-hidden="true">{alert.icon}</span>
               <span className="alert-text"><strong>{alert.title}</strong><small>{alert.text}</small></span>
@@ -522,11 +562,12 @@ function AlertBell() {
 }
 
 // A question asked in the middle of the screen before something that cannot be undone.
-function ConfirmDialog({ title, children, confirmLabel, busyLabel = 'Đang xóa…', busy, confirmDisabled, error, plain, onConfirm, onCancel }: {
+function ConfirmDialog({ title, children, confirmLabel, busyLabel, busy, confirmDisabled, error, plain, onConfirm, onCancel }: {
   title: string; children: ReactNode; confirmLabel: string; busyLabel?: string; busy?: boolean; confirmDisabled?: boolean; error?: unknown
   // `plain` is for a step that changes things but destroys nothing.
   plain?: boolean; onConfirm: () => void; onCancel: () => void
 }) {
+  const { text } = useLocale()
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) onCancel() }
     document.addEventListener('keydown', onKey)
@@ -540,8 +581,8 @@ function ConfirmDialog({ title, children, confirmLabel, busyLabel = 'Đang xóa�
         <div id="confirm-text" className="confirm-text">{children}</div>
         {error != null && <ErrorNotice error={error} />}
         <div className="confirm-actions">
-          <button type="button" className="button button-secondary" autoFocus disabled={busy} onClick={onCancel}>Hủy</button>
-          <button type="button" className={plain ? 'button button-primary' : 'button button-danger-solid'} disabled={busy || confirmDisabled} onClick={onConfirm}>{busy ? busyLabel : confirmLabel}</button>
+          <button type="button" className="button button-secondary" autoFocus disabled={busy} onClick={onCancel}>{text('Hủy', 'Cancel')}</button>
+          <button type="button" className={plain ? 'button button-primary' : 'button button-danger-solid'} disabled={busy || confirmDisabled} onClick={onConfirm}>{busy ? (busyLabel || text('Đang xóa…', 'Deleting…')) : confirmLabel}</button>
         </div>
       </div>
     </div>,
@@ -549,18 +590,20 @@ function ConfirmDialog({ title, children, confirmLabel, busyLabel = 'Đang xóa�
   )
 }
 
-function ErrorNotice({ error, onRetry, retryLabel = 'Thử lại' }: { error: unknown; onRetry?: () => void; retryLabel?: string }) {
+function ErrorNotice({ error, onRetry, retryLabel }: { error: unknown; onRetry?: () => void; retryLabel?: string }) {
+  const { text } = useLocale()
   const requestId = error instanceof ApiError ? error.requestId : undefined
   return (
     <div className="notice notice-error notice-with-action" role="alert">
       <div><strong>{formatError(error)}</strong>{requestId && <small>Request ID: {requestId}</small>}</div>
-      {onRetry && <button className="button button-secondary button-small" type="button" onClick={onRetry}>{retryLabel}</button>}
+      {onRetry && <button className="button button-secondary button-small" type="button" onClick={onRetry}>{retryLabel || text('Thử lại', 'Try again')}</button>}
     </div>
   )
 }
 
-function LoadingBlock({ label = 'Đang tải dữ liệu…' }: { label?: string }) {
-  return <div className="loading-block"><span className="spinner" />{label}</div>
+function LoadingBlock({ label }: { label?: string }) {
+  const { text } = useLocale()
+  return <div className="loading-block"><span className="spinner" />{label || text('Đang tải dữ liệu…', 'Loading data…')}</div>
 }
 
 function LoginPage() {
@@ -649,6 +692,7 @@ function LoginPage() {
 
   return (
     <main className="login-page">
+      <LocaleSwitch className="locale-switch-auth" />
       <section className="login-panel">
         <form className="login-form" onSubmit={mode === 'login' ? submit : mode === 'request' ? requestReset : confirmReset}>
           <div className="brand login-brand"><img className="brand-mark" src="/icon.svg" alt="" /><span><strong>Private Intake</strong><small>Private Intake workspace</small></span></div>
@@ -699,33 +743,34 @@ type ShellContext = { setRightPanel: (panel: RightPanel | null) => void }
 const NAV_COLLAPSED_KEY = 'intake.nav.collapsed'
 const NAV_MODE_KEY = 'intake.nav-mode'
 // What the basic menu keeps; everything else stays reachable by URL and Ctrl K (FR-SETUP-14).
-const BASIC_NAV = new Set(['/', '/projects', '/intakes', '/huong-dan'])
+const BASIC_NAV = new Set(['/', '/projects', '/intakes', '/guide'])
 
 // Where the sound of a recording is right now, in one short line; nothing when all is well.
-function syncLine(recording: RecordingState): { text: string; warn: boolean } | null {
+function syncLine(recording: RecordingState, locale: 'vi' | 'en' = 'vi'): { text: string; warn: boolean } | null {
   const { sync, streamLag, streamHealth, phase } = recording
   // The recording's own uploads come first; the live transcript's legs after, since the sound is safe either way.
   const waiting = sync ? Math.max(sync.stored - sync.uploaded, 0) : 0
-  if (sync?.failing) return { text: `Đường truyền gián đoạn: ${waiting} đoạn đang giữ trên máy, tự thử lại`, warn: true }
-  if (phase === 'stopping' && sync) return { text: `Đang gửi nốt ${waiting} đoạn lên server…`, warn: false }
+  if (sync?.failing) return { text: locale === 'en' ? `Connection interrupted: ${waiting} chunks are stored locally and will retry automatically` : `Đường truyền gián đoạn: ${waiting} đoạn đang giữ trên máy, tự thử lại`, warn: true }
+  if (phase === 'stopping' && sync) return { text: locale === 'en' ? `Uploading the remaining ${waiting} chunks…` : `Đang gửi nốt ${waiting} đoạn lên server…`, warn: false }
   // Which leg of the live transcript is slow, in the order the sound travels.
-  if (streamLag >= 3) return { text: `Máy này → server chậm: ${streamLag} giây âm thanh đang chờ gửi; bản ghi vẫn giữ trên máy`, warn: true }
-  if (streamHealth && streamHealth.clientGapMs >= 2000) return { text: `Âm thanh tới server ngắt quãng (${(streamHealth.clientGapMs / 1000).toFixed(1)} giây): đường máy này → Cloudflare → server`, warn: true }
-  if (streamHealth && streamHealth.backlogSeconds >= 3) return { text: `Server → dịch vụ chuyển chữ nghẽn: trễ ${streamHealth.backlogSeconds} giây (đường ra của server)`, warn: true }
-  if (streamHealth && streamHealth.providerRttMs !== null && streamHealth.providerRttMs >= 1000) return { text: `Dịch vụ chuyển chữ phản hồi chậm (${streamHealth.providerRttMs} ms)`, warn: true }
-  if (waiting >= 2) return { text: `${waiting} đoạn đang chờ lên server`, warn: false }
+  if (streamLag >= 3) return { text: locale === 'en' ? `This device → server is slow: ${streamLag} seconds of audio are waiting to upload; the recording remains stored locally` : `Máy này → server chậm: ${streamLag} giây âm thanh đang chờ gửi; bản ghi vẫn giữ trên máy`, warn: true }
+  if (streamHealth && streamHealth.clientGapMs >= 2000) return { text: locale === 'en' ? `Audio is reaching the server intermittently (${(streamHealth.clientGapMs / 1000).toFixed(1)} seconds): this device → Cloudflare → server` : `Âm thanh tới server ngắt quãng (${(streamHealth.clientGapMs / 1000).toFixed(1)} giây): đường máy này → Cloudflare → server`, warn: true }
+  if (streamHealth && streamHealth.backlogSeconds >= 3) return { text: locale === 'en' ? `Server → transcription provider is congested: ${streamHealth.backlogSeconds} seconds behind` : `Server → dịch vụ chuyển chữ nghẽn: trễ ${streamHealth.backlogSeconds} giây (đường ra của server)`, warn: true }
+  if (streamHealth && streamHealth.providerRttMs !== null && streamHealth.providerRttMs >= 1000) return { text: locale === 'en' ? `The transcription provider is responding slowly (${streamHealth.providerRttMs} ms)` : `Dịch vụ chuyển chữ phản hồi chậm (${streamHealth.providerRttMs} ms)`, warn: true }
+  if (waiting >= 2) return { text: locale === 'en' ? `${waiting} chunks are waiting to upload` : `${waiting} đoạn đang chờ lên server`, warn: false }
   return null
 }
 
 // Sound this browser still owes the server from an earlier meeting: it goes up on its own; this says so.
 function PendingRecordings() {
+  const { text } = useLocale()
   const pending = usePendingSync()
   useEffect(() => { void resumePendingRecordings() }, [])
   if (pending.meetings > 0) {
     return (
       <div className={pending.failing ? 'recording-indicator is-pending is-failing' : 'recording-indicator is-pending'} role="status">
         <span className="recording-dot" aria-hidden="true" />
-        <span>{pending.failing ? 'Chưa gửi được bản ghi cũ lên server, đang thử lại' : 'Đang gửi nốt bản ghi cũ lên server'}{pending.chunks > 0 ? ` · ${pending.chunks} đoạn` : ''}</span>
+      <span>{pending.failing ? text('Chưa gửi được bản ghi cũ lên server, đang thử lại', 'A previous recording could not be uploaded; retrying') : text('Đang gửi nốt bản ghi cũ lên server', 'Uploading the rest of a previous recording')}{pending.chunks > 0 ? text(` · ${pending.chunks} đoạn`, ` · ${pending.chunks} chunks`) : ''}</span>
       </div>
     )
   }
@@ -733,8 +778,8 @@ function PendingRecordings() {
     return (
       <div className="recording-indicator is-done" role="status">
         <CircleCheck size={15} aria-hidden="true" />
-        <Link to={`/meetings?id=${pending.finished}`} onClick={dismissPendingSync}>Bản ghi cũ đã lên đủ · mở bản ghi</Link>
-        <button type="button" className="icon-button" aria-label="Ẩn thông báo" onClick={dismissPendingSync}><X size={14} /></button>
+        <Link to={`/meetings?id=${pending.finished}`} onClick={dismissPendingSync}>{text('Bản ghi cũ đã lên đủ · mở bản ghi', 'Previous recording uploaded · open recording')}</Link>
+        <button type="button" className="icon-button" aria-label={text('Ẩn thông báo', 'Dismiss notification')} onClick={dismissPendingSync}><X size={14} /></button>
       </div>
     )
   }
@@ -743,6 +788,7 @@ function PendingRecordings() {
 
 // A meeting being recorded follows the person around the app: where they are, how long it has run, and a way to end it.
 function RecordingIndicator() {
+  const { locale, text } = useLocale()
   const recording = useRecording()
   const { pathname, search } = useLocation()
   const active = recording.phase === 'starting' || recording.phase === 'recording' || recording.phase === 'stopping'
@@ -754,9 +800,9 @@ function RecordingIndicator() {
     return (
       <div className="recording-indicator" role="status">
         <span className={recording.phase === 'recording' ? 'recording-dot live' : 'recording-dot'} aria-hidden="true" />
-        <Link to="/intakes/new?panel=record" title="Mở bản chữ đang ghi">{recording.phase === 'stopping' ? 'Đang lưu bản ghi…' : 'Đang ghi cuộc họp'} <b>{formatClock(recording.elapsed)}</b></Link>
-        {syncLine(recording)?.warn && <span className="recording-sync-warn" title={syncLine(recording)?.text}><TriangleAlert size={14} aria-hidden="true" /></span>}
-        <button type="button" className="button button-danger button-small" disabled={recording.phase !== 'recording'} onClick={() => { void stopRecording() }}>Kết thúc</button>
+        <Link to="/intakes/new?panel=record" title={text('Mở bản chữ đang ghi', 'Open the live transcript')}>{recording.phase === 'stopping' ? text('Đang lưu bản ghi…', 'Saving recording…') : text('Đang ghi cuộc họp', 'Recording meeting')} <b>{formatClock(recording.elapsed)}</b></Link>
+        {syncLine(recording, locale)?.warn && <span className="recording-sync-warn" title={syncLine(recording, locale)?.text}><TriangleAlert size={14} aria-hidden="true" /></span>}
+        <button type="button" className="button button-danger button-small" disabled={recording.phase !== 'recording'} onClick={() => { void stopRecording() }}>{text('Kết thúc', 'Finish')}</button>
       </div>
     )
   }
@@ -764,8 +810,8 @@ function RecordingIndicator() {
     return (
       <div className="recording-indicator is-done" role="status">
         <CircleCheck size={15} aria-hidden="true" />
-        <Link to={`/meetings?id=${recording.meetingId}`} onClick={() => resetRecording()}>Đã ghi xong cuộc họp · mở bản ghi</Link>
-        <button type="button" className="icon-button" aria-label="Ẩn thông báo ghi âm" onClick={() => resetRecording()}><X size={14} /></button>
+        <Link to={`/meetings?id=${recording.meetingId}`} onClick={() => resetRecording()}>{text('Đã ghi xong cuộc họp · mở bản ghi', 'Meeting recording complete · open recording')}</Link>
+        <button type="button" className="icon-button" aria-label={text('Ẩn thông báo ghi âm', 'Dismiss recording notification')} onClick={() => resetRecording()}><X size={14} /></button>
       </div>
     )
   }
@@ -785,6 +831,7 @@ function reportsToConfirm(reports: DailyReport[] | undefined) {
 
 // Counts beside the menu entries of the daily work, so the menu itself says where something is waiting.
 function NavCount({ kind }: { kind: 'approvals' | 'reports' | 'review' }) {
+  const { text } = useLocale()
   const intakes = useQuery({ queryKey: ['alert-intakes'], queryFn: () => api<IntakePage>('/intakes?limit=1'), refetchInterval: 60000, enabled: kind === 'approvals' })
   const reports = useQuery({ queryKey: ['daily-reports'], queryFn: () => api<DailyReport[]>('/reports/daily'), refetchInterval: 120000, enabled: kind === 'reports' })
   const review = useQuery({ queryKey: ['work-review'], queryFn: () => api<WorkItem[]>('/work/review'), refetchInterval: 60000, enabled: kind === 'review' })
@@ -793,7 +840,7 @@ function NavCount({ kind }: { kind: 'approvals' | 'reports' | 'review' }) {
     : kind === 'review' ? (review.data || []).length
     : reportsToConfirm(reports.data)
   const waiting = kind === 'reports' ? reportsWaiting(reports.data) : []
-  const title = waiting.length > 0 ? `Chưa xác nhận: ${waiting.map((report) => `${report.member_name || 'ai đó'} ${changelogDay(report.report_date || report.received_at.slice(0, 10))}`).join(', ')}` : undefined
+  const title = waiting.length > 0 ? text(`Chưa xác nhận: ${waiting.map((report) => `${report.member_name || 'ai đó'} ${changelogDay(report.report_date || report.received_at.slice(0, 10))}`).join(', ')}`, `Awaiting confirmation: ${waiting.map((report) => `${report.member_name || 'someone'} ${changelogDay(report.report_date || report.received_at.slice(0, 10))}`).join(', ')}`) : undefined
   return count > 0 ? <span className="nav-count" title={title}>{count > 99 ? '99+' : count}</span> : null
 }
 
@@ -816,9 +863,10 @@ function changelogDay(value: string) {
 
 // One change as the user reads it: the title, what they can see, and the codes for whoever wants the paper trail.
 function ChangelogItem({ entry }: { entry: ChangelogEntry }) {
+  const { text } = useLocale()
   return (
     <li className="changelog-entry">
-      <strong>{entry.title}{entry.cto_only && <span className="status" title="Chỉ CTO thấy phần này">riêng</span>}</strong>
+      <strong>{entry.title}{entry.cto_only && <span className="status" title={text('Chỉ CTO thấy phần này', 'Only the CTO can see this section')}>{text('riêng', 'private')}</span>}</strong>
       {entry.bullets.length > 0 && <ul>{entry.bullets.map((line) => <li key={line}>{line}</li>)}</ul>}
       {(entry.refs.length > 0 || entry.commits.length > 0) && <small>{[...entry.refs, ...entry.commits.map((sha) => sha.slice(0, 7))].join(' · ')}</small>}
     </li>
@@ -863,13 +911,14 @@ function TopMenu({ label, icon, className, children, button }: { label: string; 
 
 // The two things a person makes here, from any page.
 function QuickCreate() {
+  const { text } = useLocale()
   return (
-    <TopMenu label="Thêm mới" icon={<Plus size={18} />} className="quick-create" button="button button-primary button-small quick-create-button">
+    <TopMenu label={text('Thêm mới', 'Create new')} icon={<Plus size={18} />} className="quick-create" button="button button-primary button-small quick-create-button">
       {(close) => (
         <>
-          <Link to="/intakes/new" role="menuitem" className="top-menu-item" onClick={close}><Plus size={15} aria-hidden="true" /><span><strong>Tạo Intake</strong><small>Dán tin nhắn, email hay ghi chú của khách</small></span></Link>
-          <Link to="/intakes/new?panel=record" role="menuitem" className="top-menu-item" onClick={close}><Mic size={15} aria-hidden="true" /><span><strong>Ghi âm họp</strong><small>Ghi trực tiếp, AI viết note và mục hành động</small></span></Link>
-          <Link to="/viec-rieng?them=1" role="menuitem" className="top-menu-item" onClick={close}><ListChecks size={15} aria-hidden="true" /><span><strong>Việc riêng</strong><small>Việc của mình ngoài dự án; chỉ mình thấy, trừ giờ trống</small></span></Link>
+          <Link to="/intakes/new" role="menuitem" className="top-menu-item" onClick={close}><Plus size={15} aria-hidden="true" /><span><strong>{text('Tạo Intake', 'Create Intake')}</strong><small>{text('Dán tin nhắn, email hay ghi chú của khách', 'Paste a customer message, email, or note')}</small></span></Link>
+          <Link to="/intakes/new?panel=record" role="menuitem" className="top-menu-item" onClick={close}><Mic size={15} aria-hidden="true" /><span><strong>{text('Ghi âm họp', 'Record meeting')}</strong><small>{text('Ghi trực tiếp, AI viết note và mục hành động', 'Record live while AI writes notes and action items')}</small></span></Link>
+          <Link to="/viec-rieng?them=1" role="menuitem" className="top-menu-item" onClick={close}><ListChecks size={15} aria-hidden="true" /><span><strong>{text('Việc riêng', 'Personal tasks')}</strong><small>{text('Việc của mình ngoài dự án; chỉ mình thấy, trừ giờ trống', 'Work outside projects; only you can see it, except available hours')}</small></span></Link>
         </>
       )}
     </TopMenu>
@@ -884,7 +933,8 @@ function useAgentCommands() {
 
 function CopyText({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
-  return <button type="button" className="text-button" onClick={() => { void navigator.clipboard.writeText(text).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500) }) }}>{copied ? 'Đã chép' : label}</button>
+  const { text: tr } = useLocale()
+  return <button type="button" className="text-button" onClick={() => { void navigator.clipboard.writeText(text).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500) }) }}>{copied ? tr('Đã chép', 'Copied') : label}</button>
 }
 
 // The sheet reads differently for a marketing owner: their commands first, the developer's ones left out, and one
@@ -897,12 +947,13 @@ function marketingSheet(sheet: AgentCommandSheet | undefined, marketing: boolean
 }
 
 function MarketingToolLines({ tools, projectCode }: { tools: NonNullable<AgentCommandSheet['marketing']>['tools']; projectCode: string }) {
+  const { text } = useLocale()
   if (tools.length === 0) return null
   return (
-    <ul className="agent-tool-list" aria-label="Câu nhắc cho từng tool">
+    <ul className="agent-tool-list" aria-label={text('Câu nhắc cho từng tool', 'Prompts for each tool')}>
       {tools.map((row) => {
-        const sentence = row.sentence.replace(/\{project\}/g, projectCode || '<mã dự án>')
-        return <li key={row.tool}><div><span>{sentence}</span><small>{row.when} · <code>{row.tool}</code></small></div><CopyText text={sentence} label="Chép" /></li>
+        const sentence = row.sentence.replace(/\{project\}/g, projectCode || text('<mã dự án>', '<project code>'))
+        return <li key={row.tool}><div><span>{sentence}</span><small>{row.when} · <code>{row.tool}</code></small></div><CopyText text={sentence} label={text('Chép', 'Copy')} /></li>
       })}
     </ul>
   )
@@ -910,6 +961,7 @@ function MarketingToolLines({ tools, projectCode }: { tools: NonNullable<AgentCo
 
 function AgentCommandsSheet({ onClose }: { onClose: () => void }) {
   const { user } = useAuth()
+  const { text } = useLocale()
   const commands = useAgentCommands()
   const marketing = user?.mode === 'MARKETING'
   const view = marketingSheet(commands.data, marketing)
@@ -922,16 +974,16 @@ function AgentCommandsSheet({ onClose }: { onClose: () => void }) {
   return createPortal(
     <div className="confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <div className="agent-sheet" role="dialog" aria-modal="true" aria-labelledby="agent-sheet-title">
-        <header><h2 id="agent-sheet-title">Lệnh cho agent <Hint k="account.commands" /></h2><button type="button" className="icon-button" aria-label="Đóng" onClick={onClose}><X size={18} /></button></header>
-        <p className="field-help">Lệnh ngắn dùng trong Claude Code và Codex sau khi cài một lần trên máy (dòng dưới); chưa cài thì trong Claude Code vẫn gõ được dạng dài <code>/mcp__intake__today</code>. Agent gọi Intake với đúng quyền của bạn. Chưa nối thì tạo token ở <Link to="/settings/account" onClick={onClose}>Tài khoản & bảo mật</Link>.</p>
+        <header><h2 id="agent-sheet-title">{text('Lệnh cho agent', 'Agent commands')} <Hint k="account.commands" /></h2><button type="button" className="icon-button" aria-label={text('Đóng', 'Close')} onClick={onClose}><X size={18} /></button></header>
+        <p className="field-help">{text('Lệnh ngắn dùng trong Claude Code và Codex sau khi cài một lần trên máy (dòng dưới); chưa cài thì trong Claude Code vẫn gõ được dạng dài', 'Short commands work in Claude Code and Codex after a one-time install on this machine (below). Before installing, Claude Code can still use the long form')} <code>/mcp__intake__today</code>. {text('Agent gọi Intake với đúng quyền của bạn. Chưa nối thì tạo token ở', 'The agent calls Intake with your permissions. If it is not connected, create a token under')} <Link to="/settings/account" onClick={onClose}>{text('Tài khoản & bảo mật', 'Account & security')}</Link>.</p>
         {commands.data && (() => {
           const url = `${window.location.origin}/api/v1/agent-commands`
-          const lines = { bash: `curl -fsSL ${url}/install.sh | bash`, powershell: `irm ${url}/install.ps1 | iex`, repo: `curl -fsSL ${url}/install.sh | bash -s -- --repo <mã dự án>` }
+          const lines = { bash: `curl -fsSL ${url}/install.sh | bash`, powershell: `irm ${url}/install.ps1 | iex`, repo: `curl -fsSL ${url}/install.sh | bash -s -- --repo ${text('<mã dự án>', '<project code>')}` }
           return (
             <div className="agent-install">
-              <div><span>Cài lệnh một lần mỗi máy (bash, macOS hoặc Git Bash)</span><code>{lines.bash}</code><CopyText text={lines.bash} label="Chép" /></div>
-              <div><span>Cài lệnh (PowerShell)</span><code>{lines.powershell}</code><CopyText text={lines.powershell} label="Chép" /></div>
-              <div><span>Thêm vào repo dự án, kèm /fix-issue và mã dự án</span><code>{lines.repo}</code><CopyText text={lines.repo} label="Chép" /></div>
+              <div><span>{text('Cài lệnh một lần mỗi máy (bash, macOS hoặc Git Bash)', 'Install commands once per machine (bash, macOS, or Git Bash)')}</span><code>{lines.bash}</code><CopyText text={lines.bash} label={text('Chép', 'Copy')} /></div>
+              <div><span>{text('Cài lệnh (PowerShell)', 'Install commands (PowerShell)')}</span><code>{lines.powershell}</code><CopyText text={lines.powershell} label={text('Chép', 'Copy')} /></div>
+              <div><span>{text('Thêm vào repo dự án, kèm /fix-issue và mã dự án', 'Add to a project repository with /fix-issue and the project code')}</span><code>{lines.repo}</code><CopyText text={lines.repo} label={text('Chép', 'Copy')} /></div>
             </div>
           )
         })()}
@@ -940,15 +992,15 @@ function AgentCommandsSheet({ onClose }: { onClose: () => void }) {
           <ul className="agent-command-list">
             {view.commands.map((command) => (
               <li key={command.name}>
-                <div className="agent-command-head"><code>{command.slash}</code><CopyText text={command.slash} label="Chép" /></div>
+                <div className="agent-command-head"><code>{command.slash}</code><CopyText text={command.slash} label={text('Chép', 'Copy')} /></div>
                 <strong>{command.description}</strong>
                 <small>{command.when}</small>
-                <div className="agent-command-codex"><span>Codex: "{command.codex}"</span><CopyText text={command.codex} label="Chép câu nhắc" /></div>
+                <div className="agent-command-codex"><span>Codex: "{command.codex}"</span><CopyText text={command.codex} label={text('Chép câu nhắc', 'Copy prompt')} /></div>
               </li>
             ))}
           </ul>
         )}
-        {marketing && view.tools.length > 0 && <><h3 className="agent-sheet-sub">Câu nhắc cho từng tool</h3><MarketingToolLines tools={view.tools} projectCode={projectCode} /></>}
+        {marketing && view.tools.length > 0 && <><h3 className="agent-sheet-sub">{text('Câu nhắc cho từng tool', 'Prompts for each tool')}</h3><MarketingToolLines tools={view.tools} projectCode={projectCode} /></>}
       </div>
     </div>,
     document.body,
@@ -983,6 +1035,7 @@ function MarketingCommandsPanel({ projectCode }: { projectCode: string }) {
 
 // One line on the page where the command belongs; "Đã hiểu" hides it on this browser.
 function AgentHint({ command, argument }: { command: string; argument?: string }) {
+  const { text } = useLocale()
   const key = `intake-agent-hint-${command}`
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(key) === '1' } catch { return false } })
   const commands = useAgentCommands()
@@ -991,23 +1044,24 @@ function AgentHint({ command, argument }: { command: string; argument?: string }
   const slash = argument ? `${row.slash.replace(/ <.*>$/, '')} ${argument}` : row.slash
   return (
     <div className="agent-hint" role="note">
-      <span>Trong terminal: <code>{slash}</code><CopyText text={slash} label="Chép" /><InfoTip label={`Dùng ${row.slash} lúc nào`} text={row.when} /></span>
-      <button type="button" className="text-button" onClick={() => { try { localStorage.setItem(key, '1') } catch { /* private window */ } setHidden(true) }}>Đã hiểu</button>
+      <span>{text('Trong terminal:', 'In the terminal:')} <code>{slash}</code><CopyText text={slash} label={text('Chép', 'Copy')} /><InfoTip label={text(`Dùng ${row.slash} lúc nào`, `When to use ${row.slash}`)} text={row.when} /></span>
+      <button type="button" className="text-button" onClick={() => { try { localStorage.setItem(key, '1') } catch { /* private window */ } setHidden(true) }}>{text('Đã hiểu', 'Got it')}</button>
     </div>
   )
 }
 
 // Who is signed in, their account page, the agent commands, and the way out.
 function UserMenu({ person, initials, role, onSignOut, onCommands }: { person: string; initials: string; role: string; onSignOut: () => void; onCommands: () => void }) {
+  const { text } = useLocale()
   return (
-    <TopMenu label={`Tài khoản: ${person}`} icon={<span className="avatar">{initials}</span>} className="user-menu" button="avatar-button">
+    <TopMenu label={text(`Tài khoản: ${person}`, `Account: ${person}`)} icon={<span className="avatar">{initials}</span>} className="user-menu" button="avatar-button">
       {(close) => (
         <>
           <div className="top-menu-head"><strong>{person}</strong><small>{role}</small></div>
-          <button type="button" role="menuitem" className="top-menu-item" onClick={() => { close(); onCommands() }}><Terminal size={15} aria-hidden="true" /><span><strong>Lệnh cho agent</strong><small>Claude Code, Codex: lệnh nào, lúc nào</small></span></button>
-          <Link to="/settings/account" role="menuitem" className="top-menu-item" onClick={close}><ShieldCheck size={15} aria-hidden="true" /><span><strong>Tài khoản & bảo mật</strong></span></Link>
-          <Link to="/huong-dan" role="menuitem" className="top-menu-item" onClick={close}><CircleHelp size={15} aria-hidden="true" /><span><strong>Hướng dẫn nhanh</strong><small>Mỗi trang để làm gì, mỗi nút nghĩa là gì</small></span></Link>
-          <button type="button" role="menuitem" className="top-menu-item" onClick={() => { close(); onSignOut() }}><LogOut size={15} aria-hidden="true" /><span><strong>Đăng xuất</strong></span></button>
+          <button type="button" role="menuitem" className="top-menu-item" onClick={() => { close(); onCommands() }}><Terminal size={15} aria-hidden="true" /><span><strong>{text('Lệnh cho agent', 'Agent commands')}</strong><small>{text('Claude Code, Codex: lệnh nào, lúc nào', 'Claude Code and Codex: which command to use and when')}</small></span></button>
+          <Link to="/settings/account" role="menuitem" className="top-menu-item" onClick={close}><ShieldCheck size={15} aria-hidden="true" /><span><strong>{text('Tài khoản & bảo mật', 'Account & security')}</strong></span></Link>
+          <Link to="/guide" role="menuitem" className="top-menu-item" onClick={close}><CircleHelp size={15} aria-hidden="true" /><span><strong>{text('Hướng dẫn nhanh', 'Quick guide')}</strong><small>{text('Mỗi trang để làm gì, mỗi nút nghĩa là gì', 'What each page and button does')}</small></span></Link>
+          <button type="button" role="menuitem" className="top-menu-item" onClick={() => { close(); onSignOut() }}><LogOut size={15} aria-hidden="true" /><span><strong>{text('Đăng xuất', 'Sign out')}</strong></span></button>
         </>
       )}
     </TopMenu>
@@ -1015,10 +1069,11 @@ function UserMenu({ person, initials, role, onSignOut, onCommands }: { person: s
 }
 
 function ChangelogButton() {
+  const { locale, text } = useLocale()
   const [open, setOpen] = useState(false)
   const [seen, setSeen] = useState(readSeen)
   const box = useRef<HTMLDivElement>(null)
-  const changelog = useQuery({ queryKey: ['changelog'], queryFn: () => api<Changelog>('/changelog'), staleTime: 5 * 60_000, refetchInterval: 10 * 60_000 })
+  const changelog = useQuery({ queryKey: ['changelog', locale], queryFn: () => api<Changelog>(`/changelog?lang=${locale}`), staleTime: 5 * 60_000, refetchInterval: 10 * 60_000 })
   useEffect(() => {
     if (!open) return
     const close = (event: MouseEvent) => { if (box.current && !box.current.contains(event.target as Node)) setOpen(false) }
@@ -1038,20 +1093,20 @@ function ChangelogButton() {
   const build = changelog.data?.build
   return (
     <div className="alert-bell changelog" ref={box}>
-      <button type="button" className="icon-button" aria-label={unseen ? 'Có gì mới: có thay đổi chưa xem' : 'Có gì mới'} title="Có gì mới" aria-expanded={open} onClick={show}>
+      <button type="button" className="icon-button" aria-label={unseen ? text('Có gì mới: có thay đổi chưa xem', "What's new: unread changes") : text('Có gì mới', "What's new")} title={text('Có gì mới', "What's new")} aria-expanded={open} onClick={show}>
         <Sparkles size={17} />
         {unseen && <span className="alert-dot" aria-hidden="true" />}
       </button>
       {open && (
         <div className="alert-menu changelog-menu" role="menu">
-          <header><strong>Có gì mới</strong>{build && <span title={build.built_at ? `Build ${formatDate(build.built_at)}` : undefined}>bản {build.sha.slice(0, 7)}</span>}</header>
-          {changelog.isLoading ? <p>Đang tải…</p> : days.length === 0 ? <p>Chưa có mục nào.</p> : days.map((day) => (
+          <header><strong>{text('Có gì mới', "What's new")}</strong>{build && <span title={build.built_at ? `Build ${formatDate(build.built_at, locale)}` : undefined}>{text('bản', 'version')} {build.sha.slice(0, 7)}</span>}</header>
+          {changelog.isLoading ? <p>{text('Đang tải…', 'Loading…')}</p> : days.length === 0 ? <p>{text('Chưa có mục nào.', 'No entries yet.')}</p> : days.map((day) => (
             <section key={day.date} className="changelog-day">
               <h3>{changelogDay(day.date)}</h3>
               <ol>{day.entries.map((entry) => <ChangelogItem key={`${entry.date}-${entry.title}`} entry={entry} />)}</ol>
             </section>
           ))}
-          <Link className="changelog-all" to="/changelog" role="menuitem" onClick={() => setOpen(false)}>Xem tất cả <ChevronRight size={15} aria-hidden="true" /></Link>
+          <Link className="changelog-all" to="/changelog" role="menuitem" onClick={() => setOpen(false)}>{text('Xem tất cả', 'View all')} <ChevronRight size={15} aria-hidden="true" /></Link>
         </div>
       )}
     </div>
@@ -1210,6 +1265,7 @@ function AcceptanceWorkLogCard({ item, busy, onConfirm, onReturn }: { item: Acce
 
 // Acceptance as its own queue: the CTO's five of the day, the rest on request, the last week's decisions (FR-PLAN-31).
 function AcceptancePage() {
+  const { text } = useLocale()
   const { user } = useAuth()
   const isCto = user?.role === 'CTO'
   const queryClient = useQueryClient()
@@ -1256,29 +1312,29 @@ function AcceptancePage() {
   const projectName = data && projectFilter ? [...data.today, ...data.more, ...data.decided, ...pendingWorkLogs, ...decidedWorkLogs].find((item) => item.project_id === projectFilter)?.project_name : null
   return (
     <>
-      <PageHeader title="Nghiệm thu" helper={isCto ? [
-        'Mỗi việc báo "xong" đã gắn Issue, và mỗi Issue đóng trên tracker, là một việc chờ nghiệm thu.',
-        'Việc phát sinh ngoài kế hoạch do người hoặc agent ghi trong Lịch sử xử lý cũng hiện đủ ở đây để anh xác nhận hoặc trả lại.',
-        'Mỗi ngày hệ thống chọn năm việc cho anh: P0/P1 trước, việc không có dấu vết code, dự án và người lâu chưa được xem. Muốn xem thêm thì bấm "Thêm 5 việc".',
-        '"Đúng là xong": Intake ghi chú lên Issue và đóng Issue. "Chưa xong": việc về kế hoạch đang mở dưới dạng "Làm lại", kèm lý do.',
-        'Chọn một dự án để đổi ai chốt nghiệm thu: CTO mọi việc, hoặc Project Owner chốt việc rủi ro thấp (việc khó và P0 vẫn về anh).',
+      <PageHeader title={text('Nghiệm thu', 'Acceptance')} helper={isCto ? [
+        text('Mỗi việc báo "xong" đã gắn Issue, và mỗi Issue đóng trên tracker, là một việc chờ nghiệm thu.', 'Every completed item linked to an Issue, and every Issue closed in the tracker, waits here for acceptance.'),
+        text('Việc phát sinh ngoài kế hoạch do người hoặc agent ghi trong Lịch sử xử lý cũng hiện đủ ở đây để anh xác nhận hoặc trả lại.', 'Unplanned work recorded by a person or agent in the work log also appears here for confirmation or return.'),
+        text('Mỗi ngày hệ thống chọn năm việc cho anh: P0/P1 trước, việc không có dấu vết code, dự án và người lâu chưa được xem. Muốn xem thêm thì bấm "Thêm 5 việc".', 'Each day the system selects five items, prioritizing P0/P1, items without code evidence, and projects or people not reviewed recently. Choose "Add 5 items" to see more.'),
+        text('"Đúng là xong": Intake ghi chú lên Issue và đóng Issue. "Chưa xong": việc về kế hoạch đang mở dưới dạng "Làm lại", kèm lý do.', '"Accept": Intake comments on and closes the Issue. "Not done": the item returns to the open plan as rework with the reason.'),
+        text('Chọn một dự án để đổi ai chốt nghiệm thu: CTO mọi việc, hoặc Project Owner chốt việc rủi ro thấp (việc khó và P0 vẫn về anh).', 'Choose a project to set who finalizes acceptance: the CTO for every item, or the Project Owner for low-risk work. High-risk and P0 work still goes to the CTO.'),
       ] : [
-        'Việc báo "xong" của người trong dự án anh chị chờ xác nhận ở đây. Nếu dự án cho Project Owner chốt việc rủi ro thấp, xác nhận của anh chị đóng Issue luôn; việc khó, P0, thiếu bằng chứng hay anh chị tự làm thì vẫn chờ CTO.',
-        '"Chưa xong" kèm lý do: việc về kế hoạch đang mở dưới dạng "Làm lại".',
-      ]} action={isCto ? <button type="button" className="button button-secondary" disabled={collect.isPending} title="Gom mọi việc báo xong và Issue đóng gần đây thành việc chờ nghiệm thu ngay, không đợi 07:00" onClick={() => collect.mutate()}>{collect.isPending ? 'Đang gom…' : 'Gom việc mới'}</button> : undefined} />
+        text('Việc báo "xong" của người trong dự án anh chị chờ xác nhận ở đây. Nếu dự án cho Project Owner chốt việc rủi ro thấp, xác nhận của anh chị đóng Issue luôn; việc khó, P0, thiếu bằng chứng hay anh chị tự làm thì vẫn chờ CTO.', 'Completed work from people in your project waits here for confirmation. If the Project Owner can finalize low-risk work, your confirmation closes the Issue; high-risk, P0, insufficient-evidence, and self-authored work still waits for the CTO.'),
+        text('"Chưa xong" kèm lý do: việc về kế hoạch đang mở dưới dạng "Làm lại".', '"Not done" requires a reason and returns the item to the open plan as rework.'),
+      ]} action={isCto ? <button type="button" className="button button-secondary" disabled={collect.isPending} title={text('Gom mọi việc báo xong và Issue đóng gần đây thành việc chờ nghiệm thu ngay, không đợi 07:00', 'Collect recently completed work and closed Issues for acceptance now, without waiting for 07:00')} onClick={() => collect.mutate()}>{collect.isPending ? text('Đang gom…', 'Collecting…') : text('Gom việc mới', 'Collect new work')}</button> : undefined} />
       <div className="toolbar-row">
-        <label className="inline-field">Dự án
-          <select aria-label="Lọc theo dự án" value={projectFilter} onChange={(event) => setSearchParams(event.target.value ? { project: event.target.value } : {})}>
-            <option value="">Mọi dự án</option>
+        <label className="inline-field">{text('Dự án', 'Project')}
+          <select aria-label={text('Lọc theo dự án', 'Filter by project')} value={projectFilter} onChange={(event) => setSearchParams(event.target.value ? { project: event.target.value } : {})}>
+            <option value="">{text('Mọi dự án', 'All projects')}</option>
             {(projectList.data ?? []).filter((project) => project.status === 'ACTIVE' || project.id === projectFilter).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
         </label>
-        {projectFilter && <span className="field-help">{projectName ? `Đang lọc ${projectName}.` : 'Đang lọc theo dự án.'} <Link to="/nghiem-thu">Xem mọi dự án</Link></span>}
+        {projectFilter && <span className="field-help">{projectName ? text(`Đang lọc ${projectName}.`, `Filtering ${projectName}.`) : text('Đang lọc theo dự án.', 'Filtering by project.')} <Link to="/acceptance">{text('Xem mọi dự án', 'View all projects')}</Link></span>}
         {isCto && filteredProject && (
-          <label className="inline-field" title="Project Owner chốt: việc không bị đánh dấu khó, không phải P0, đủ bằng chứng, chưa từng bị trả lại và Project Owner không tự làm thì xác nhận của Project Owner đóng Issue luôn.">Ai chốt nghiệm thu
-            <select aria-label="Ai chốt nghiệm thu" value={filteredProject.acceptance_policy || 'CTO_ALWAYS'} disabled={policy.isPending} onChange={(event) => policy.mutate({ projectId: filteredProject.id, value: event.target.value as 'CTO_ALWAYS' | 'PO_FINAL_LOW_RISK' })}>
-              <option value="CTO_ALWAYS">CTO nghiệm thu mọi việc</option>
-              <option value="PO_FINAL_LOW_RISK">Project Owner chốt việc rủi ro thấp</option>
+          <label className="inline-field" title={text('Project Owner chốt: việc không bị đánh dấu khó, không phải P0, đủ bằng chứng, chưa từng bị trả lại và Project Owner không tự làm thì xác nhận của Project Owner đóng Issue luôn.', 'Project Owner finalization applies to work that is not high-risk or P0, has sufficient evidence, was never returned, and was not completed by that Project Owner. Their confirmation closes the Issue immediately.')}>{text('Ai chốt nghiệm thu', 'Who finalizes acceptance')}
+            <select aria-label={text('Ai chốt nghiệm thu', 'Who finalizes acceptance')} value={filteredProject.acceptance_policy || 'CTO_ALWAYS'} disabled={policy.isPending} onChange={(event) => policy.mutate({ projectId: filteredProject.id, value: event.target.value as 'CTO_ALWAYS' | 'PO_FINAL_LOW_RISK' })}>
+              <option value="CTO_ALWAYS">{text('CTO nghiệm thu mọi việc', 'CTO accepts all work')}</option>
+              <option value="PO_FINAL_LOW_RISK">{text('Project Owner chốt việc rủi ro thấp', 'Project Owner finalizes low-risk work')}</option>
             </select>
           </label>
         )}
@@ -1307,16 +1363,16 @@ function AcceptancePage() {
       {queue.isLoading || !data ? <LoadingBlock /> : (
         <>
           {isCto && (
-            <section className="panel today" aria-label="Việc phát sinh chờ nghiệm thu">
-              <header><div><h2>Việc phát sinh chờ nghiệm thu</h2><p>{workLogPendingTotal} việc ngoài kế hoạch do người hoặc agent đã ghi</p></div></header>
-              {pendingWorkLogs.length === 0 ? <EmptyState icon={<BadgeCheck size={20} />} title="Không có việc phát sinh chờ nghiệm thu" text="Lịch sử xử lý mới do người hoặc agent ghi sẽ xuất hiện ở đây và trong Daily Planning." /> : (
+            <section className="panel today" aria-label={text('Việc phát sinh chờ nghiệm thu', 'Unplanned work pending acceptance')}>
+              <header><div><h2>{text('Việc phát sinh chờ nghiệm thu', 'Unplanned work pending acceptance')}</h2><p>{text(`${workLogPendingTotal} việc ngoài kế hoạch do người hoặc agent đã ghi`, `${workLogPendingTotal} unplanned items recorded by people or agents`)}</p></div></header>
+              {pendingWorkLogs.length === 0 ? <EmptyState icon={<BadgeCheck size={20} />} title={text('Không có việc phát sinh chờ nghiệm thu', 'No unplanned work pending acceptance')} text={text('Lịch sử xử lý mới do người hoặc agent ghi sẽ xuất hiện ở đây và trong Daily Planning.', 'New work-log entries recorded by people or agents will appear here and in Daily Planning.')} /> : (
                 <ul className="acceptance-list">{pendingWorkLogs.map((item) => <AcceptanceWorkLogCard key={item.id} item={item} busy={reviewWorkLog.isPending} onConfirm={(row) => reviewWorkLog.mutate({ item: row, decision: 'CONFIRMED' })} onReturn={(row) => { setWorkLogReason(''); setReturningWorkLog(row) }} />)}</ul>
               )}
             </section>
           )}
-          <section className="panel today" aria-label={isCto ? 'Hôm nay' : 'Chờ xác nhận'}>
-            <header><div><h2>{isCto ? `Hôm nay ${changelogDay(data.plan_date)}` : 'Chờ xác nhận'}</h2><p>{isCto ? `${data.today.filter((item) => item.decision === 'PENDING').length} việc trong mẫu hôm nay · còn ${data.more.length} việc khác chờ` : `${data.today.length} việc`}</p></div>{isCto && data.more.length > 0 && <button type="button" className="button button-secondary button-small" disabled={more.isPending} onClick={() => more.mutate()}>{more.isPending ? 'Đang thêm…' : 'Thêm 5 việc'}</button>}</header>
-            {data.today.length === 0 ? <EmptyState icon={<BadgeCheck size={20} />} title={data.pending_total === 0 ? 'Không có việc nào chờ nghiệm thu' : 'Mẫu hôm nay đã xem xong'} text={data.pending_total === 0 ? 'Việc báo "xong" đã gắn Issue sẽ xuất hiện ở đây.' : `Còn ${data.more.length} việc khác; bấm "Thêm 5 việc" nếu muốn xem tiếp.`} /> : (
+          <section className="panel today" aria-label={isCto ? text('Hôm nay', 'Today') : text('Chờ xác nhận', 'Awaiting confirmation')}>
+            <header><div><h2>{isCto ? text(`Hôm nay ${changelogDay(data.plan_date)}`, `Today ${changelogDay(data.plan_date)}`) : text('Chờ xác nhận', 'Awaiting confirmation')}</h2><p>{isCto ? text(`${data.today.filter((item) => item.decision === 'PENDING').length} việc trong mẫu hôm nay · còn ${data.more.length} việc khác chờ`, `${data.today.filter((item) => item.decision === 'PENDING').length} items in today's sample · ${data.more.length} other items waiting`) : text(`${data.today.length} việc`, `${data.today.length} items`)}</p></div>{isCto && data.more.length > 0 && <button type="button" className="button button-secondary button-small" disabled={more.isPending} onClick={() => more.mutate()}>{more.isPending ? text('Đang thêm…', 'Adding…') : text('Thêm 5 việc', 'Add 5 items')}</button>}</header>
+            {data.today.length === 0 ? <EmptyState icon={<BadgeCheck size={20} />} title={data.pending_total === 0 ? text('Không có việc nào chờ nghiệm thu', 'No work pending acceptance') : text('Mẫu hôm nay đã xem xong', "Today's sample is complete")} text={data.pending_total === 0 ? text('Việc báo "xong" đã gắn Issue sẽ xuất hiện ở đây.', 'Completed work linked to an Issue will appear here.') : text(`Còn ${data.more.length} việc khác; bấm "Thêm 5 việc" nếu muốn xem tiếp.`, `${data.more.length} other items remain; choose "Add 5 items" to continue.`)} /> : (
               <ul className="acceptance-list">{data.today.map((item) => <AcceptanceCard key={item.id} item={item} isCto={isCto} busy={decide.isPending} onDecide={onDecide} />)}</ul>
             )}
           </section>
@@ -1360,6 +1416,7 @@ const weekHours = (value: number) => (Number.isInteger(value) ? `${value}` : val
 
 // The week in counts: what was planned, reported, really done, and where the process waited (FR-PLAN-29).
 function WeekPage() {
+  const { text } = useLocale()
   const { user } = useAuth()
   const isCto = user?.role === 'CTO'
   const thisMonday = mondayOf(todayInPlanningTimezone())
@@ -1371,43 +1428,44 @@ function WeekPage() {
   const [copied, setCopied] = useState(false)
   const data = summary.data
   const copyText = () => { if (data) void navigator.clipboard.writeText(data.text).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2500) }) }
-  const doneText = (row: WeekProject) => `${row.done.reported} → ${row.done.issues_closed} → ${row.done.accepted}${row.done.rejected > 0 ? ` (trả lại ${row.done.rejected})` : ''}${row.done.po_accepted > 0 ? ` · PO xác nhận ${row.done.po_accepted}` : ''}`
+  const doneText = (row: WeekProject) => `${row.done.reported} → ${row.done.issues_closed} → ${row.done.accepted}${row.done.rejected > 0 ? text(` (trả lại ${row.done.rejected})`, ` (${row.done.rejected} returned)`) : ''}${row.done.po_accepted > 0 ? text(` · PO xác nhận ${row.done.po_accepted}`, ` · PO accepted ${row.done.po_accepted}`) : ''}`
+  const weekMinutes = (value: number) => text(minutesText(value), `${value} min`)
   const ctoTotal = data?.cto_days ? data.cto_days.reduce((sum, day) => sum + day.minutes, 0) : 0
   const label = `${formatDay(week)} - ${formatDay(shiftDays(week, 6))}`
   return (
     <>
       <AgentHint command="week" />
-      <PageHeader title="Tuần qua" helper={[
-        'Ba mức "xong" đứng cạnh nhau: báo cáo nói xong, Issue đã đóng, CTO đã nghiệm thu. Khoảng cách giữa chúng là điều cần nhìn.',
-        'Giờ có tính trên những ngày đã qua của tuần; giờ xếp cộng mọi kế hoạch của ngày, kể cả nháp.',
-        'Cột "Bảng đầu ngày" lấy từ ảnh chụp lúc 23:55 mỗi tối, có từ ngày 13/10/2026.',
-      ]} action={<button type="button" className="button button-secondary" disabled={!data} title="Chép tóm tắt tuần dạng chữ: tên dự án, tên người và các con số; không có nội dung yêu cầu" onClick={copyText}>{copied ? <><Check size={14} /> Đã chép</> : <><Copy size={14} /> Chép tóm tắt</>}</button>} />
+      <PageHeader title={text('Tuần qua', 'Last week')} helper={[
+        text('Ba mức "xong" đứng cạnh nhau: báo cáo nói xong, Issue đã đóng, CTO đã nghiệm thu. Khoảng cách giữa chúng là điều cần nhìn.', 'Three completion levels appear together: reported done, Issue closed, and CTO accepted. The gaps between them are what matter.'),
+        text('Giờ có tính trên những ngày đã qua của tuần; giờ xếp cộng mọi kế hoạch của ngày, kể cả nháp.', 'Hours cover elapsed days in the week; scheduled hours include every daily plan, including drafts.'),
+        text('Cột "Bảng đầu ngày" lấy từ ảnh chụp lúc 23:55 mỗi tối, có từ ngày 13/10/2026.', 'The "Start-of-day board" column comes from the snapshot taken at 23:55 each night and is available from 13 October 2026.'),
+      ]} action={<button type="button" className="button button-secondary" disabled={!data} title={text('Chép tóm tắt tuần dạng chữ: tên dự án, tên người và các con số; không có nội dung yêu cầu', 'Copy a text summary with project names, people, and figures; request content is excluded')} onClick={copyText}>{copied ? <><Check size={14} /> {text('Đã chép', 'Copied')}</> : <><Copy size={14} /> {text('Chép tóm tắt', 'Copy summary')}</>}</button>} />
       <div className="week-bar">
-        <button type="button" className="button button-secondary button-small" onClick={() => setWeek(shiftDays(week, -7))}><ChevronLeft size={14} aria-hidden="true" /> Tuần trước</button>
-        <strong>Tuần {label}{week === thisMonday ? ' (đang diễn ra)' : ''}</strong>
-        <button type="button" className="button button-secondary button-small" disabled={week >= thisMonday} onClick={() => setWeek(shiftDays(week, 7))}>Tuần sau <ChevronRight size={14} aria-hidden="true" /></button>
-        {week !== shiftDays(thisMonday, -7) && <button type="button" className="text-button" onClick={() => setWeek(shiftDays(thisMonday, -7))}>Về tuần trước</button>}
+        <button type="button" className="button button-secondary button-small" onClick={() => setWeek(shiftDays(week, -7))}><ChevronLeft size={14} aria-hidden="true" /> {text('Tuần trước', 'Previous week')}</button>
+        <strong>{text('Tuần', 'Week')} {label}{week === thisMonday ? text(' (đang diễn ra)', ' (in progress)') : ''}</strong>
+        <button type="button" className="button button-secondary button-small" disabled={week >= thisMonday} onClick={() => setWeek(shiftDays(week, 7))}>{text('Tuần sau', 'Next week')} <ChevronRight size={14} aria-hidden="true" /></button>
+        {week !== shiftDays(thisMonday, -7) && <button type="button" className="text-button" onClick={() => setWeek(shiftDays(thisMonday, -7))}>{text('Về tuần trước', 'Back to last week')}</button>}
       </div>
       {summary.error != null && <ErrorNotice error={summary.error} onRetry={() => { void summary.refetch() }} />}
       {summary.isLoading || !data ? <LoadingBlock /> : (
         <>
-          <section className="panel today" aria-label="Theo dự án">
-            <header><div><h2>Theo dự án</h2><p>{data.projects.length} dự án · {data.days_passed}/7 ngày đã qua</p></div></header>
-            {data.projects.length === 0 ? <EmptyState icon={<CalendarRange size={20} />} title="Chưa có dự án phần mềm" text="Tạo dự án loại phần mềm ở Cài đặt > Dự án." /> : (
+          <section className="panel today" aria-label={text('Theo dự án', 'By project')}>
+            <header><div><h2>{text('Theo dự án', 'By project')}</h2><p>{text(`${data.projects.length} dự án · ${data.days_passed}/7 ngày đã qua`, `${data.projects.length} projects · ${data.days_passed}/7 days elapsed`)}</p></div></header>
+            {data.projects.length === 0 ? <EmptyState icon={<CalendarRange size={20} />} title={text('Chưa có dự án phần mềm', 'No software projects yet')} text={text('Tạo dự án loại phần mềm ở Cài đặt > Dự án.', 'Create a software project under Settings > Projects.')} /> : (
               <div className="today-board week-board">
                 <table>
-                  <thead><tr><th>Dự án</th><th>Giờ có / xếp / báo cáo</th><th>Kế hoạch chốt</th><th title="Báo cáo nói xong → Issue đóng → CTO nghiệm thu">Xong: báo cáo → Issue → nghiệm thu</th><th>Việc chưa gắn Issue</th><th>Báo cáo</th><th>Yêu cầu mới / duyệt</th><th>Bảng đầu ngày</th></tr></thead>
+                  <thead><tr><th>{text('Dự án', 'Project')}</th><th>{text('Giờ có / xếp / báo cáo', 'Available / planned / reported hours')}</th><th>{text('Kế hoạch chốt', 'Finalized plans')}</th><th title={text('Báo cáo nói xong → Issue đóng → CTO nghiệm thu', 'Reported done → Issue closed → CTO accepted')}>{text('Xong: báo cáo → Issue → nghiệm thu', 'Done: report → Issue → acceptance')}</th><th>{text('Việc chưa gắn Issue', 'Work without an Issue')}</th><th>{text('Báo cáo', 'Reports')}</th><th>{text('Yêu cầu mới / duyệt', 'New / approved requests')}</th><th>{text('Bảng đầu ngày', 'Start-of-day board')}</th></tr></thead>
                   <tbody>
                     {data.projects.map((row) => (
                       <tr key={row.id}>
-                        <td className="board-project"><Link to={`/planning?project=${row.id}`}><strong>{row.name}</strong></Link><small className="muted"> {row.people} người</small></td>
+                        <td className="board-project"><Link to={`/planning?project=${row.id}`}><strong>{row.name}</strong></Link><small className="muted"> {text(`${row.people} người`, `${row.people} people`)}</small></td>
                         <td className={row.hours.reported < row.hours.planned * 0.7 && row.hours.planned > 0 ? 'board-attn' : undefined}>{weekHours(row.hours.available)} / {weekHours(row.hours.planned)} / {weekHours(row.hours.reported)}</td>
                         <td className={row.plans.closed < row.plans.total ? 'board-attn' : undefined}>{row.plans.closed}/{row.plans.total}</td>
-                        <td className={row.done.reported > 0 && row.done.accepted === 0 ? 'board-attn' : undefined}>{doneText(row)}{row.done.work_logs_confirmed > 0 ? <small className="muted"> · {row.done.work_logs_confirmed} lịch sử xác nhận</small> : null}</td>
-                        <td className={row.items.without_issue > 0 ? 'board-overdue' : undefined}><Link to="/reports?unlinked=1">{row.items.without_issue}/{row.items.reported}</Link>{row.items.no_issue_needed > 0 ? <small className="muted"> · {row.items.no_issue_needed} không cần</small> : null}</td>
-                        <td className={row.reports.missing > 0 || row.reports.late > 0 ? 'board-attn' : undefined}><Link to="/reports">{row.reports.received}/{row.reports.expected}{row.reports.late > 0 ? ` · trễ ${row.reports.late}` : ''}</Link></td>
-                        <td><Link to={`/intakes?project=${row.code}`}>{row.requests.new} / {row.requests.approved}{row.requests.approved > 0 ? ` (24h: ${row.requests.approved_within_24h}${row.requests.avg_wait_hours !== null ? `, chờ ${weekHours(row.requests.avg_wait_hours)} giờ` : ''})` : ''}</Link></td>
-                        <td className={row.board.overdue_days > 0 ? 'board-overdue' : undefined}>{row.board.days === 0 ? <span className="muted">chưa có ảnh chụp</span> : `đủ cơ sở ${row.board.ready_days}/${row.board.days}${row.board.overdue_days > 0 ? ` · quá hạn ${row.board.overdue_days} ngày` : ''}`}</td>
+                        <td className={row.done.reported > 0 && row.done.accepted === 0 ? 'board-attn' : undefined}>{doneText(row)}{row.done.work_logs_confirmed > 0 ? <small className="muted"> · {text(`${row.done.work_logs_confirmed} lịch sử xác nhận`, `${row.done.work_logs_confirmed} confirmed work logs`)}</small> : null}</td>
+                        <td className={row.items.without_issue > 0 ? 'board-overdue' : undefined}><Link to="/reports?unlinked=1">{row.items.without_issue}/{row.items.reported}</Link>{row.items.no_issue_needed > 0 ? <small className="muted"> · {text(`${row.items.no_issue_needed} không cần`, `${row.items.no_issue_needed} not required`)}</small> : null}</td>
+                        <td className={row.reports.missing > 0 || row.reports.late > 0 ? 'board-attn' : undefined}><Link to="/reports">{row.reports.received}/{row.reports.expected}{row.reports.late > 0 ? text(` · trễ ${row.reports.late}`, ` · ${row.reports.late} late`) : ''}</Link></td>
+                        <td><Link to={`/intakes?project=${row.code}`}>{row.requests.new} / {row.requests.approved}{row.requests.approved > 0 ? text(` (24h: ${row.requests.approved_within_24h}${row.requests.avg_wait_hours !== null ? `, chờ ${weekHours(row.requests.avg_wait_hours)} giờ` : ''})`, ` (24h: ${row.requests.approved_within_24h}${row.requests.avg_wait_hours !== null ? `, waited ${weekHours(row.requests.avg_wait_hours)} hours` : ''})`) : ''}</Link></td>
+                        <td className={row.board.overdue_days > 0 ? 'board-overdue' : undefined}>{row.board.days === 0 ? <span className="muted">{text('chưa có ảnh chụp', 'no snapshot')}</span> : text(`đủ cơ sở ${row.board.ready_days}/${row.board.days}${row.board.overdue_days > 0 ? ` · quá hạn ${row.board.overdue_days} ngày` : ''}`, `review-ready ${row.board.ready_days}/${row.board.days}${row.board.overdue_days > 0 ? ` · ${row.board.overdue_days} days overdue` : ''}`)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1415,44 +1473,44 @@ function WeekPage() {
               </div>
             )}
           </section>
-          <section className="panel today" aria-label="Theo nhân sự">
-            <header><div><h2>Theo nhân sự</h2><p>Giờ xếp và giờ báo cáo cộng qua mọi dự án; báo cáo đếm theo ngày có giờ làm</p></div></header>
-            {data.people.length === 0 ? <EmptyState icon={<UserRound size={20} />} title="Chưa có nhân sự" text="Thêm người ở Cài đặt > Nhân sự." /> : (
+          <section className="panel today" aria-label={text('Theo nhân sự', 'By person')}>
+            <header><div><h2>{text('Theo nhân sự', 'By person')}</h2><p>{text('Giờ xếp và giờ báo cáo cộng qua mọi dự án; báo cáo đếm theo ngày có giờ làm', 'Planned and reported hours are totaled across projects; reports count working days')}</p></div></header>
+            {data.people.length === 0 ? <EmptyState icon={<UserRound size={20} />} title={text('Chưa có nhân sự', 'No team members yet')} text={text('Thêm người ở Cài đặt > Nhân sự.', 'Add people under Settings > Team.')} /> : (
               <div className="today-board week-board">
                 <table>
-                  <thead><tr><th>Người</th><th>Giờ xếp / có</th><th>Giờ báo cáo</th><th>Xong</th><th>Chưa gắn Issue</th><th>Báo cáo</th><th>Dự án</th></tr></thead>
+                  <thead><tr><th>{text('Người', 'Person')}</th><th>{text('Giờ xếp / có', 'Planned / available hours')}</th><th>{text('Giờ báo cáo', 'Reported hours')}</th><th>{text('Xong', 'Done')}</th><th>{text('Chưa gắn Issue', 'Without an Issue')}</th><th>{text('Báo cáo', 'Reports')}</th><th>{text('Dự án', 'Projects')}</th></tr></thead>
                   <tbody>
                     {data.people.map((person) => (
                       <tr key={person.member_id}>
-                        <td className="board-project"><Link to={`/ke-hoach-nguoi?member=${person.member_id}&date=${data.week_start}&view=tuan`} title="Xem kế hoạch của người này trong tuần"><strong>{person.display_name}</strong></Link></td>
+                        <td className="board-project"><Link to={`/people-planning?member=${person.member_id}&date=${data.week_start}&view=tuan`} title={text('Xem kế hoạch của người này trong tuần', "View this person's weekly plan")}><strong>{person.display_name}</strong></Link></td>
                         <td className={person.hours.planned > person.hours.available + 0.01 ? 'board-overdue' : person.hours.planned < person.hours.available * 0.5 ? 'board-attn' : undefined}>{weekHours(person.hours.planned)}/{weekHours(person.hours.available)}</td>
                         <td>{weekHours(person.hours.reported)}</td>
                         <td>{person.done_reported}/{person.items.reported}</td>
                         <td className={person.items.without_issue > 0 ? 'board-overdue' : undefined}>{person.items.without_issue}</td>
-                        <td className={person.reports.missing > 0 || person.reports.late > 0 ? 'board-attn' : undefined}>{person.reports.received}/{person.reports.expected}{person.reports.late > 0 ? ` · trễ ${person.reports.late}` : ''}</td>
-                        <td>{person.projects.length === 0 ? <span className="muted">không có việc</span> : person.projects.map((project) => <span key={project.id} className="people-project">{project.name} {weekHours(project.planned)}/{weekHours(project.reported)} giờ</span>)}</td>
+                        <td className={person.reports.missing > 0 || person.reports.late > 0 ? 'board-attn' : undefined}>{person.reports.received}/{person.reports.expected}{person.reports.late > 0 ? text(` · trễ ${person.reports.late}`, ` · ${person.reports.late} late`) : ''}</td>
+                        <td>{person.projects.length === 0 ? <span className="muted">{text('không có việc', 'no work')}</span> : person.projects.map((project) => <span key={project.id} className="people-project">{project.name} {weekHours(project.planned)}/{weekHours(project.reported)} {text('giờ', 'hours')}</span>)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <p className="field-help">Dự án: giờ xếp/giờ báo cáo. Đỏ: xếp quá giờ có hoặc có việc không gắn Issue; cam: xếp dưới nửa giờ có, thiếu hoặc trễ báo cáo.</p>
+                <p className="field-help">{text('Dự án: giờ xếp/giờ báo cáo. Đỏ: xếp quá giờ có hoặc có việc không gắn Issue; cam: xếp dưới nửa giờ có, thiếu hoặc trễ báo cáo.', 'Projects: planned/reported hours. Red: over capacity or work without an Issue; amber: under half capacity or missing or late reports.')}</p>
               </div>
             )}
           </section>
-          <section className="panel today" aria-label="Quy trình">
-            <header><div><h2>Quy trình</h2><p>Chờ ở đâu, bao lâu</p></div></header>
+          <section className="panel today" aria-label={text('Quy trình', 'Process')}>
+            <header><div><h2>{text('Quy trình', 'Process')}</h2><p>{text('Chờ ở đâu, bao lâu', 'Where work waited and for how long')}</p></div></header>
             <div className="attention-grid week-process" role="list">
-              <div className="attention-card" role="listitem"><span>Yêu cầu mới / duyệt</span><strong>{data.process.requests_new} / {data.process.approved}</strong><small>{data.process.from_planning} duyệt từ Daily Planning</small></div>
-              <div className="attention-card" role="listitem"><span>Duyệt trong 24 giờ</span><strong>{data.process.approved > 0 ? `${Math.round((data.process.approved_within_24h / data.process.approved) * 100)}%` : '–'}</strong><small>{data.process.avg_wait_hours !== null ? `chờ trung bình ${weekHours(data.process.avg_wait_hours)} giờ` : 'chưa có quyết định nào'}</small></div>
-              <div className="attention-card" role="listitem"><span>Issue tạo</span><strong>{data.process.issues_created}</strong><small>{data.process.avg_to_issue_hours !== null ? `từ duyệt đến Issue ${weekHours(data.process.avg_to_issue_hours)} giờ` : 'chưa có'}</small></div>
-              <div className="attention-card" role="listitem"><span>Đủ cơ sở review</span><strong>{data.process.board_days > 0 ? `${data.process.ready_days}/${data.process.board_days}` : '–'}</strong><small>dự án-ngày, theo ảnh chụp 23:55</small></div>
-              <div className="attention-card" role="listitem"><span>Có việc quá hạn</span><strong>{data.process.board_days > 0 ? data.process.overdue_project_days : '–'}</strong><small>dự án-ngày · leo thang lên CTO {data.process.escalated_project_days}</small></div>
-              <div className="attention-card" role="listitem"><span>Kẹt ở AI</span><strong>{data.process.board_days > 0 ? data.process.max_stuck : '–'}</strong><small>nhiều nhất trong một tối</small></div>
+              <div className="attention-card" role="listitem"><span>{text('Yêu cầu mới / duyệt', 'New / approved requests')}</span><strong>{data.process.requests_new} / {data.process.approved}</strong><small>{text(`${data.process.from_planning} duyệt từ Daily Planning`, `${data.process.from_planning} approved from Daily Planning`)}</small></div>
+              <div className="attention-card" role="listitem"><span>{text('Duyệt trong 24 giờ', 'Approved within 24 hours')}</span><strong>{data.process.approved > 0 ? `${Math.round((data.process.approved_within_24h / data.process.approved) * 100)}%` : '–'}</strong><small>{data.process.avg_wait_hours !== null ? text(`chờ trung bình ${weekHours(data.process.avg_wait_hours)} giờ`, `average wait ${weekHours(data.process.avg_wait_hours)} hours`) : text('chưa có quyết định nào', 'no decisions yet')}</small></div>
+              <div className="attention-card" role="listitem"><span>{text('Issue tạo', 'Issues created')}</span><strong>{data.process.issues_created}</strong><small>{data.process.avg_to_issue_hours !== null ? text(`từ duyệt đến Issue ${weekHours(data.process.avg_to_issue_hours)} giờ`, `${weekHours(data.process.avg_to_issue_hours)} hours from approval to Issue`) : text('chưa có', 'none yet')}</small></div>
+              <div className="attention-card" role="listitem"><span>{text('Đủ cơ sở review', 'Review-ready')}</span><strong>{data.process.board_days > 0 ? `${data.process.ready_days}/${data.process.board_days}` : '–'}</strong><small>{text('dự án-ngày, theo ảnh chụp 23:55', 'project-days from the 23:55 snapshot')}</small></div>
+              <div className="attention-card" role="listitem"><span>{text('Có việc quá hạn', 'Has overdue work')}</span><strong>{data.process.board_days > 0 ? data.process.overdue_project_days : '–'}</strong><small>{text(`dự án-ngày · leo thang lên CTO ${data.process.escalated_project_days}`, `project-days · escalated to CTO ${data.process.escalated_project_days}`)}</small></div>
+              <div className="attention-card" role="listitem"><span>{text('Kẹt ở AI', 'Stuck in AI')}</span><strong>{data.process.board_days > 0 ? data.process.max_stuck : '–'}</strong><small>{text('nhiều nhất trong một tối', 'maximum in one evening')}</small></div>
             </div>
             {isCto && data.personal && (data.personal.done_total > 0 || data.personal.delegated > 0 || data.personal.open.some((row) => row.count > 0)) && <PersonalWeekPanel block={data.personal} />}
             {isCto && data.cto_days && (
               <div className="week-cto">
-                <p><Timer size={14} aria-hidden="true" /><span>CTO điều hành <strong>{minutesText(ctoTotal)}</strong> cả tuần · trung bình <strong>{minutesText(Math.round(ctoTotal / Math.max(data.days_passed, 1)))}</strong>/ngày</span><small>đo theo thao tác để lại dấu trong app; mục tiêu 2 giờ/ngày</small></p>
+                <p><Timer size={14} aria-hidden="true" /><span>{text('CTO điều hành', 'CTO operations')} <strong>{weekMinutes(ctoTotal)}</strong> {text('cả tuần · trung bình', 'this week · average')} <strong>{weekMinutes(Math.round(ctoTotal / Math.max(data.days_passed, 1)))}</strong>{text('/ngày', '/day')}</span><small>{text('đo theo thao tác để lại dấu trong app; mục tiêu 2 giờ/ngày', 'measured from auditable actions in the app; target 2 hours/day')}</small></p>
                 <ol className="week-days">{data.cto_days.map((day) => <li key={day.date}><span>{formatDay(day.date)}</span><i style={{ width: `${Math.min(100, (day.minutes / 120) * 100)}%` }} /><b>{day.minutes}'</b></li>)}</ol>
               </div>
             )}
@@ -1465,24 +1523,26 @@ function WeekPage() {
 
 // The CTO's own week: finished by the quadrant it stood in, open by quadrant, handed on, rolled over (FR-PER-06).
 function PersonalWeekPanel({ block }: { block: PersonalWeekBlock }) {
+  const { text } = useLocale()
   const q = (rows: PersonalWeekBlock['done'], id: number) => rows.find((row) => row.quadrant === id) || { count: 0, hours: 0, label: '' }
   return (
-    <div className="week-personal" aria-label="Việc riêng của tôi">
-      <p><ListChecks size={14} aria-hidden="true" /><span>Việc riêng của tôi: xong <strong>{block.done_total}</strong> ({hoursText(block.done_hours)}) · Làm ngay <strong>{hoursText(q(block.done, 1).hours)}</strong> so với Lên lịch <strong>{hoursText(q(block.done, 2).hours)}</strong>{block.schedule_share != null ? ` (${Math.round(block.schedule_share * 100)}% giờ có kế hoạch)` : ''} · giao đi <strong>{block.delegated}</strong> · dời <strong>{block.rollovers}</strong> lần · còn mở {block.open.reduce((sum, row) => sum + row.count, 0)}</span></p>
+    <div className="week-personal" aria-label={text('Việc riêng của tôi', 'My personal work')}>
+      <p><ListChecks size={14} aria-hidden="true" /><span>{text('Việc riêng của tôi: xong', 'My personal work: completed')} <strong>{block.done_total}</strong> ({hoursText(block.done_hours)}) · {text('Làm ngay', 'Do now')} <strong>{hoursText(q(block.done, 1).hours)}</strong> {text('so với Lên lịch', 'versus Schedule')} <strong>{hoursText(q(block.done, 2).hours)}</strong>{block.schedule_share != null ? text(` (${Math.round(block.schedule_share * 100)}% giờ có kế hoạch)`, ` (${Math.round(block.schedule_share * 100)}% of planned hours)`) : ''} · {text('giao đi', 'delegated')} <strong>{block.delegated}</strong> · {text('dời', 'rolled over')} <strong>{block.rollovers}</strong> {text('lần · còn mở', 'times · still open')} {block.open.reduce((sum, row) => sum + row.count, 0)}</span></p>
     </div>
   )
 }
 
 // The whole history, newest first.
 function ChangelogPage() {
-  const changelog = useQuery({ queryKey: ['changelog'], queryFn: () => api<Changelog>('/changelog'), staleTime: 5 * 60_000 })
+  const { locale, text } = useLocale()
+  const changelog = useQuery({ queryKey: ['changelog', locale], queryFn: () => api<Changelog>(`/changelog?lang=${locale}`), staleTime: 5 * 60_000 })
   const build = changelog.data?.build
   return (
     <>
-      <PageHeader title="Nhật ký thay đổi" />
+      <PageHeader title={text('Nhật ký thay đổi', 'Changelog')} />
       {changelog.error != null && <ErrorNotice error={changelog.error} onRetry={() => { void changelog.refetch() }} />}
       <section className="panel changelog-page">
-        <div className="panel-heading"><div><h2>Có gì mới</h2></div>{build && <span className="muted">Bản đang chạy: {build.sha.slice(0, 7)}{build.built_at ? ` · build ${formatDate(build.built_at)}` : ''}</span>}</div>
+        <div className="panel-heading"><div><h2>{text('Có gì mới', "What's new")}</h2></div>{build && <span className="muted">{text('Bản đang chạy', 'Running version')}: {build.sha.slice(0, 7)}{build.built_at ? ` · build ${formatDate(build.built_at, locale)}` : ''}</span>}</div>
         {changelog.isLoading ? <LoadingBlock /> : groupByDay(changelog.data?.entries || []).map((day) => (
           <section key={day.date} className="changelog-day">
             <h3>{changelogDay(day.date)}</h3>
@@ -1496,6 +1556,7 @@ function ChangelogPage() {
 
 function QuickSearch() {
   const { user } = useAuth()
+  const { locale, text: tr } = useLocale()
   const navigate = useNavigate()
   const { pathname, search } = useLocation()
   const [open, setOpen] = useState(false)
@@ -1521,31 +1582,31 @@ function QuickSearch() {
 
   const wanted = plainText(text.trim())
   const pages: QuickResult[] = [
-    { key: 'p-today', group: 'Trang', label: 'Hôm nay', to: '/', icon: <House size={15} /> },
-    { key: 'p-reports', group: 'Trang', label: 'Báo cáo ngày', to: '/reports', icon: <FileText size={15} /> },
-    { key: 'p-approvals', group: 'Trang', label: 'Chờ phê duyệt', to: '/approvals', icon: <ClipboardCheck size={15} /> },
-    { key: 'p-planning', group: 'Trang', label: 'Daily Planning', hint: 'Kế hoạch sáng, chiều', to: '/planning', icon: <CalendarDays size={15} /> },
-    { key: 'p-person-plan', group: 'Trang', label: 'Kế hoạch theo người', hint: 'Một người, qua mọi dự án, theo ngày, tuần, tháng', to: '/ke-hoach-nguoi', icon: <UsersRound size={15} /> },
-    { key: 'p-week', group: 'Trang', label: 'Tuần qua', hint: 'Kế hoạch, báo cáo, xong thật, quy trình', to: '/tuan-qua', icon: <CalendarRange size={15} /> },
-    { key: 'p-acceptance', group: 'Trang', label: 'Nghiệm thu', hint: 'Việc báo xong, đúng là xong chưa', to: '/nghiem-thu', icon: <BadgeCheck size={15} /> },
-    { key: 'p-intakes', group: 'Trang', label: 'Tất cả Intake', to: '/intakes', icon: <List size={15} /> },
-    { key: 'p-meetings', group: 'Trang', label: 'Cuộc họp', to: '/meetings', icon: <MessagesSquare size={15} /> },
-    { key: 'p-new', group: 'Trang', label: 'Tạo Intake', hint: 'Gõ, dán hoặc nói để nhập', to: '/intakes/new', icon: <Plus size={15} /> },
-    { key: 'p-record', group: 'Trang', label: 'Ghi âm cuộc họp', to: '/intakes/new?panel=record', icon: <Mic size={15} /> },
-    { key: 'p-settings', group: 'Trang', label: 'Cài đặt', hint: 'Dự án, nhân sự, tài khoản', to: '/settings', icon: <Settings size={15} /> },
+    { key: 'p-today', group: tr('Trang', 'Pages'), label: tr('Hôm nay', 'Today'), to: '/', icon: <House size={15} /> },
+    { key: 'p-reports', group: tr('Trang', 'Pages'), label: tr('Báo cáo ngày', 'Daily reports'), to: '/reports', icon: <FileText size={15} /> },
+    { key: 'p-approvals', group: tr('Trang', 'Pages'), label: tr('Chờ phê duyệt', 'Pending approval'), to: '/approvals', icon: <ClipboardCheck size={15} /> },
+    { key: 'p-planning', group: tr('Trang', 'Pages'), label: 'Daily Planning', hint: tr('Kế hoạch sáng, chiều', 'Morning and afternoon plans'), to: '/planning', icon: <CalendarDays size={15} /> },
+    { key: 'p-person-plan', group: tr('Trang', 'Pages'), label: tr('Kế hoạch theo người', 'Plan by person'), hint: tr('Một người, qua mọi dự án, theo ngày, tuần, tháng', 'One person across all projects, by day, week, or month'), to: '/people-planning', icon: <UsersRound size={15} /> },
+    { key: 'p-week', group: tr('Trang', 'Pages'), label: tr('Tuần qua', 'Last week'), hint: tr('Kế hoạch, báo cáo, xong thật, quy trình', 'Plans, reports, verified completion, and process'), to: '/last-week', icon: <CalendarRange size={15} /> },
+    { key: 'p-acceptance', group: tr('Trang', 'Pages'), label: tr('Nghiệm thu', 'Acceptance'), hint: tr('Việc báo xong, đúng là xong chưa', 'Verify whether reported work is truly complete'), to: '/acceptance', icon: <BadgeCheck size={15} /> },
+    { key: 'p-intakes', group: tr('Trang', 'Pages'), label: tr('Tất cả Intake', 'All Intake'), to: '/intakes', icon: <List size={15} /> },
+    { key: 'p-meetings', group: tr('Trang', 'Pages'), label: tr('Cuộc họp', 'Meetings'), to: '/meetings', icon: <MessagesSquare size={15} /> },
+    { key: 'p-new', group: tr('Trang', 'Pages'), label: tr('Tạo Intake', 'Create Intake'), hint: tr('Gõ, dán hoặc nói để nhập', 'Type, paste, or speak to capture a request'), to: '/intakes/new', icon: <Plus size={15} /> },
+    { key: 'p-record', group: tr('Trang', 'Pages'), label: tr('Ghi âm cuộc họp', 'Record meeting'), to: '/intakes/new?panel=record', icon: <Mic size={15} /> },
+    { key: 'p-settings', group: tr('Trang', 'Pages'), label: tr('Cài đặt', 'Settings'), hint: tr('Dự án, nhân sự, tài khoản', 'Projects, people, and accounts'), to: '/settings', icon: <Settings size={15} /> },
     ...(user?.role === 'CTO' ? [
-      { key: 'p-ideas', group: 'Trang', label: 'Kho ý tưởng', hint: 'Riêng: ý tưởng và nháp bài đăng', to: '/rieng', icon: <Lightbulb size={15} /> },
-      { key: 'p-voice', group: 'Trang', label: 'Giọng của tôi', hint: 'Riêng: định vị, trụ, bài mẫu', to: '/rieng/giong', icon: <UserRound size={15} /> },
-      { key: 'p-watch', group: 'Trang', label: 'Nguồn theo dõi', hint: 'Riêng: web, kênh và từ khóa cho công cụ quét', to: '/rieng/nguon', icon: <Eye size={15} /> },
+      { key: 'p-ideas', group: tr('Trang', 'Pages'), label: tr('Kho ý tưởng', 'Idea library'), hint: tr('Riêng: ý tưởng và nháp bài đăng', 'Private: ideas and post drafts'), to: '/rieng', icon: <Lightbulb size={15} /> },
+      { key: 'p-voice', group: tr('Trang', 'Pages'), label: tr('Giọng của tôi', 'My voice'), hint: tr('Riêng: định vị, trụ, bài mẫu', 'Private: positioning, pillars, and sample posts'), to: '/rieng/giong', icon: <UserRound size={15} /> },
+      { key: 'p-watch', group: tr('Trang', 'Pages'), label: tr('Nguồn theo dõi', 'Watch sources'), hint: tr('Riêng: web, kênh và từ khóa cho công cụ quét', 'Private: sites, channels, and scanner keywords'), to: '/rieng/nguon', icon: <Eye size={15} /> },
     ] : []),
   ]
   const results: QuickResult[] = [
     ...(intakes.data?.items || []).map((intake) => ({
-      key: `i-${intake.id}`, group: 'Yêu cầu', label: `${intake.public_id} · ${intake.normalized_title || 'Chưa có tiêu đề'}`,
-      hint: statusLabels[intake.status], to: `/intakes/${intake.id}`, icon: <Inbox size={15} />,
+      key: `i-${intake.id}`, group: tr('Yêu cầu', 'Requests'), label: `${intake.public_id} · ${intake.normalized_title || tr('Chưa có tiêu đề', 'Untitled')}`,
+      hint: (locale === 'vi' ? statusLabels : statusLabelsEn)[intake.status], to: `/intakes/${intake.id}`, icon: <Inbox size={15} />,
     })),
     ...(wanted.length >= 2 ? (meetings.data || []).filter((meeting) => plainText(meeting.title).includes(wanted)).slice(0, 4).map((meeting) => ({
-      key: `m-${meeting.id}`, group: 'Cuộc họp', label: meeting.title, hint: formatDate(meeting.started_at), to: `/meetings?id=${meeting.id}`, icon: <MessagesSquare size={15} />,
+      key: `m-${meeting.id}`, group: tr('Cuộc họp', 'Meetings'), label: meeting.title, hint: formatDate(meeting.started_at, locale), to: `/meetings?id=${meeting.id}`, icon: <MessagesSquare size={15} />,
     })) : []),
     ...pages.filter((page) => !wanted || plainText(`${page.label} ${page.hint || ''}`).includes(wanted)),
   ]
@@ -1560,15 +1621,15 @@ function QuickSearch() {
 
   return (
     <>
-      <button type="button" className="quick-search-button" aria-label="Tìm nhanh" title="Tìm nhanh (Ctrl+K)" onClick={() => setOpen(true)}>
-        <Search size={15} aria-hidden="true" /><span>Tìm…</span><kbd>Ctrl K</kbd>
+      <button type="button" className="quick-search-button" aria-label={tr('Tìm nhanh', 'Quick search')} title={tr('Tìm nhanh (Ctrl+K)', 'Quick search (Ctrl+K)')} onClick={() => setOpen(true)}>
+        <Search size={15} aria-hidden="true" /><span>{tr('Tìm…', 'Search…')}</span><kbd>Ctrl K</kbd>
       </button>
       {open && createPortal(
         <div className="quick-search" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
-          <div className="quick-search-box" role="dialog" aria-modal="true" aria-label="Tìm nhanh">
+          <div className="quick-search-box" role="dialog" aria-modal="true" aria-label={tr('Tìm nhanh', 'Quick search')}>
             <label className="quick-search-input">
               <Search size={17} aria-hidden="true" />
-              <input autoFocus value={text} onChange={(event) => setText(event.target.value)} placeholder="Tìm mã hoặc tiêu đề yêu cầu, cuộc họp, trang…" aria-label="Tìm nhanh"
+              <input autoFocus value={text} onChange={(event) => setText(event.target.value)} placeholder={tr('Tìm mã hoặc tiêu đề yêu cầu, cuộc họp, trang…', 'Search request IDs or titles, meetings, and pages…')} aria-label={tr('Tìm nhanh', 'Quick search')}
                 role="combobox" aria-expanded="true" aria-controls="quick-search-results" aria-activedescendant={results[active] ? `quick-${results[active].key}` : undefined}
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowDown') { event.preventDefault(); move(1) }
@@ -1578,8 +1639,8 @@ function QuickSearch() {
                 }} />
               {searching && <span className="spinner" aria-hidden="true" />}
             </label>
-            <div className="quick-search-results" id="quick-search-results" role="listbox" aria-label="Kết quả" ref={listRef}>
-              {results.length === 0 && <p>{searching ? 'Đang tìm…' : 'Không thấy kết quả nào. Thử mã yêu cầu (ví dụ KIN-26W41) hoặc một từ trong tiêu đề.'}</p>}
+            <div className="quick-search-results" id="quick-search-results" role="listbox" aria-label={tr('Kết quả', 'Results')} ref={listRef}>
+              {results.length === 0 && <p>{searching ? tr('Đang tìm…', 'Searching…') : tr('Không thấy kết quả nào. Thử mã yêu cầu (ví dụ KIN-26W41) hoặc một từ trong tiêu đề.', 'No results. Try a request ID such as KIN-26W41 or a word from the title.')}</p>}
               {results.map((result, index) => (
                 <div key={result.key}>
                   {(index === 0 || results[index - 1].group !== result.group) && <span className="quick-search-group">{result.group}</span>}
@@ -1592,7 +1653,7 @@ function QuickSearch() {
                 </div>
               ))}
             </div>
-            <footer><span><kbd>↑</kbd><kbd>↓</kbd> chọn</span><span><kbd>Enter</kbd> mở</span><span><kbd>Esc</kbd> đóng</span><span className="quick-search-scope">Tìm trong yêu cầu, cuộc họp và trang</span></footer>
+            <footer><span><kbd>↑</kbd><kbd>↓</kbd> {tr('chọn', 'select')}</span><span><kbd>Enter</kbd> {tr('mở', 'open')}</span><span><kbd>Esc</kbd> {tr('đóng', 'close')}</span><span className="quick-search-scope">{tr('Tìm trong yêu cầu, cuộc họp và trang', 'Search requests, meetings, and pages')}</span></footer>
           </div>
         </div>,
         document.body,
@@ -1626,7 +1687,8 @@ function ProtectedLayout() {
 
   if (loading) return <LoadingBlock label={text('Đang xác minh phiên đăng nhập…', 'Checking your session…')} />
   // The guide is public (FR-UI-18): a visitor without a session reads it instead of being sent to sign in.
-  if (!user) return location.pathname === '/huong-dan' ? <PublicGuidePage variant="app" /> : <Navigate to="/login" replace />
+  if (location.pathname === '/huong-dan') return <Navigate to={`/guide${location.search}${location.hash}`} replace />
+  if (!user) return location.pathname === '/guide' ? <PublicGuidePage variant="app" /> : <Navigate to="/login" replace />
 
   const signOut = async () => {
     await logout()
@@ -1642,7 +1704,7 @@ function ProtectedLayout() {
   const { pathname, search } = location
   // A Developer's workspace is the terminal: the web shows only their account and how to connect an agent.
   const marketing = user.mode === 'MARKETING'
-  if (user.role === 'DEVELOPER' && !pathname.startsWith('/settings/account') && !pathname.startsWith('/viec-rieng') && !pathname.startsWith('/viec-cua-toi') && !pathname.startsWith('/viec') && !pathname.startsWith('/tuan-nay') && !pathname.startsWith('/ke-hoach-nguoi') && !pathname.startsWith('/gop-y') && !pathname.startsWith('/huong-dan')) return <Navigate to={marketing ? '/tuan-nay' : '/viec-cua-toi'} replace />
+  if (user.role === 'DEVELOPER' && !pathname.startsWith('/settings/account') && !pathname.startsWith('/viec-rieng') && !pathname.startsWith('/viec-cua-toi') && !pathname.startsWith('/viec') && !pathname.startsWith('/tuan-nay') && !pathname.startsWith('/people-planning') && !pathname.startsWith('/ke-hoach-nguoi') && !pathname.startsWith('/feedback') && !pathname.startsWith('/gop-y') && !pathname.startsWith('/guide') && !pathname.startsWith('/huong-dan')) return <Navigate to={marketing ? '/tuan-nay' : '/viec-cua-toi'} replace />
   if (user.role === 'CTO' && setupState.data && !setupState.data.completed && !pathname.startsWith('/setup') && !pathname.startsWith('/settings')) return <Navigate to="/setup" replace />
   // A marketing-only account lands on the week, not on the day of a software team (FR-MKT-03).
   if (marketing && pathname === '/') return <Navigate to="/tuan-nay" replace />
@@ -1657,28 +1719,28 @@ function ProtectedLayout() {
   const betaOn = user.beta_features_enabled !== false
   const groups0: { label: string | null; links: { to: string; icon: ReactNode; label: string; active: boolean; count?: 'approvals' | 'reports' | 'review'; beta?: boolean }[] }[] = marketing ? [
     { label: null, links: [
-      { to: '/tuan-nay', icon: <CalendarDays size={17} />, label: POST_WORDS.week, active: pathname.startsWith('/tuan-nay') },
-      { to: '/viec', icon: <Columns3 size={17} />, label: POST_WORDS.board, active: pathname.startsWith('/viec') && !pathname.startsWith('/viec-') },
-      ...(user.role !== 'DEVELOPER' ? [{ to: '/duyet', icon: <BadgeCheck size={17} />, label: POST_WORDS.review, active: pathname.startsWith('/duyet'), count: 'review' as const }] : []),
-      ...(user.role !== 'DEVELOPER' ? [{ to: '/meetings', icon: <MessagesSquare size={17} />, label: 'Cuộc họp', active: pathname.startsWith('/meetings') }] : []),
-      ...(user.role !== 'DEVELOPER' ? [{ to: '/nguon', icon: <Eye size={17} />, label: POST_WORDS.sourcesPage, active: pathname.startsWith('/nguon') }] : []),
+      { to: '/tuan-nay', icon: <CalendarDays size={17} />, label: text(POST_WORDS.week, 'This week'), active: pathname.startsWith('/tuan-nay') },
+      { to: '/viec', icon: <Columns3 size={17} />, label: text(POST_WORDS.board, 'Work board'), active: pathname.startsWith('/viec') && !pathname.startsWith('/viec-') },
+      ...(user.role !== 'DEVELOPER' ? [{ to: '/duyet', icon: <BadgeCheck size={17} />, label: text(POST_WORDS.review, 'Review'), active: pathname.startsWith('/duyet'), count: 'review' as const }] : []),
+      ...(user.role !== 'DEVELOPER' ? [{ to: '/meetings', icon: <MessagesSquare size={17} />, label: text('Cuộc họp', 'Meetings'), active: pathname.startsWith('/meetings') }] : []),
+      ...(user.role !== 'DEVELOPER' ? [{ to: '/nguon', icon: <Eye size={17} />, label: text(POST_WORDS.sourcesPage, 'Sources'), active: pathname.startsWith('/nguon') }] : []),
     ] },
-    { label: 'Khác', links: [
-      ...(user.role !== 'DEVELOPER' ? [{ to: '/projects', icon: <UserRound size={17} />, label: 'Dự án', active: pathname.startsWith('/projects') }] : []),
-      { to: '/viec-rieng', icon: <ListChecks size={17} />, label: 'Việc riêng', active: pathname.startsWith('/viec-rieng') },
-      { to: '/gop-y', icon: <MessageSquarePlus size={17} />, label: 'Góp ý', active: pathname.startsWith('/gop-y') },
-      { to: '/huong-dan', icon: <CircleHelp size={17} />, label: 'Hướng dẫn', active: pathname.startsWith('/huong-dan') },
-      { to: '/settings/account', icon: <UserRound size={17} />, label: 'Tài khoản', active: pathname.startsWith('/settings') },
+    { label: text('Khác', 'Other'), links: [
+      ...(user.role !== 'DEVELOPER' ? [{ to: '/projects', icon: <UserRound size={17} />, label: text('Dự án', 'Projects'), active: pathname.startsWith('/projects') }] : []),
+      { to: '/viec-rieng', icon: <ListChecks size={17} />, label: text('Việc riêng', 'Personal tasks'), active: pathname.startsWith('/viec-rieng') },
+      { to: '/feedback', icon: <MessageSquarePlus size={17} />, label: text('Góp ý', 'Feedback'), active: pathname.startsWith('/feedback') },
+      { to: '/guide', icon: <CircleHelp size={17} />, label: text('Hướng dẫn', 'Guide'), active: pathname.startsWith('/guide') },
+      { to: '/settings/account', icon: <UserRound size={17} />, label: text('Tài khoản', 'Account'), active: pathname.startsWith('/settings') },
     ] },
   ] : user.role === 'DEVELOPER' ? [
     { label: null, links: [
-      { to: '/viec-cua-toi', icon: <CalendarDays size={17} />, label: 'Việc của tôi', active: pathname.startsWith('/viec-cua-toi') },
-      { to: '/viec-rieng', icon: <ListChecks size={17} />, label: 'Việc riêng', active: pathname.startsWith('/viec-rieng') },
-      { to: '/viec', icon: <Columns3 size={17} />, label: 'Việc', active: pathname.startsWith('/viec') && !pathname.startsWith('/viec-') },
-      { to: '/ke-hoach-nguoi', icon: <UsersRound size={17} />, label: 'Kế hoạch theo người', active: pathname.startsWith('/ke-hoach-nguoi') },
-      { to: '/gop-y', icon: <MessageSquarePlus size={17} />, label: 'Góp ý', active: pathname.startsWith('/gop-y') },
-      { to: '/huong-dan', icon: <CircleHelp size={17} />, label: 'Hướng dẫn', active: pathname.startsWith('/huong-dan') },
-      { to: '/settings/account', icon: <UserRound size={17} />, label: 'Tài khoản và agent', active: pathname.startsWith('/settings') },
+      { to: '/viec-cua-toi', icon: <CalendarDays size={17} />, label: text('Việc của tôi', 'My work'), active: pathname.startsWith('/viec-cua-toi') },
+      { to: '/viec-rieng', icon: <ListChecks size={17} />, label: text('Việc riêng', 'Personal tasks'), active: pathname.startsWith('/viec-rieng') },
+      { to: '/viec', icon: <Columns3 size={17} />, label: text('Việc', 'Work'), active: pathname.startsWith('/viec') && !pathname.startsWith('/viec-') },
+      { to: '/people-planning', icon: <UsersRound size={17} />, label: text('Kế hoạch theo người', 'Plan by person'), active: pathname.startsWith('/people-planning') },
+      { to: '/feedback', icon: <MessageSquarePlus size={17} />, label: text('Góp ý', 'Feedback'), active: pathname.startsWith('/feedback') },
+      { to: '/guide', icon: <CircleHelp size={17} />, label: text('Hướng dẫn', 'Guide'), active: pathname.startsWith('/guide') },
+      { to: '/settings/account', icon: <UserRound size={17} />, label: text('Tài khoản và agent', 'Account and agent'), active: pathname.startsWith('/settings') },
     ] },
   ] : [
     { label: null, links: [{ to: '/', icon: <House size={17} />, label: text('Hôm nay', 'Today'), active: pathname === '/' }] },
@@ -1688,8 +1750,8 @@ function ProtectedLayout() {
         { to: '/reports', icon: <FileText size={17} />, label: text('Báo cáo ngày', 'Daily reports'), active: pathname.startsWith('/reports'), count: 'reports' },
         { to: '/approvals', icon: <ClipboardCheck size={17} />, label: text('Chờ phê duyệt', 'Pending approval'), active: pathname.startsWith('/approvals'), count: 'approvals' },
         { to: '/planning', icon: <CalendarDays size={17} />, label: 'Daily Planning', active: pathname.startsWith('/planning') },
-        { to: '/ke-hoach-nguoi', icon: <UsersRound size={17} />, label: text('Kế hoạch theo người', 'Plan by person'), active: pathname.startsWith('/ke-hoach-nguoi') },
-        { to: '/nghiem-thu', icon: <BadgeCheck size={17} />, label: text('Nghiệm thu', 'Acceptance'), active: pathname.startsWith('/nghiem-thu') },
+        { to: '/people-planning', icon: <UsersRound size={17} />, label: text('Kế hoạch theo người', 'Plan by person'), active: pathname.startsWith('/people-planning') },
+        { to: '/acceptance', icon: <BadgeCheck size={17} />, label: text('Nghiệm thu', 'Acceptance'), active: pathname.startsWith('/acceptance') },
         { to: '/viec', icon: <Columns3 size={17} />, label: text('Việc', 'Work'), active: pathname.startsWith('/viec') && !pathname.startsWith('/viec-') },
         // An owner or the CTO who is also a member has their own day, like any Developer.
         ...(user.member_id ? [{ to: '/viec-cua-toi', icon: <ListChecks size={17} />, label: text('Việc của tôi', 'My work'), active: pathname.startsWith('/viec-cua-toi') }] : []),
@@ -1699,11 +1761,11 @@ function ProtectedLayout() {
       label: text('Tra cứu', 'Browse'),
       links: [
         { to: '/projects', icon: <UserRound size={17} />, label: text('Dự án', 'Projects'), active: pathname.startsWith('/projects') },
-        { to: '/gop-y', icon: <MessageSquarePlus size={17} />, label: text('Góp ý', 'Feedback'), active: pathname.startsWith('/gop-y') },
-        { to: '/tuan-qua', icon: <CalendarRange size={17} />, label: text('Tuần qua', 'Last week'), active: pathname.startsWith('/tuan-qua') },
+        { to: '/feedback', icon: <MessageSquarePlus size={17} />, label: text('Góp ý', 'Feedback'), active: pathname.startsWith('/feedback') },
+        { to: '/last-week', icon: <CalendarRange size={17} />, label: text('Tuần qua', 'Last week'), active: pathname.startsWith('/last-week') },
         { to: '/intakes', icon: <List size={17} />, label: text('Tất cả Intake', 'All Intake'), active: pathname.startsWith('/intakes') && pathname !== '/intakes/new' },
         { to: '/meetings', icon: <MessagesSquare size={17} />, label: text('Cuộc họp', 'Meetings'), active: pathname.startsWith('/meetings') },
-        { to: '/huong-dan', icon: <CircleHelp size={17} />, label: text('Hướng dẫn', 'Guide'), active: pathname.startsWith('/huong-dan') },
+        { to: '/guide', icon: <CircleHelp size={17} />, label: text('Hướng dẫn', 'Guide'), active: pathname.startsWith('/guide') },
       ],
     },
   ]
@@ -1725,10 +1787,10 @@ function ProtectedLayout() {
   const toggleNavMode = () => { const next = navMode === 'basic' ? 'all' : 'basic'; try { localStorage.setItem(NAV_MODE_KEY, next) } catch { /* private window */ } setNavMode(next) }
   // The private space belongs to the CTO role (ADR-0031): one entry that opens its three pages.
   const privateLinks = user.role === 'CTO' && betaOn ? [
-    { to: '/rieng', icon: <Lightbulb size={17} />, label: 'Kho ý tưởng', active: pathname === '/rieng' || pathname.startsWith('/rieng/y/') },
-    { to: '/rieng/giong', icon: <UserRound size={17} />, label: 'Giọng của tôi', active: pathname === '/rieng/giong' },
-    { to: '/rieng/nguon', icon: <Eye size={17} />, label: 'Nguồn theo dõi', active: pathname === '/rieng/nguon' },
-    { to: '/rieng/thiet-lap/kenh-dang', icon: <Settings size={17} />, label: 'Thiết lập nội dung', active: pathname.startsWith('/rieng/thiet-lap') },
+    { to: '/rieng', icon: <Lightbulb size={17} />, label: text('Kho ý tưởng', 'Idea library'), active: pathname === '/rieng' || pathname.startsWith('/rieng/y/') },
+    { to: '/rieng/giong', icon: <UserRound size={17} />, label: text('Giọng của tôi', 'My voice'), active: pathname === '/rieng/giong' },
+    { to: '/rieng/nguon', icon: <Eye size={17} />, label: text('Nguồn theo dõi', 'Watch sources'), active: pathname === '/rieng/nguon' },
+    { to: '/rieng/thiet-lap/kenh-dang', icon: <Settings size={17} />, label: text('Thiết lập nội dung', 'Content settings'), active: pathname.startsWith('/rieng/thiet-lap') },
   ] : []
   const inPrivate = pathname.startsWith('/rieng')
   const togglePrivate = () => { try { localStorage.setItem(PRIVATE_OPEN_KEY, privateOpen ? '0' : '1') } catch { /* no memory in a private window */ } setPrivateOpen(!privateOpen) }
@@ -1757,7 +1819,7 @@ function ProtectedLayout() {
             <div className="nav-group nav-private">
               {!collapsed && (
                 <button type="button" className={`nav-toggle${inPrivate ? ' active' : ''}`} aria-expanded={showPrivate} onClick={togglePrivate}>
-                  <span className="nav-icon" aria-hidden="true"><Lock size={17} /></span><span className="nav-text">Riêng</span><ChevronDown size={14} className={`nav-chevron${showPrivate ? ' is-open' : ''}`} aria-hidden="true" />
+                  <span className="nav-icon" aria-hidden="true"><Lock size={17} /></span><span className="nav-text">{text('Riêng', 'Private')}</span><ChevronDown size={14} className={`nav-chevron${showPrivate ? ' is-open' : ''}`} aria-hidden="true" />
                 </button>
               )}
               {showPrivate && privateLinks.map(({ to, icon, label, active }) => (
@@ -1780,11 +1842,12 @@ function ProtectedLayout() {
           <PendingRecordings />
           <RecordingIndicator />
           {user.role !== 'DEVELOPER' && !marketing && <Link to="/intakes/new" className="button button-primary button-small topbar-quick" title={text('Dán tin nhắn, email hay ghi chú của khách', 'Paste a customer message, email, or note')}><Plus size={15} aria-hidden="true" /> {text('Tạo Intake', 'Create Intake')}</Link>}
-          <Link to="/viec-rieng?them=1" className="button button-secondary button-small topbar-quick" title="Việc của mình ngoài dự án; chỉ mình thấy"><ListChecks size={15} aria-hidden="true" /> Việc riêng</Link>
+          <Link to="/viec-rieng?them=1" className="button button-secondary button-small topbar-quick" title={text('Việc của mình ngoài dự án; chỉ mình thấy', 'Work outside projects; only you can see it')}><ListChecks size={15} aria-hidden="true" /> {text('Việc riêng', 'Personal tasks')}</Link>
           <QuickCreate />
           <QuickSearch />
           <ChangelogButton />
           <AlertBell />
+          <LocaleSwitch className="locale-switch-topbar" />
           {user.role === 'CTO' && <Link to="/settings" className={`icon-button topbar-settings${pathname.startsWith('/settings') ? ' active' : ''}`} aria-label={text('Cài đặt', 'Settings')} title={text('Cài đặt', 'Settings')}><Settings size={17} /></Link>}
           {commandsOpen && <AgentCommandsSheet onClose={() => setCommandsOpen(false)} />}
           <UserMenu onCommands={() => setCommandsOpen(true)} person={person} initials={initials} role={user.role === 'CTO' ? text('CTO · mọi dự án', 'CTO · all projects') : user.role === 'DEVELOPER' ? 'Developer' : `Project Owner${user.project_ids && user.project_ids.length > 0 ? text(` · ${user.project_ids.length} dự án`, ` · ${user.project_ids.length} projects`) : ''}`} onSignOut={signOut} />
@@ -1794,7 +1857,7 @@ function ProtectedLayout() {
           <main className="page"><TopBarSlots.Provider value={slots}><Outlet context={{ setRightPanel } satisfies ShellContext} /></TopBarSlots.Provider></main>
           {rightPanel && (
             <aside className="right-panel" aria-label={rightPanel.title}>
-              <header><h2>{rightPanel.title}</h2><button className="icon-button" type="button" onClick={rightPanel.onClose} aria-label="Đóng bảng cài đặt"><X size={17} /></button></header>
+              <header><h2>{rightPanel.title}</h2><button className="icon-button" type="button" onClick={rightPanel.onClose} aria-label={text('Đóng bảng cài đặt', 'Close settings panel')}><X size={17} /></button></header>
               <div className="right-panel-body">{rightPanel.content}</div>
             </aside>
           )}
@@ -1806,6 +1869,7 @@ function ProtectedLayout() {
 
 // Approving straight from Daily Planning is the shortcut for urgent work. This shows how often it is taken.
 function ApprovalSources() {
+  const { text } = useLocale()
   const sources = useQuery({ queryKey: ['approval-sources'], queryFn: () => api<ApprovalSourceWeek[]>('/approvals/sources?weeks=4') })
   const weeks = sources.data || []
   if (weeks.every((week) => week.from_queue + week.from_planning === 0)) return null
@@ -1815,28 +1879,29 @@ function ApprovalSources() {
   const mostlyShortcut = currentTotal >= 4 && current.from_planning * 2 > currentTotal
   return (
     <section className="panel approval-sources">
-      <div className="panel-heading"><div><h2>Yêu cầu được duyệt ở đâu</h2></div><span className="approval-legend"><i className="from-queue" /> Hàng chờ phê duyệt <i className="from-planning" /> Thẳng từ Daily Planning</span></div>
+      <div className="panel-heading"><div><h2>{text('Yêu cầu được duyệt ở đâu', 'Where requests are approved')}</h2></div><span className="approval-legend"><i className="from-queue" /> {text('Hàng chờ phê duyệt', 'Approval queue')} <i className="from-planning" /> {text('Thẳng từ Daily Planning', 'Directly from Daily Planning')}</span></div>
       <ul>
         {weeks.map((week, index) => {
           const total = week.from_queue + week.from_planning
           return (
             <li key={week.week_start}>
-              <span>{index === 0 ? 'Tuần này' : `Tuần ${formatDay(week.week_start)}`}</span>
-              <div className="approval-bar" role="img" aria-label={`${week.from_queue} từ hàng chờ, ${week.from_planning} từ Daily Planning`}>
+              <span>{index === 0 ? text('Tuần này', 'This week') : text(`Tuần ${formatDay(week.week_start)}`, `Week ${formatDay(week.week_start)}`)}</span>
+              <div className="approval-bar" role="img" aria-label={text(`${week.from_queue} từ hàng chờ, ${week.from_planning} từ Daily Planning`, `${week.from_queue} from the queue, ${week.from_planning} from Daily Planning`)}>
                 {week.from_queue > 0 && <i className="from-queue" style={{ width: `${(week.from_queue / most) * 100}%` }} />}
                 {week.from_planning > 0 && <i className="from-planning" style={{ width: `${(week.from_planning / most) * 100}%` }} />}
               </div>
-              <small>{total === 0 ? 'Chưa duyệt yêu cầu nào' : `${total} yêu cầu · ${week.from_planning} từ Planning (${Math.round((week.from_planning / total) * 100)}%)`}</small>
+              <small>{total === 0 ? text('Chưa duyệt yêu cầu nào', 'No requests approved') : text(`${total} yêu cầu · ${week.from_planning} từ Planning (${Math.round((week.from_planning / total) * 100)}%)`, `${total} requests · ${week.from_planning} from Planning (${Math.round((week.from_planning / total) * 100)}%)`)}</small>
             </li>
           )
         })}
       </ul>
-      {mostlyShortcut && <p className="notice notice-warn">Tuần này hơn nửa số yêu cầu được duyệt thẳng từ Daily Planning. Lối này dành cho việc gấp; nếu thành thói quen thì hàng chờ phê duyệt không còn tác dụng sàng lọc.</p>}
+      {mostlyShortcut && <p className="notice notice-warn">{text('Tuần này hơn nửa số yêu cầu được duyệt thẳng từ Daily Planning. Lối này dành cho việc gấp; nếu thành thói quen thì hàng chờ phê duyệt không còn tác dụng sàng lọc.', 'More than half of this week\'s requests were approved directly from Daily Planning. This shortcut is for urgent work; frequent use bypasses the approval queue\'s review function.')}</p>}
     </section>
   )
 }
 
 const readinessText: Record<string, string> = { READY: 'Đủ cơ sở', MISSING: 'Thiếu cơ sở', NO_WORK: 'Không có việc hôm qua' }
+const readinessTextEn: Record<string, string> = { READY: 'Ready for review', MISSING: 'Missing review basis', NO_WORK: 'No work yesterday' }
 
 function nextDay(value: string) {
   const [year, month, day] = value.split('-').map(Number)
@@ -1864,20 +1929,21 @@ const peopleStateText: Record<PeopleDayPerson['state'], string> = { OVER: 'Quá 
 
 // The CTO's lines under the board: minutes spent running the team, and how far the server is behind main (FR-UI-15).
 function CtoLines({ time }: { time: CtoTime | null }) {
-  const changelog = useQuery({ queryKey: ['changelog'], queryFn: () => api<Changelog>('/changelog'), staleTime: 5 * 60_000 })
+  const { locale, text } = useLocale()
+  const changelog = useQuery({ queryKey: ['changelog', locale], queryFn: () => api<Changelog>(`/changelog?lang=${locale}`), staleTime: 5 * 60_000 })
   const [copied, setCopied] = useState(false)
   const behind = changelog.data?.behind ?? null
   const sha = changelog.data?.build.sha || ''
   const command = 'bash scripts/deploy.sh'
   return (
-    <section className="today-cto-lines" aria-label="Dành cho CTO">
+    <section className="today-cto-lines" aria-label={text('Dành cho CTO', 'For the CTO')}>
       {time && (
-        <p><Timer size={14} aria-hidden="true" /><span>Điều hành hôm nay <strong>{minutesText(time.today_minutes)}</strong> ({time.actions_today} thao tác) · trung bình 7 ngày <strong>{minutesText(time.avg7_minutes)}</strong></span><small>đo theo thao tác để lại dấu trong app, không tính thời gian đọc; mục tiêu 2 giờ/ngày</small></p>
+        <p><Timer size={14} aria-hidden="true" /><span>{text('Điều hành hôm nay', 'Operations today')} <strong>{text(minutesText(time.today_minutes), time.today_minutes >= 60 ? `${Math.floor(time.today_minutes / 60)} hours ${time.today_minutes % 60} minutes` : `${time.today_minutes} minutes`)}</strong> ({text(`${time.actions_today} thao tác`, `${time.actions_today} actions`)}) · {text('trung bình 7 ngày', '7-day average')} <strong>{text(minutesText(time.avg7_minutes), time.avg7_minutes >= 60 ? `${Math.floor(time.avg7_minutes / 60)} hours ${time.avg7_minutes % 60} minutes` : `${time.avg7_minutes} minutes`)}</strong></span><small>{text('đo theo thao tác để lại dấu trong app, không tính thời gian đọc; mục tiêu 2 giờ/ngày', 'measured from actions recorded in the app, excluding reading time; target: 2 hours/day')}</small></p>
       )}
       {behind !== null && (
         <p className={behind > 0 ? 'is-behind' : undefined}><Rocket size={14} aria-hidden="true" />
-          <span>{behind > 0 ? <><strong>{behind} mục mới</strong> chưa deploy · bản đang chạy {sha.slice(0, 7)}</> : <>Server đang chạy bản mới nhất ({sha.slice(0, 7)})</>}</span>
-          {behind > 0 && <button type="button" className="text-button" title="Chép lệnh rồi chạy trong thư mục repo trên server: pull, build, up, kiểm sức khỏe" onClick={() => { void navigator.clipboard.writeText(command).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000) }) }}><Copy size={13} aria-hidden="true" /> {copied ? 'Đã chép' : `Chép "${command}"`}</button>}
+          <span>{behind > 0 ? <><strong>{text(`${behind} mục mới`, `${behind} new entries`)}</strong> {text('chưa deploy · bản đang chạy', 'not deployed · running version')} {sha.slice(0, 7)}</> : <>{text('Server đang chạy bản mới nhất', 'The server is running the latest version')} ({sha.slice(0, 7)})</>}</span>
+          {behind > 0 && <button type="button" className="text-button" title={text('Chép lệnh rồi chạy trong thư mục repo trên server: pull, build, up, kiểm sức khỏe', 'Copy the command and run it in the repository directory on the server: pull, build, start, and health check')} onClick={() => { void navigator.clipboard.writeText(command).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000) }) }}><Copy size={13} aria-hidden="true" /> {copied ? text('Đã chép', 'Copied') : text(`Chép "${command}"`, `Copy "${command}"`)}</button>}
         </p>
       )}
     </section>
@@ -1886,36 +1952,38 @@ function CtoLines({ time }: { time: CtoTime | null }) {
 
 // One row per person for a day, across every project's plan (FR-PLAN-28).
 function PeopleBoard({ day }: { day: string }) {
+  const { text } = useLocale()
   const people = useQuery({ queryKey: ['planning-people', day], queryFn: () => api<PeopleDay>(`/planning/people/${day}`), refetchInterval: 60_000 })
   if (people.isLoading) return <LoadingBlock />
   if (people.error) return <ErrorNotice error={people.error} onRetry={() => { void people.refetch() }} />
   const rows = people.data?.people || []
-  if (rows.length === 0) return <EmptyState icon={<UserRound size={20} />} title="Chưa có nhân sự đang hoạt động" text="Thêm người ở Cài đặt > Nhân sự." />
+  if (rows.length === 0) return <EmptyState icon={<UserRound size={20} />} title={text('Chưa có nhân sự đang hoạt động', 'No active team members')} text={text('Thêm người ở Cài đặt > Nhân sự.', 'Add people under Settings > Team.')} />
   return (
     <div className="today-board people-board">
       <table>
-        <thead><tr><th>Người</th><th>Tình trạng</th><th>Đã xếp / có</th><th>Theo dự án</th></tr></thead>
+        <thead><tr><th>{text('Người', 'Person')}</th><th>{text('Tình trạng', 'Status')}</th><th>{text('Đã xếp / có', 'Planned / available')}</th><th>{text('Theo dự án', 'By project')}</th></tr></thead>
         <tbody>
           {rows.map((person) => (
             <tr key={person.member_id} className={person.state === 'OVER' ? 'is-p0' : undefined}>
-              <td className="board-project"><Link to={`/ke-hoach-nguoi?member=${person.member_id}&date=${day}&view=tuan`} title="Xem kế hoạch của người này qua các ngày"><strong>{person.display_name}</strong></Link></td>
-              <td><span className={`people-state people-${person.state.toLowerCase()}`}>{peopleStateText[person.state]}{person.state === 'FREE' ? ` ${hours(person.free_hours)} giờ` : person.state === 'OVER' ? ` +${hours(person.planned_hours - person.available_hours)}` : ''}</span></td>
-              <td className={person.state === 'OVER' ? 'board-overdue' : undefined}>{hours(person.planned_hours)}/{hours(person.available_hours)} giờ</td>
-              <td>{person.projects.length === 0 ? <span className="text-muted">chưa có việc</span> : person.projects.map((project) => <Link key={project.id} to={`/planning?project=${project.id}&date=${day}`} className="people-project">{project.name} {hours(project.hours)} giờ{project.run_status && ['DRAFT', 'REVIEW_REQUIRED'].includes(project.run_status) ? ' (nháp)' : ''}</Link>)}</td>
+              <td className="board-project"><Link to={`/people-planning?member=${person.member_id}&date=${day}&view=tuan`} title={text('Xem kế hoạch của người này qua các ngày', 'View this person\'s plan across days')}><strong>{person.display_name}</strong></Link></td>
+              <td><span className={`people-state people-${person.state.toLowerCase()}`}>{text(peopleStateText[person.state], ({ OVER: 'Over capacity', FREE: 'Available', OK: 'Fully planned', OFF: 'Off' } as Record<PeopleDayPerson['state'], string>)[person.state])}{person.state === 'FREE' ? ` ${hours(person.free_hours)} ${text('giờ', 'hours')}` : person.state === 'OVER' ? ` +${hours(person.planned_hours - person.available_hours)}` : ''}</span></td>
+              <td className={person.state === 'OVER' ? 'board-overdue' : undefined}>{hours(person.planned_hours)}/{hours(person.available_hours)} {text('giờ', 'hours')}</td>
+              <td>{person.projects.length === 0 ? <span className="text-muted">{text('chưa có việc', 'no work assigned')}</span> : person.projects.map((project) => <Link key={project.id} to={`/planning?project=${project.id}&date=${day}`} className="people-project">{project.name} {hours(project.hours)} {text('giờ', 'hours')}{project.run_status && ['DRAFT', 'REVIEW_REQUIRED'].includes(project.run_status) ? text(' (nháp)', ' (draft)') : ''}</Link>)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="field-help">Giờ đã xếp cộng qua mọi kế hoạch của ngày, kể cả nháp. "Quá giờ" là người được hai dự án xếp quá số giờ có; "Còn trống" là còn giờ chưa có việc.</p>
+      <p className="field-help">{text('Giờ đã xếp cộng qua mọi kế hoạch của ngày, kể cả nháp. "Quá giờ" là người được hai dự án xếp quá số giờ có; "Còn trống" là còn giờ chưa có việc.', 'Planned hours include every plan for the day, including drafts. "Over capacity" means projects assigned more hours than the person has; "Available" means they still have unassigned time.')}</p>
     </div>
   )
 }
 
 // One person across projects and days (FR-PLAN-40); the page itself lives in member-plan.tsx.
 function MemberPlanRoute() {
+  const { text } = useLocale()
   return (
     <>
-      <PageHeader title="Kế hoạch theo người" helper={['Chọn một người để xem việc được xếp ở mọi dự án, việc ở khu Việc, giờ việc riêng và ngày nghỉ.', 'Chỉ xem. Ở dự án bạn không chung với người đó, bạn chỉ thấy tên dự án và số giờ.']} />
+      <PageHeader title={text('Kế hoạch theo người', 'Plan by person')} helper={[text('Chọn một người để xem việc được xếp ở mọi dự án, việc ở khu Việc, giờ việc riêng và ngày nghỉ.', 'Choose a person to view assignments across all projects, work board items, personal hours, and days off.'), text('Chỉ xem. Ở dự án bạn không chung với người đó, bạn chỉ thấy tên dự án và số giờ.', 'Read only. For projects you do not share with that person, only the project name and hours are visible.')]} />
       <MemberPlanPage />
     </>
   )
@@ -2146,18 +2214,19 @@ function ProposeWorkDialog({ day, projects, onDone, onCancel }: { day: string; p
 }
 
 function MyDayPage() {
+  const { text } = useLocale()
   const [day, setDay] = useState(todayInPlanningTimezone())
   const [proposing, setProposing] = useState(false)
   const [sent, setSent] = useState<string | null>(null)
   const query = useQuery({ queryKey: ['my-day', day], queryFn: () => api<MyDay>(`/planning/my-day/${day}`), refetchInterval: 60_000 })
   const data = query.data
   const today = todayInPlanningTimezone()
-  const dayName = day === today ? 'Hôm nay' : day === shiftDay(today, 1) ? 'Ngày mai' : day === shiftDay(today, -1) ? 'Hôm qua' : formatDay(day)
+  const dayName = day === today ? text('Hôm nay', 'Today') : day === shiftDay(today, 1) ? text('Ngày mai', 'Tomorrow') : day === shiftDay(today, -1) ? text('Hôm qua', 'Yesterday') : formatDay(day)
   return (
     <div className="page">
       <AgentHint command="today" />
-      <PageHeader title="Việc của tôi" description={data ? `${data.member} · ${dayName}` : dayName} helper={['Việc trong kế hoạch ngày của bạn, ưu tiên cao trước. Khi hoàn tất, tại thẻ việc chọn trạng thái "Xong", rồi thêm link/commit/MR nếu có. Việc có Issue sẽ tự chuyển vào Nghiệm thu để CTO kiểm.', 'Muốn làm một việc chưa có trong kế hoạch: bấm "Đề xuất việc", Project Owner xếp hoặc bỏ qua.', 'Cuối ngày vẫn gửi báo cáo ngày (trong terminal: /in-end-day).']}
-        action={data && data.projects.length > 0 ? <button className="button button-primary" type="button" onClick={() => { setSent(null); setProposing(true) }}><Plus size={16} /> Đề xuất việc</button> : undefined} />
+      <PageHeader title={text('Việc của tôi', 'My work')} description={data ? `${data.member} · ${dayName}` : dayName} helper={[text('Việc trong kế hoạch ngày của bạn, ưu tiên cao trước. Khi hoàn tất, tại thẻ việc chọn trạng thái "Xong", rồi thêm link/commit/MR nếu có. Việc có Issue sẽ tự chuyển vào Nghiệm thu để CTO kiểm.', 'Your daily plan, with high-priority work first. When finished, mark the card as Done and add a link, commit, or MR when available. Work with an Issue moves to Acceptance for CTO review.'), text('Muốn làm một việc chưa có trong kế hoạch: bấm "Đề xuất việc", Project Owner xếp hoặc bỏ qua.', 'To work on something outside the plan, choose "Propose work"; the Project Owner can schedule or skip it.'), text('Cuối ngày vẫn gửi báo cáo ngày (trong terminal: /in-end-day).', 'Still submit your daily report at the end of the day using /in-end-day in the terminal.')]}
+        action={data && data.projects.length > 0 ? <button className="button button-primary" type="button" onClick={() => { setSent(null); setProposing(true) }}><Plus size={16} /> {text('Đề xuất việc', 'Propose work')}</button> : undefined} />
       <PageIntro k="my_day" />
       {sent && <div className="notice notice-success" role="status">{sent}</div>}
       {proposing && data && <ProposeWorkDialog day={day} projects={data.projects} onDone={(text) => { setProposing(false); setSent(text); void query.refetch() }} onCancel={() => setProposing(false)} />}
@@ -2231,6 +2300,7 @@ function MyDayStatus({ item, onChanged }: { item: MyDay['items'][number]; onChan
 }
 
 function PersonalTasksPage() {
+  const { text } = useLocale()
   const [params] = useSearchParams()
   const today = todayInPlanningTimezone()
   const [weekOf, setWeekOf] = useState(today)
@@ -2253,7 +2323,7 @@ function PersonalTasksPage() {
   const summary = data?.summary
   return (
     <>
-      <PageHeader title="Việc riêng" helper={['Việc của chính bạn ngoài dự án: hành chính, gặp đối tác, học. Không ai khác thấy; đội chỉ thấy giờ trống của bạn giảm đi.', 'Giờ của việc trừ vào giờ còn trống trong kế hoạch ngày. Đặt "Nhắc lúc" thì bot Telegram nhắc riêng bạn đúng giờ, kể cả cuối tuần.', 'Ma trận Eisenhower theo tuần: Quan trọng là bạn đánh dấu; Khẩn tự tính theo ngày (hôm nay, ngày mai, có giờ nhắc) và ghi đè được. Ô 1 Làm ngay, 2 Lên lịch, 3 Ủy quyền, 4 Bỏ (không nhắc, tự lưu trữ sau 7 ngày). Kéo việc giữa các ô.', 'Việc chưa xong cuối ngày tự dời sang ngày làm việc kế tiếp, có đếm số lần. Agent trong terminal thấy việc riêng theo ô trong get_my_day và /in-today.']} />
+      <PageHeader title={text('Việc riêng', 'Personal tasks')} helper={[text('Việc của chính bạn ngoài dự án: hành chính, gặp đối tác, học. Không ai khác thấy; đội chỉ thấy giờ trống của bạn giảm đi.', 'Your work outside projects, such as administration, partner meetings, or learning. No one else can see it; the team only sees that your available hours are reduced.'), text('Giờ của việc trừ vào giờ còn trống trong kế hoạch ngày. Đặt "Nhắc lúc" thì bot Telegram nhắc riêng bạn đúng giờ, kể cả cuối tuần.', 'Task hours reduce the availability in your daily plan. Set a reminder time for a private Telegram reminder, including on weekends.'), text('Ma trận Eisenhower theo tuần: Quan trọng là bạn đánh dấu; Khẩn tự tính theo ngày (hôm nay, ngày mai, có giờ nhắc) và ghi đè được. Ô 1 Làm ngay, 2 Lên lịch, 3 Ủy quyền, 4 Bỏ (không nhắc, tự lưu trữ sau 7 ngày). Kéo việc giữa các ô.', 'The weekly Eisenhower matrix uses your Important flag and calculates Urgent from the date or reminder time, with manual override. Drag tasks among Do now, Schedule, Delegate, and Drop.'), text('Việc chưa xong cuối ngày tự dời sang ngày làm việc kế tiếp, có đếm số lần. Agent trong terminal thấy việc riêng theo ô trong get_my_day và /in-today.', 'Unfinished tasks roll over to the next working day and count each rollover. Terminal agents see personal tasks by quadrant in get_my_day and /in-today.')]} />
       {matrix.error != null && <ErrorNotice error={matrix.error} onRetry={() => { void matrix.refetch() }} />}
       {summary && (
         <div className="personal-strip" role="list">
@@ -2317,6 +2387,7 @@ const GETTING_STARTED_KEY = 'intake.getting-started.hidden'
 
 // Three first steps, ticked from real data; "Ẩn" is a per-browser convenience (FR-SETUP-13).
 function GettingStartedCard() {
+  const { text } = useLocale()
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(GETTING_STARTED_KEY) === '1' } catch { return false } })
   const setup = useQuery({ queryKey: ['setup'], queryFn: () => api<SetupState>('/setup'), retry: false })
   const active = setup.data?.wizard === true && !hidden
@@ -2324,19 +2395,19 @@ function GettingStartedCard() {
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: () => api<Account[]>('/users'), enabled: active })
   if (!active || !setup.data) return null
   const tasks = [
-    { key: 'ai', label: 'Nối khóa AI', done: setup.data.ai_ready, to: '/settings/ai' },
+    { key: 'ai', label: text('Nối khóa AI', 'Connect an AI key'), done: setup.data.ai_ready, to: '/settings/ai' },
     // The demo project's own requests do not count as the person's first one.
-    { key: 'intake', label: 'Gửi một yêu cầu thử', done: (intakes.data?.items || []).some((item) => !item.public_id.startsWith('DEM-')), to: '/intakes/new' },
-    { key: 'invite', label: 'Mời một người', done: (accounts.data || []).some((account) => account.role !== 'CTO'), to: '/settings/users' },
+    { key: 'intake', label: text('Gửi một yêu cầu thử', 'Send a test request'), done: (intakes.data?.items || []).some((item) => !item.public_id.startsWith('DEM-')), to: '/intakes/new' },
+    { key: 'invite', label: text('Mời một người', 'Invite someone'), done: (accounts.data || []).some((account) => account.role !== 'CTO'), to: '/settings/users' },
   ]
   const hide = () => { try { localStorage.setItem(GETTING_STARTED_KEY, '1') } catch { /* private window */ } setHidden(true) }
   return (
-    <section className="panel getting-started" aria-label="Bắt đầu">
-      <header><h2>Bắt đầu với Intake</h2><button type="button" className="button button-secondary button-small" onClick={hide}>Ẩn</button></header>
+    <section className="panel getting-started" aria-label={text('Bắt đầu', 'Get started')}>
+      <header><h2>{text('Bắt đầu với Intake', 'Get started with Intake')}</h2><button type="button" className="button button-secondary button-small" onClick={hide}>{text('Ẩn', 'Hide')}</button></header>
       <ul>
         {tasks.map((task) => (
           <li key={task.key} className={task.done ? 'is-done' : undefined}>
-            {task.done ? <Check size={15} aria-label="Đã xong" /> : <Circle size={15} aria-hidden="true" />}
+            {task.done ? <Check size={15} aria-label={text('Đã xong', 'Complete')} /> : <Circle size={15} aria-hidden="true" />}
             <Link to={task.to}>{task.label}</Link>
           </li>
         ))}
@@ -2347,6 +2418,7 @@ function GettingStartedCard() {
 
 function TodayPage() {
   const { user } = useAuth()
+  const { locale, text } = useLocale()
   const isCto = user?.role === 'CTO'
   const today = todayInPlanningTimezone()
   const tomorrow = nextDay(today)
@@ -2357,84 +2429,85 @@ function TodayPage() {
   const unclear = useQuery({ queryKey: ['intakes', 'today-unclear'], queryFn: () => api<IntakePage>('/intakes?limit=1&status=NEEDS_INFORMATION') })
   const summary = useQuery({ queryKey: ['intakes', 'today-summary'], queryFn: () => api<IntakePage>('/intakes?limit=1') })
   const data = overview.data
-  const dateLabel = new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', weekday: 'long', day: 'numeric', month: 'numeric' }).format(new Date())
+  const dateLabel = new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', weekday: 'long', day: 'numeric', month: 'numeric' }).format(new Date())
   const unclearCount = unclear.data?.summary?.total_items || 0
   const syncFailed = summary.data?.summary?.sync_failed || 0
   const notes = [
-    ...(unclearCount > 0 ? [{ key: 'unclear', text: `${unclearCount} yêu cầu đang chờ làm rõ với người gửi`, to: '/intakes?status=NEEDS_INFORMATION' }] : []),
-    ...(syncFailed > 0 ? [{ key: 'failed', text: `${syncFailed} lần đồng bộ bị lỗi`, to: '/intakes?target=FAILED' }] : []),
+    ...(unclearCount > 0 ? [{ key: 'unclear', text: text(`${unclearCount} yêu cầu đang chờ làm rõ với người gửi`, `${unclearCount} requests are waiting for sender clarification`), to: '/intakes?status=NEEDS_INFORMATION' }] : []),
+    ...(syncFailed > 0 ? [{ key: 'failed', text: text(`${syncFailed} lần đồng bộ bị lỗi`, `${syncFailed} sync attempts failed`), to: '/intakes?target=FAILED' }] : []),
   ]
+  const namesText = (list: string[]) => (list.length === 0 ? text('không', 'none') : list.length <= 3 ? list.join(', ') : `${list.slice(0, 3).join(', ')} +${list.length - 3}`)
   const planText = (row: PlanningOverviewProject) => {
-    if (!row.plan.run_id) return 'Chưa có kế hoạch'
-    const state = runStatusLabels[row.plan.status || ''] || row.plan.status
-    const by = view === 'tomorrow' && row.plan.made_by ? ` · ${row.plan.made_by} xếp` : ''
-    return `${state}${by} · ${row.plan.assigned_people}/${row.plan.people_today} người · ${hours(row.plan.assigned_hours)}/${hours(row.plan.available_hours)} giờ${row.plan.scope === 'ALL' ? ' · trong kế hoạch tổng' : ''}${row.plan.warnings > 0 ? ` · ${row.plan.warnings} cảnh báo` : ''}`
+    if (!row.plan.run_id) return text('Chưa có kế hoạch', 'No plan yet')
+    const state = (locale === 'en' ? runStatusLabelsEn : runStatusLabels)[row.plan.status || ''] || row.plan.status
+    const by = view === 'tomorrow' && row.plan.made_by ? text(` · ${row.plan.made_by} xếp`, ` · planned by ${row.plan.made_by}`) : ''
+    return `${state}${by} · ${row.plan.assigned_people}/${row.plan.people_today} ${text('người', 'people')} · ${hours(row.plan.assigned_hours)}/${hours(row.plan.available_hours)} ${text('giờ', 'hours')}${row.plan.scope === 'ALL' ? text(' · trong kế hoạch tổng', ' · in the master plan') : ''}${row.plan.warnings > 0 ? text(` · ${row.plan.warnings} cảnh báo`, ` · ${row.plan.warnings} warnings`) : ''}`
   }
   // The approvals cell: how many, how many are urgent, whose they are (for the CTO), how many waited too long.
   const approvalsText = (row: PlanningOverviewProject) => {
     const parts: string[] = []
     if (row.approvals.urgent > 0) parts.push(`${row.approvals.urgent} P0/P1`)
-    if (isCto && row.approvals.po > 0) parts.push(`${row.approvals.po} chờ Project Owner`)
-    if (row.approvals.overdue > 0) parts.push(`quá hạn ${row.approvals.overdue}`)
+    if (isCto && row.approvals.po > 0) parts.push(text(`${row.approvals.po} chờ Project Owner`, `${row.approvals.po} waiting for Project Owner`))
+    if (row.approvals.overdue > 0) parts.push(text(`quá hạn ${row.approvals.overdue}`, `${row.approvals.overdue} overdue`))
     return parts.length > 0 ? `${row.approvals.pending} (${parts.join(', ')})` : `${row.approvals.pending}`
   }
   const approvalsClass = (row: PlanningOverviewProject) => (row.approvals.overdue > 0 ? 'board-overdue' : row.approvals.pending > 0 ? 'board-attn' : undefined)
   const approvalsLink = (row: PlanningOverviewProject) => `/approvals?project=${row.id}&owner=ALL`
   const reportsText = (row: PlanningOverviewProject) => {
-    if (row.reports.expected === 0) return 'không ai làm'
-    const parts = [`${row.reports.received}/${row.reports.expected} người`]
-    if (row.reports.unreviewed > 0) parts.push(`${row.reports.unreviewed} chờ xác nhận`)
-    if (row.reports.malformed > 0) parts.push(`${row.reports.malformed} sai định dạng`)
-    if (row.reports.late > 0) parts.push(`${row.reports.late} trễ`)
-    if (row.reports.items_without_issue > 0) parts.push(`${row.reports.items_without_issue} việc chưa gắn Issue`)
+    if (row.reports.expected === 0) return text('không ai làm', 'no one working')
+    const parts = [text(`${row.reports.received}/${row.reports.expected} người`, `${row.reports.received}/${row.reports.expected} people`)]
+    if (row.reports.unreviewed > 0) parts.push(text(`${row.reports.unreviewed} chờ xác nhận`, `${row.reports.unreviewed} awaiting confirmation`))
+    if (row.reports.malformed > 0) parts.push(text(`${row.reports.malformed} sai định dạng`, `${row.reports.malformed} malformed`))
+    if (row.reports.late > 0) parts.push(text(`${row.reports.late} trễ`, `${row.reports.late} late`))
+    if (row.reports.items_without_issue > 0) parts.push(text(`${row.reports.items_without_issue} việc chưa gắn Issue`, `${row.reports.items_without_issue} items without an Issue`))
     return parts.join(' · ')
   }
 
   return (
     <>
-      <PageHeader title={user ? greeting(user) : 'Hôm nay'} />
+      <PageHeader title={user ? greeting(user, locale) : text('Hôm nay', 'Today')} />
       <AgentHint command={isCto ? 'board' : 'today'} />
       {isCto && <GettingStartedCard />}
       {overview.error != null && <ErrorNotice error={overview.error} onRetry={() => { void overview.refetch() }} />}
       <PersonalTodayPanel day={today} />
-      <section className="panel today" aria-label="Các dự án hôm nay">
+      <section className="panel today" aria-label={text('Các dự án hôm nay', "Today's projects")}>
         <header>
           <div>
             <div className="today-tabs" role="tablist">
-              <button type="button" role="tab" aria-selected={view === 'today'} className={view === 'today' ? 'active' : undefined} onClick={() => setView('today')}>Hôm nay</button>
-              <button type="button" role="tab" aria-selected={view === 'tomorrow'} className={view === 'tomorrow' ? 'active' : undefined} onClick={() => setView('tomorrow')}>Ngày mai</button>
-              {isCto && <button type="button" role="tab" aria-selected={view === 'people'} className={view === 'people' ? 'active' : undefined} onClick={() => setView('people')}>Người</button>}
+              <button type="button" role="tab" aria-selected={view === 'today'} className={view === 'today' ? 'active' : undefined} onClick={() => setView('today')}>{text('Hôm nay', 'Today')}</button>
+              <button type="button" role="tab" aria-selected={view === 'tomorrow'} className={view === 'tomorrow' ? 'active' : undefined} onClick={() => setView('tomorrow')}>{text('Ngày mai', 'Tomorrow')}</button>
+              {isCto && <button type="button" role="tab" aria-selected={view === 'people'} className={view === 'people' ? 'active' : undefined} onClick={() => setView('people')}>{text('Người', 'People')}</button>}
             </div>
             {view === 'people' ? (
-              <p>Giờ đã xếp qua mọi dự án cho <select aria-label="Ngày" value={peopleDay} onChange={(event) => setPeopleDay(event.target.value as 'today' | 'tomorrow')}><option value="tomorrow">ngày mai {changelogDay(tomorrow)}</option><option value="today">hôm nay {changelogDay(today)}</option></select></p>
+              <p>{text('Giờ đã xếp qua mọi dự án cho', 'Scheduled hours across all projects for')} <select aria-label={text('Ngày', 'Day')} value={peopleDay} onChange={(event) => setPeopleDay(event.target.value as 'today' | 'tomorrow')}><option value="tomorrow">{text('ngày mai', 'tomorrow')} {changelogDay(tomorrow)}</option><option value="today">{text('hôm nay', 'today')} {changelogDay(today)}</option></select></p>
             ) : (
-              <p>{view === 'today' ? dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1) : `Kế hoạch cho ${changelogDay(tomorrow)}`}{data && view === 'today' ? ` · danh sách Issue ${data.gitlab_snapshot_at ? `cập nhật ${formatDate(data.gitlab_snapshot_at)}` : 'chưa lấy'}` : ''}</p>
+              <p>{view === 'today' ? dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1) : text(`Kế hoạch cho ${changelogDay(tomorrow)}`, `Plan for ${changelogDay(tomorrow)}`)}{data && view === 'today' ? text(` · danh sách Issue ${data.gitlab_snapshot_at ? `cập nhật ${formatDate(data.gitlab_snapshot_at, locale)}` : 'chưa lấy'}`, ` · Issue list ${data.gitlab_snapshot_at ? `updated ${formatDate(data.gitlab_snapshot_at, locale)}` : 'not loaded'}`) : ''}</p>
             )}
           </div>
-          {view === 'today' && data && data.overdue_total > 0 && <span className="today-left is-overdue">{data.overdue_total} việc quá hạn</span>}
-          {view === 'today' && data && data.projects.length > 0 && <span className={data.missing_projects === 0 ? 'today-left is-clear' : 'today-left'}>{data.missing_projects === 0 ? 'Đủ cơ sở review' : `${data.missing_projects} dự án thiếu cơ sở`}</span>}
-          {view === 'tomorrow' && data && data.projects.length > 0 && <span className={data.projects.every((row) => row.plan.run_id && !['DRAFT', 'REVIEW_REQUIRED'].includes(row.plan.status || '')) ? 'today-left is-clear' : 'today-left'}>{data.projects.filter((row) => !row.plan.run_id).length} dự án chưa có kế hoạch</span>}
+          {view === 'today' && data && data.overdue_total > 0 && <span className="today-left is-overdue">{text(`${data.overdue_total} việc quá hạn`, `${data.overdue_total} overdue items`)}</span>}
+          {view === 'today' && data && data.projects.length > 0 && <span className={data.missing_projects === 0 ? 'today-left is-clear' : 'today-left'}>{data.missing_projects === 0 ? text('Đủ cơ sở review', 'Ready for review') : text(`${data.missing_projects} dự án thiếu cơ sở`, `${data.missing_projects} projects missing review basis`)}</span>}
+          {view === 'tomorrow' && data && data.projects.length > 0 && <span className={data.projects.every((row) => row.plan.run_id && !['DRAFT', 'REVIEW_REQUIRED'].includes(row.plan.status || '')) ? 'today-left is-clear' : 'today-left'}>{text(`${data.projects.filter((row) => !row.plan.run_id).length} dự án chưa có kế hoạch`, `${data.projects.filter((row) => !row.plan.run_id).length} projects without a plan`)}</span>}
         </header>
         {view === 'people' ? <PeopleBoard day={peopleDay === 'today' ? today : tomorrow} /> : overview.isLoading ? <LoadingBlock /> : !data || data.projects.length === 0 ? (
-          <EmptyState icon={<CalendarDays size={20} />} title="Chưa có dự án phần mềm nào để lập kế hoạch" text={isCto ? 'Tạo dự án loại phần mềm ở Cài đặt > Dự án.' : 'Hãy nhờ CTO thêm bạn vào dự án.'} />
+          <EmptyState icon={<CalendarDays size={20} />} title={text('Chưa có dự án phần mềm nào để lập kế hoạch', 'No software projects are available for planning')} text={isCto ? text('Tạo dự án loại phần mềm ở Cài đặt > Dự án.', 'Create a software project under Settings > Projects.') : text('Hãy nhờ CTO thêm bạn vào dự án.', 'Ask the CTO to add you to a project.')} />
         ) : (
           <div className="today-board">
             {view === 'tomorrow' ? (
               <table>
                 <thead>
-                  <tr><th>Dự án</th><th>Kế hoạch ngày mai</th><th>Người nghỉ</th><th>Có giờ, chưa có việc</th><th>Chuyển tiếp dự kiến</th><th>Chờ duyệt</th><th>Chưa có Issue</th><th>Báo cáo hôm nay</th></tr>
+                  <tr><th>{text('Dự án', 'Project')}</th><th>{text('Kế hoạch ngày mai', "Tomorrow's plan")}</th><th>{text('Người nghỉ', 'People off')}</th><th>{text('Có giờ, chưa có việc', 'Available without work')}</th><th>{text('Chuyển tiếp dự kiến', 'Expected carry-over')}</th><th>{text('Chờ duyệt', 'Pending approval')}</th><th>{text('Chưa có Issue', 'Without Issue')}</th><th>{text('Báo cáo hôm nay', "Today's reports")}</th></tr>
                 </thead>
                 <tbody>
                   {data.projects.map((row) => (
                     <tr key={row.id} className={row.p0 ? 'is-p0' : undefined}>
-                      <td className="board-project"><Link to={`/planning?project=${row.id}&date=${tomorrow}`}><strong>{row.name}</strong></Link>{row.p0 && <span className="status status-rejected" title="Có yêu cầu P0 chờ duyệt hoặc Issue P0 đang mở">P0</span>}</td>
+                      <td className="board-project"><Link to={`/planning?project=${row.id}&date=${tomorrow}`}><strong>{row.name}</strong></Link>{row.p0 && <span className="status status-rejected" title={text('Có yêu cầu P0 chờ duyệt hoặc Issue P0 đang mở', 'A P0 request is pending approval or a P0 Issue is open')}>P0</span>}</td>
                       <td><Link to={`/planning?project=${row.id}&date=${tomorrow}`} className={!row.plan.run_id || ['DRAFT', 'REVIEW_REQUIRED'].includes(row.plan.status || '') ? 'board-attn' : undefined}>{planText(row)}</Link></td>
-                      <td>{names(row.people_off)}</td>
-                      <td className={row.unassigned.length > 0 ? 'board-attn' : undefined}>{row.plan.run_id ? names(row.unassigned) : 'chưa xếp'}</td>
-                      <td className={row.carry_over > 0 ? 'board-attn' : undefined}>{row.carry_over} việc</td>
+                      <td>{namesText(row.people_off)}</td>
+                      <td className={row.unassigned.length > 0 ? 'board-attn' : undefined}>{row.plan.run_id ? namesText(row.unassigned) : text('chưa xếp', 'not planned')}</td>
+                      <td className={row.carry_over > 0 ? 'board-attn' : undefined}>{text(`${row.carry_over} việc`, `${row.carry_over} items`)}</td>
                       <td><Link to={approvalsLink(row)} className={approvalsClass(row)}>{approvalsText(row)}</Link></td>
                       <td><Link to={`/intakes?status=APPROVED&project=${row.code}`} className={row.unsynced > 0 ? 'board-attn' : undefined}>{row.unsynced}</Link></td>
-                      <td><Link to="/reports">{row.reports.expected === 0 ? 'không ai làm' : `${row.reports.received}/${row.reports.expected} người`}</Link></td>
+                      <td><Link to="/reports">{row.reports.expected === 0 ? text('không ai làm', 'no one working') : text(`${row.reports.received}/${row.reports.expected} người`, `${row.reports.received}/${row.reports.expected} people`)}</Link></td>
                     </tr>
                   ))}
                 </tbody>
@@ -2442,42 +2515,42 @@ function TodayPage() {
             ) : (
             <table>
               <thead>
-                <tr><th>Dự án</th><th>Cơ sở review</th><th title="Hồ sơ ngữ cảnh docs/agent/CONTEXT.md của dự án, như Intake đọc gần nhất">Ngữ cảnh</th><th>Báo cáo hôm qua</th><th>Chờ duyệt</th><th>Chưa có Issue</th><th>Chờ phân công</th><th>Kế hoạch hôm nay</th>{isCto && <th>Chờ nghiệm thu</th>}</tr>
+                <tr><th>{text('Dự án', 'Project')}</th><th>{text('Cơ sở review', 'Review basis')}</th><th title={text('Hồ sơ ngữ cảnh docs/agent/CONTEXT.md của dự án, như Intake đọc gần nhất', 'The project context profile in docs/agent/CONTEXT.md from the latest Intake read')}>{text('Ngữ cảnh', 'Context')}</th><th>{text('Báo cáo hôm qua', "Yesterday's reports")}</th><th>{text('Chờ duyệt', 'Pending approval')}</th><th>{text('Chưa có Issue', 'Without Issue')}</th><th>{text('Chờ phân công', 'Waiting assignment')}</th><th>{text('Kế hoạch hôm nay', "Today's plan")}</th>{isCto && <th>{text('Chờ nghiệm thu', 'Pending acceptance')}</th>}</tr>
               </thead>
               <tbody>
                 {data.projects.map((row) => (
                   <tr key={row.id} className={row.p0 ? 'is-p0' : undefined}>
-                    <td className="board-project"><Link to={`/planning?project=${row.id}&date=${today}`}><strong>{row.name}</strong></Link>{row.p0 && <span className="status status-rejected" title={row.overdue.p0_open > 0 ? `${row.overdue.p0_open} Issue P0 mở quá 1 ngày` : 'Có yêu cầu P0 chờ duyệt hoặc Issue P0 đang mở'}>P0{row.overdue.p0_open > 0 ? ' quá hạn' : ''}</span>}</td>
+                    <td className="board-project"><Link to={`/planning?project=${row.id}&date=${today}`}><strong>{row.name}</strong></Link>{row.p0 && <span className="status status-rejected" title={row.overdue.p0_open > 0 ? text(`${row.overdue.p0_open} Issue P0 mở quá 1 ngày`, `${row.overdue.p0_open} P0 Issues open for over 1 day`) : text('Có yêu cầu P0 chờ duyệt hoặc Issue P0 đang mở', 'A P0 request is pending approval or a P0 Issue is open')}>P0{row.overdue.p0_open > 0 ? text(' quá hạn', ' overdue') : ''}</span>}</td>
                     <td>
-                      {row.readiness.reasons.length === 0 ? <span className={`readiness-cell readiness-${row.readiness.state.toLowerCase()}`}>{readinessText[row.readiness.state]}</span> : (
+                      {row.readiness.reasons.length === 0 ? <span className={`readiness-cell readiness-${row.readiness.state.toLowerCase()}`}>{(locale === 'en' ? readinessTextEn : readinessText)[row.readiness.state]}</span> : (
                         <details className="readiness-details">
-                          <summary className={`readiness-cell readiness-${row.readiness.state.toLowerCase()}`}>{readinessText[row.readiness.state]} · {row.readiness.reasons.length}</summary>
+                          <summary className={`readiness-cell readiness-${row.readiness.state.toLowerCase()}`}>{(locale === 'en' ? readinessTextEn : readinessText)[row.readiness.state]} · {row.readiness.reasons.length}</summary>
                           <ul>{row.readiness.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
                         </details>
                       )}
                     </td>
                     <td>
                       {isCto
-                        ? <Link to={`/settings/projects/${row.code}`} className={`status context-band band-${row.context.band.toLowerCase()}`} title={row.context.missing.length > 0 ? `Thiếu: ${row.context.missing.join(' · ')}` : row.context.approved ? 'Hồ sơ đủ, CTO đã duyệt' : 'Hồ sơ đủ, chưa duyệt'}>{contextBandWords[row.context.band] || row.context.band} · {row.context.score}</Link>
-                        : <span className={`status context-band band-${row.context.band.toLowerCase()}`} title={row.context.missing.length > 0 ? `Thiếu: ${row.context.missing.join(' · ')}` : 'Hồ sơ đủ'}>{contextBandWords[row.context.band] || row.context.band} · {row.context.score}</span>}
+                        ? <Link to={`/settings/projects/${row.code}`} className={`status context-band band-${row.context.band.toLowerCase()}`} title={row.context.missing.length > 0 ? text(`Thiếu: ${row.context.missing.join(' · ')}`, `Missing: ${row.context.missing.join(' · ')}`) : row.context.approved ? text('Hồ sơ đủ, CTO đã duyệt', 'Complete profile, approved by CTO') : text('Hồ sơ đủ, chưa duyệt', 'Complete profile, not approved')}>{text(contextBandWords[row.context.band] || row.context.band, ({ FULL: 'Complete', PARTIAL: 'Needs more', MISSING: 'Incomplete' } as Record<string, string>)[row.context.band] || row.context.band)} · {row.context.score}</Link>
+                        : <span className={`status context-band band-${row.context.band.toLowerCase()}`} title={row.context.missing.length > 0 ? text(`Thiếu: ${row.context.missing.join(' · ')}`, `Missing: ${row.context.missing.join(' · ')}`) : text('Hồ sơ đủ', 'Complete profile')}>{text(contextBandWords[row.context.band] || row.context.band, ({ FULL: 'Complete', PARTIAL: 'Needs more', MISSING: 'Incomplete' } as Record<string, string>)[row.context.band] || row.context.band)} · {row.context.score}</span>}
                     </td>
                     <td><Link to={row.reports.items_without_issue > 0 && row.reports.report_date ? `/reports?date=${row.reports.report_date}&unlinked=1` : '/reports'} className={row.reports.missing.length > 0 || row.reports.unreviewed > 0 ? 'board-attn' : undefined}>{reportsText(row)}</Link></td>
                     <td><Link to={approvalsLink(row)} className={approvalsClass(row)}>{approvalsText(row)}</Link></td>
                     <td><Link to={`/intakes?status=APPROVED&project=${row.code}`} className={row.unsynced > 0 ? 'board-attn' : undefined}>{row.unsynced}</Link></td>
-                    <td><Link to={`/planning?project=${row.id}&date=${today}`} className={row.overdue.waiting > 0 ? 'board-overdue' : row.plan.waiting > 0 ? 'board-attn' : undefined}>{row.plan.run_id ? `${row.plan.waiting}${row.overdue.waiting > 0 ? ` (quá hạn ${row.overdue.waiting})` : ''}` : 'chưa có kế hoạch'}</Link></td>
+                    <td><Link to={`/planning?project=${row.id}&date=${today}`} className={row.overdue.waiting > 0 ? 'board-overdue' : row.plan.waiting > 0 ? 'board-attn' : undefined}>{row.plan.run_id ? `${row.plan.waiting}${row.overdue.waiting > 0 ? text(` (quá hạn ${row.overdue.waiting})`, ` (${row.overdue.waiting} overdue)`) : ''}` : text('chưa có kế hoạch', 'no plan yet')}</Link></td>
                     <td><Link to={`/planning?project=${row.id}&date=${today}`} className={!row.plan.run_id || ['DRAFT', 'REVIEW_REQUIRED'].includes(row.plan.status || '') ? 'board-attn' : undefined}>{planText(row)}</Link></td>
-                    {isCto && <td><Link to={`/nghiem-thu?project=${row.id}`} className={row.overdue.work_log > 0 ? 'board-overdue' : row.acceptance.verifications_pending + row.acceptance.work_log_pending > 0 ? 'board-attn' : undefined}>{row.acceptance.verifications_pending} nghiệm thu · {row.acceptance.work_log_pending} xác nhận{row.overdue.work_log > 0 ? ` (quá hạn ${row.overdue.work_log})` : ''}</Link></td>}
+                    {isCto && <td><Link to={`/acceptance?project=${row.id}`} className={row.overdue.work_log > 0 ? 'board-overdue' : row.acceptance.verifications_pending + row.acceptance.work_log_pending > 0 ? 'board-attn' : undefined}>{text(`${row.acceptance.verifications_pending} nghiệm thu · ${row.acceptance.work_log_pending} xác nhận`, `${row.acceptance.verifications_pending} acceptance · ${row.acceptance.work_log_pending} confirmations`)}{row.overdue.work_log > 0 ? text(` (quá hạn ${row.overdue.work_log})`, ` (${row.overdue.work_log} overdue)`) : ''}</Link></td>}
                   </tr>
                 ))}
               </tbody>
             </table>
             )}
-            <p className="field-help">{view === 'tomorrow' ? 'Xem từ 17:30: báo cáo hôm nay về đến đâu thì "chuyển tiếp dự kiến" đúng đến đó. Project Owner xếp và chốt kế hoạch dự án mình; 07:00 hệ thống tạo nháp cho dự án còn trống.' : 'Thứ tự: dự án có P0 trước, rồi theo số việc đang chờ anh chị. "Cơ sở review" đủ khi mọi người có giờ hôm qua đã gửi báo cáo đọc được, danh sách Issue đã cập nhật hôm nay, họp hôm qua đã có note và mục hành động đã thành Intake, không có yêu cầu kẹt ở bước AI. "Quá hạn": chờ duyệt quá 24 giờ, chờ phân công quá 2 ngày, lịch sử xử lý chờ xác nhận quá 1 ngày, Issue P0 mở quá 1 ngày.'}</p>
+            <p className="field-help">{view === 'tomorrow' ? text('Xem từ 17:30: báo cáo hôm nay về đến đâu thì "chuyển tiếp dự kiến" đúng đến đó. Project Owner xếp và chốt kế hoạch dự án mình; 07:00 hệ thống tạo nháp cho dự án còn trống.', 'From 17:30, expected carry-over reflects the reports received so far. Project Owners schedule and finalize their project plans; at 07:00 the system creates drafts for projects still without a plan.') : text('Thứ tự: dự án có P0 trước, rồi theo số việc đang chờ anh chị. "Cơ sở review" đủ khi mọi người có giờ hôm qua đã gửi báo cáo đọc được, danh sách Issue đã cập nhật hôm nay, họp hôm qua đã có note và mục hành động đã thành Intake, không có yêu cầu kẹt ở bước AI. "Quá hạn": chờ duyệt quá 24 giờ, chờ phân công quá 2 ngày, lịch sử xử lý chờ xác nhận quá 1 ngày, Issue P0 mở quá 1 ngày.', 'Order: projects with P0 first, then by pending work. Review basis is ready when everyone who worked yesterday submitted a readable report, the Issue list was updated today, yesterday\'s meetings have notes and action items converted to Intake, and no request is stuck in AI processing. Overdue means approval over 24 hours, assignment over 2 days, work-log confirmation over 1 day, or a P0 Issue open over 1 day.')}</p>
           </div>
         )}
       </section>
       {notes.length > 0 && (
-        <section className="today-notes" aria-label="Cần để ý">
+        <section className="today-notes" aria-label={text('Cần để ý', 'Needs attention')}>
           {notes.map((note) => <Link key={note.key} to={note.to}><TriangleAlert size={15} aria-hidden="true" /><span>{note.text}</span><ArrowRight size={14} aria-hidden="true" /></Link>)}
         </section>
       )}
@@ -2489,8 +2562,9 @@ function TodayPage() {
 }
 
 function HealthLine({ label, value }: { label: string; value?: string }) {
+  const { text } = useLocale()
   const okay = value === 'healthy' || value === 'ok'
-  return <div className="health-line"><span>{label}</span><strong className={okay ? 'text-good' : 'text-warn'}>{okay ? 'Ổn định' : value || 'Chưa rõ'}</strong></div>
+  return <div className="health-line"><span>{label}</span><strong className={okay ? 'text-good' : 'text-warn'}>{okay ? text('Ổn định', 'Healthy') : value || text('Chưa rõ', 'Unknown')}</strong></div>
 }
 
 function EmptyState({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
@@ -2610,26 +2684,27 @@ function DuplicateDialog({ intake, onDone, onCancel }: { intake: Intake; onDone:
 }
 
 function IntakeRow({ intake, onRemove }: { intake: Intake; onRemove?: (intake: Intake) => void }) {
+  const { locale, text } = useLocale()
   const targets = intake.sync_targets || []
   const waitingTarget = targets.length === 0 && intake.status === 'APPROVED' && (intake.approved_route === 'GITLAB' || intake.approved_route === 'GITHUB')
   const stoppedReason = intake.lifecycle_stage !== 'STOPPED' ? null
-    : intake.duplicate_of_id || intake.duplicate_issue ? 'Trùng'
-      : intake.status === 'REJECTED' ? 'Từ chối'
-        : intake.status === 'DEFERRED' ? 'Đã hoãn'
-          : intake.approved_route === 'WORK' && intake.work_item?.status === 'CANCELLED' ? 'Đã bỏ'
-            : intake.status === 'CLOSED' ? 'Đã đóng' : null
+    : intake.duplicate_of_id || intake.duplicate_issue ? text('Trùng', 'Duplicate')
+      : intake.status === 'REJECTED' ? text('Từ chối', 'Rejected')
+        : intake.status === 'DEFERRED' ? text('Đã hoãn', 'Deferred')
+          : intake.approved_route === 'WORK' && intake.work_item?.status === 'CANCELLED' ? text('Đã bỏ', 'Cancelled')
+            : intake.status === 'CLOSED' ? text('Đã đóng', 'Closed') : null
   return (
     <article className={`intake-row ${intake.approved_priority === 'P0' || intake.suggested_priority === 'P0' ? 'intake-row-critical' : ''}`}>
-      <Link className="row-main" to={`/intakes/${intake.id}`}><span className="public-id">{intake.public_id}</span><strong>{intake.normalized_title || 'Chưa có tiêu đề'}</strong><small>{channelLabels[intake.channel]} · {formatDate(intake.updated_at)}</small></Link>
+      <Link className="row-main" to={`/intakes/${intake.id}`}><span className="public-id">{intake.public_id}</span><strong>{intake.normalized_title || text('Chưa có tiêu đề', 'Untitled')}</strong><small>{(locale === 'en' ? channelLabelsEn : channelLabels)[intake.channel]} · {formatDate(intake.updated_at, locale)}</small></Link>
       <PriorityBadge priority={intake.approved_priority || intake.suggested_priority} />
       <div className="row-targets">
         <LifecycleBadge stage={intake.lifecycle_stage} />
-        {stoppedReason && <span className="status lifecycle-reason" title="Lý do kết thúc">{stoppedReason}</span>}
+        {stoppedReason && <span className="status lifecycle-reason" title={text('Lý do kết thúc', 'Reason closed')}>{stoppedReason}</span>}
         <ReadinessChip readiness={intake.agent_readiness} compact />
         {targets.map((target) => <SyncTargetChip key={`${target.system}-${target.updated_at}`} target={target} />)}
-        {intake.work_item && intake.approved_route === 'WORK' && <Link className="target-chip target-work" to={`/viec?project=${intake.work_item.project_id}&work=${intake.work_item.id}`}>Việc {intake.work_item.code}</Link>}
-        {waitingTarget && <span className="target-chip target-ready">Chờ Sync · {intake.approved_route === 'GITHUB' ? 'GitHub' : 'GitLab'}</span>}
-        {onRemove && canRemove(intake) && <button type="button" className="icon-button row-remove" aria-label={`Xóa ${intake.public_id}`} title="Xóa yêu cầu" onClick={() => onRemove(intake)}><Trash2 size={15} /></button>}
+        {intake.work_item && intake.approved_route === 'WORK' && <Link className="target-chip target-work" to={`/viec?project=${intake.work_item.project_id}&work=${intake.work_item.id}`}>{text('Việc', 'Work')} {intake.work_item.code}</Link>}
+        {waitingTarget && <span className="target-chip target-ready">{text('Chờ Sync', 'Awaiting sync')} · {intake.approved_route === 'GITHUB' ? 'GitHub' : 'GitLab'}</span>}
+        {onRemove && canRemove(intake) && <button type="button" className="icon-button row-remove" aria-label={text(`Xóa ${intake.public_id}`, `Delete ${intake.public_id}`)} title={text('Xóa yêu cầu', 'Delete request')} onClick={() => onRemove(intake)}><Trash2 size={15} /></button>}
       </div>
       <Link className="row-arrow" to={`/intakes/${intake.id}`} aria-label={`Mở ${intake.public_id}`}><ArrowRight size={17} /></Link>
     </article>
@@ -3050,6 +3125,7 @@ function NewIntakePage() {
 }
 
 function IntakeListPage() {
+  const { locale, text } = useLocale()
   const [linked, setLinked] = useSearchParams()
   const queryClient = useQueryClient()
   const [removing, setRemoving] = useState<Intake>()
@@ -3144,7 +3220,7 @@ function IntakeListPage() {
   }, [pageNumber, query.data?.items.length, query.isSuccess, setLinked])
   const filtered = query.data?.items || []
   const summary = query.data?.summary || { total_items: 0, p0_attention: 0, p1_attention: 0, pending_approval: 0, sync_failed: 0 }
-  const projectScopeLabel = selectedProject ? `${selectedProject.intake_key} · ${selectedProject.name}` : 'Tất cả dự án'
+  const projectScopeLabel = selectedProject ? `${selectedProject.intake_key} · ${selectedProject.name}` : text('Tất cả dự án', 'All projects')
   const hasFilters = Boolean(search || stage !== 'ALL' || project !== 'ALL' || target !== 'ALL' || priority !== 'ALL')
   const hasLinkedState = hasFilters || pageNumber > 1
   const resetFilters = () => { setCursorHistory({}); setPaginationNotice(undefined); setLinked(new URLSearchParams()) }
@@ -3191,39 +3267,39 @@ function IntakeListPage() {
     <>
       {removing && <RemoveIntakeDialog intake={removing} onCancel={() => setRemoving(undefined)} onDone={() => { setRemoving(undefined); void queryClient.invalidateQueries({ queryKey: ['intakes'] }); void queryClient.invalidateQueries({ queryKey: ['approvals'] }); void queryClient.invalidateQueries({ queryKey: ['alert-intakes'] }) }} />}
       {/* The top bar already carries "Tạo Intake" on every page (44bab21); a second one here showed twice. */}
-      <PageHeader title="Tất cả Intake" helper="Danh sách chỉ hiển thị dữ liệu đã chuẩn hóa; nội dung nguồn không xuất hiện ở đây." />
-      {project === 'demo' && <p className="notice notice-info" role="note">Đây là dữ liệu mẫu. Thêm khóa AI để Intake tự chuẩn hóa yêu cầu thật của bạn.</p>}
-      {(projects.data?.length || 0) > 1 && <div className="summary-scope"><span>Thống kê theo</span><strong>{projectScopeLabel}</strong></div>}
-      <section className="attention-grid" aria-label="Tổng quan ưu tiên">
-        <button className={`attention-card attention-p0 ${priority === 'P0' ? 'active' : ''}`} onClick={() => setFilter('priority', priority === 'P0' ? null : 'P0')}><span>P0 cần xử lý</span><strong>{summary.p0_attention}</strong><small>Khẩn cấp, chưa hoàn tất Intake</small></button>
-        <button className={`attention-card attention-p1 ${priority === 'P1' ? 'active' : ''}`} onClick={() => setFilter('priority', priority === 'P1' ? null : 'P1')}><span>P1 cần xử lý</span><strong>{summary.p1_attention}</strong><small>Ưu tiên cao cần theo dõi</small></button>
-        <button className={`attention-card attention-review ${stage === 'PENDING_APPROVAL' ? 'active' : ''}`} onClick={() => setFilter('stage', stage === 'PENDING_APPROVAL' ? null : 'PENDING_APPROVAL')}><span>Chờ CTO duyệt</span><strong>{summary.pending_approval}</strong><small>Cần ra quyết định</small></button>
-        <button className={`attention-card attention-failed ${target === 'FAILED' ? 'active' : ''}`} onClick={() => setFilter('target', target === 'FAILED' ? null : 'FAILED')}><span>Sync cần chú ý</span><strong>{summary.sync_failed}</strong><small>Đồng bộ delivery lỗi</small></button>
+      <PageHeader title={text('Tất cả Intake', 'All Intake')} helper={text('Danh sách chỉ hiển thị dữ liệu đã chuẩn hóa; nội dung nguồn không xuất hiện ở đây.', 'This list shows normalized data only; original source content is not displayed here.')} />
+      {project === 'demo' && <p className="notice notice-info" role="note">{text('Đây là dữ liệu mẫu. Thêm khóa AI để Intake tự chuẩn hóa yêu cầu thật của bạn.', 'This is sample data. Add an AI key so Intake can normalize your real requests.')}</p>}
+      {(projects.data?.length || 0) > 1 && <div className="summary-scope"><span>{text('Thống kê theo', 'Summary for')}</span><strong>{projectScopeLabel}</strong></div>}
+      <section className="attention-grid" aria-label={text('Tổng quan ưu tiên', 'Priority overview')}>
+        <button className={`attention-card attention-p0 ${priority === 'P0' ? 'active' : ''}`} onClick={() => setFilter('priority', priority === 'P0' ? null : 'P0')}><span>{text('P0 cần xử lý', 'P0 needs action')}</span><strong>{summary.p0_attention}</strong><small>{text('Khẩn cấp, chưa hoàn tất Intake', 'Urgent, Intake not complete')}</small></button>
+        <button className={`attention-card attention-p1 ${priority === 'P1' ? 'active' : ''}`} onClick={() => setFilter('priority', priority === 'P1' ? null : 'P1')}><span>{text('P1 cần xử lý', 'P1 needs action')}</span><strong>{summary.p1_attention}</strong><small>{text('Ưu tiên cao cần theo dõi', 'High priority to monitor')}</small></button>
+        <button className={`attention-card attention-review ${stage === 'PENDING_APPROVAL' ? 'active' : ''}`} onClick={() => setFilter('stage', stage === 'PENDING_APPROVAL' ? null : 'PENDING_APPROVAL')}><span>{text('Chờ CTO duyệt', 'Awaiting CTO approval')}</span><strong>{summary.pending_approval}</strong><small>{text('Cần ra quyết định', 'Decision required')}</small></button>
+        <button className={`attention-card attention-failed ${target === 'FAILED' ? 'active' : ''}`} onClick={() => setFilter('target', target === 'FAILED' ? null : 'FAILED')}><span>{text('Sync cần chú ý', 'Sync needs attention')}</span><strong>{summary.sync_failed}</strong><small>{text('Đồng bộ delivery lỗi', 'Delivery sync failed')}</small></button>
       </section>
       <section className="panel filter-bar">
-        <label className="search-field"><Search size={16} aria-hidden="true" /><input value={searchDraft} onChange={(e) => setSearchDraft(e.target.value)} placeholder="Tìm theo mã hoặc tiêu đề…" /></label>
-        {(projects.data?.length || 0) > 1 && <select aria-label="Lọc dự án" value={project} onChange={(e) => setFilter('project', e.target.value === 'ALL' ? null : e.target.value)}><option value="ALL">Mọi dự án</option>{projects.data?.map((entry) => <option value={entry.code} key={entry.id}>{entry.intake_key} · {entry.name}</option>)}</select>}
-        <select aria-label="Lọc chặng xử lý" value={stage} onChange={(e) => setFilter('stage', e.target.value === 'ALL' ? null : e.target.value)}><option value="ALL">Mọi chặng xử lý</option>{Object.entries(lifecycleLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
-        <select aria-label="Lọc đích đồng bộ" value={target} onChange={(e) => setFilter('target', e.target.value === 'ALL' ? null : e.target.value)}><option value="ALL">Mọi đích</option><option value="GITLAB">GitLab</option><option value="GITHUB">GitHub</option><option value="PLANE">Plane · lịch sử</option><option value="UNSYNCED">Chưa Sync</option><option value="FAILED">Sync lỗi</option></select>
-        <select aria-label="Lọc ưu tiên" value={priority} onChange={(e) => setFilter('priority', e.target.value === 'ALL' ? null : e.target.value)}><option value="ALL">Mọi ưu tiên</option>{['P0', 'P1', 'P2', 'P3'].map((value) => <option value={value} key={value}>{value}</option>)}</select>
-        {hasLinkedState && <button className="filter-reset" onClick={resetFilters}>Đặt lại</button>}
-        {hasLinkedState && <button className="filter-reset filter-copy" type="button" onClick={copyFilters}><Copy size={13} aria-hidden="true" /> {copied ? 'Đã chép link' : 'Chép liên kết'}</button>}
-        <span className="result-count">{summary.total_items} kết quả</span>
+        <label className="search-field"><Search size={16} aria-hidden="true" /><input value={searchDraft} onChange={(e) => setSearchDraft(e.target.value)} placeholder={text('Tìm theo mã hoặc tiêu đề…', 'Search by ID or title…')} /></label>
+        {(projects.data?.length || 0) > 1 && <select aria-label={text('Lọc dự án', 'Filter by project')} value={project} onChange={(e) => setFilter('project', e.target.value === 'ALL' ? null : e.target.value)}><option value="ALL">{text('Mọi dự án', 'All projects')}</option>{projects.data?.map((entry) => <option value={entry.code} key={entry.id}>{entry.intake_key} · {entry.name}</option>)}</select>}
+        <select aria-label={text('Lọc chặng xử lý', 'Filter by lifecycle stage')} value={stage} onChange={(e) => setFilter('stage', e.target.value === 'ALL' ? null : e.target.value)}><option value="ALL">{text('Mọi chặng xử lý', 'All lifecycle stages')}</option>{Object.entries(locale === 'en' ? lifecycleLabelsEn : lifecycleLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
+        <select aria-label={text('Lọc đích đồng bộ', 'Filter by sync target')} value={target} onChange={(e) => setFilter('target', e.target.value === 'ALL' ? null : e.target.value)}><option value="ALL">{text('Mọi đích', 'All targets')}</option><option value="GITLAB">GitLab</option><option value="GITHUB">GitHub</option><option value="PLANE">{text('Plane · lịch sử', 'Plane · history')}</option><option value="UNSYNCED">{text('Chưa Sync', 'Not synced')}</option><option value="FAILED">{text('Sync lỗi', 'Sync failed')}</option></select>
+        <select aria-label={text('Lọc ưu tiên', 'Filter by priority')} value={priority} onChange={(e) => setFilter('priority', e.target.value === 'ALL' ? null : e.target.value)}><option value="ALL">{text('Mọi ưu tiên', 'All priorities')}</option>{['P0', 'P1', 'P2', 'P3'].map((value) => <option value={value} key={value}>{value}</option>)}</select>
+        {hasLinkedState && <button className="filter-reset" onClick={resetFilters}>{text('Đặt lại', 'Reset')}</button>}
+        {hasLinkedState && <button className="filter-reset filter-copy" type="button" onClick={copyFilters}><Copy size={13} aria-hidden="true" /> {copied ? text('Đã chép link', 'Link copied') : text('Chép liên kết', 'Copy link')}</button>}
+        <span className="result-count">{text(`${summary.total_items} kết quả`, `${summary.total_items} results`)}</span>
       </section>
       {paginationNotice && <div className="notice notice-warn" role="status">{paginationNotice}</div>}
       <section className="panel list-panel">
         {projects.isLoading && projectRef !== 'ALL' ? <LoadingBlock />
           : projects.error && projectRef !== 'ALL' ? <ErrorNotice error={projects.error} onRetry={() => { void projects.refetch() }} />
-            : projectMissing ? <EmptyState icon={<Search size={20} />} title="Không mở được dự án trong liên kết" text="Dự án không tồn tại hoặc tài khoản này không có quyền xem." />
+            : projectMissing ? <EmptyState icon={<Search size={20} />} title={text('Không mở được dự án trong liên kết', 'Cannot open the linked project')} text={text('Dự án không tồn tại hoặc tài khoản này không có quyền xem.', 'The project does not exist or this account cannot view it.')} />
               : query.isLoading ? <LoadingBlock />
                 : query.error ? <ErrorNotice error={query.error} onRetry={() => { void query.refetch() }} />
-                  : filtered.length === 0 ? <EmptyState icon={<Search size={20} />} title="Không tìm thấy Intake" text="Thử thay đổi bộ lọc hoặc tạo Intake mới." />
+                  : filtered.length === 0 ? <EmptyState icon={<Search size={20} />} title={text('Không tìm thấy Intake', 'No Intake found')} text={text('Thử thay đổi bộ lọc hoặc tạo Intake mới.', 'Try changing the filters or creating a new Intake.')} />
                     : <div className="item-list">{filtered.map((item) => <IntakeRow key={item.id} intake={item} onRemove={setRemoving} />)}</div>}
       </section>
-      {summary.total_items > 0 && <nav className="pagination" aria-label="Phân trang Intake">
-        <button className="button button-secondary" disabled={pageNumber === 1 || query.isFetching} title={previousReturnsToStart ? 'Link trực tiếp không chứa cursor của trang trước' : undefined} onClick={goPrevious}><ChevronLeft size={16} /> {previousReturnsToStart ? 'Trang đầu' : 'Trước'}</button>
-        <div><strong>Trang {pageNumber}</strong><span>{rangeStart}–{rangeEnd} / {summary.total_items} Intake</span></div>
-        <button className="button button-secondary" disabled={!query.data?.next_cursor || query.isFetching} onClick={goNext}>Tiếp <ChevronRight size={16} /></button>
+      {summary.total_items > 0 && <nav className="pagination" aria-label={text('Phân trang Intake', 'Intake pagination')}>
+        <button className="button button-secondary" disabled={pageNumber === 1 || query.isFetching} title={previousReturnsToStart ? text('Link trực tiếp không chứa cursor của trang trước', 'The direct link does not contain the previous page cursor') : undefined} onClick={goPrevious}><ChevronLeft size={16} /> {previousReturnsToStart ? text('Trang đầu', 'First page') : text('Trước', 'Previous')}</button>
+        <div><strong>{text(`Trang ${pageNumber}`, `Page ${pageNumber}`)}</strong><span>{rangeStart}–{rangeEnd} / {summary.total_items} Intake</span></div>
+        <button className="button button-secondary" disabled={!query.data?.next_cursor || query.isFetching} onClick={goNext}>{text('Tiếp', 'Next')} <ChevronRight size={16} /></button>
       </nav>}
     </>
   )
@@ -4272,23 +4348,25 @@ function IntakeDetailsView({ details, only, onDuplicateIssue }: {
 function ApprovalItem({ intake, project, showProject, note }: {
   intake: Intake; project?: Project; showProject: boolean; note?: string
 }) {
+  const { locale, text } = useLocale()
   const openQuestions = unansweredOf(intake.details).length
   return (
     <article className={`approval-item${priorityRank(intake) === 'P0' ? ' is-critical' : ''}`}>
-      <Link className="approval-head" to={`/intakes/${intake.id}`} aria-label={`Mở chi tiết ${intake.public_id} để xem AI phân tích và duyệt`}>
+      <Link className="approval-head" to={`/intakes/${intake.id}`} aria-label={text(`Mở chi tiết ${intake.public_id} để xem AI phân tích và duyệt`, `Open ${intake.public_id} details to review the AI analysis and decide`)}>
         <PriorityBadge priority={intake.suggested_priority} />
         <span className="approval-title">
-          <strong>{intake.normalized_title || 'Chưa có tiêu đề'}</strong>
-          <small>{intake.public_id}{showProject && project ? ` · ${project.name}` : ''} · {channelLabels[intake.channel]} · {formatDate(intake.updated_at)}{note ? <> · <span className={intake.approval_overdue ? 'approval-overdue' : undefined}>{note}</span></> : null}</small>
-          <small className="approval-analysis">AI đã phân tích{openQuestions > 0 ? ` · ${openQuestions} câu cần làm rõ` : ' · không còn câu hỏi mở'}{intake.agent_readiness ? ` · Agent ${intake.agent_readiness.score}` : ''}</small>
+          <strong>{intake.normalized_title || text('Chưa có tiêu đề', 'Untitled')}</strong>
+          <small>{intake.public_id}{showProject && project ? ` · ${project.name}` : ''} · {(locale === 'en' ? channelLabelsEn : channelLabels)[intake.channel]} · {formatDate(intake.updated_at, locale)}{note ? <> · <span className={intake.approval_overdue ? 'approval-overdue' : undefined}>{note}</span></> : null}</small>
+          <small className="approval-analysis">{text('AI đã phân tích', 'AI analysis complete')}{openQuestions > 0 ? text(` · ${openQuestions} câu cần làm rõ`, ` · ${openQuestions} clarification questions`) : text(' · không còn câu hỏi mở', ' · no open questions')}{intake.agent_readiness ? ` · Agent ${intake.agent_readiness.score}` : ''}</small>
         </span>
-        <span className="approval-open">Xem AI phân tích và duyệt <ChevronRight size={16} aria-hidden="true" /></span>
+        <span className="approval-open">{text('Xem AI phân tích và duyệt', 'Review AI analysis and decide')} <ChevronRight size={16} aria-hidden="true" /></span>
       </Link>
     </article>
   )
 }
 
 function ApprovalQueuePage() {
+  const { text } = useLocale()
   const { user } = useAuth()
   const isCto = user?.role === 'CTO'
   const query = useQuery({ queryKey: ['approvals'], queryFn: () => api<IntakePage>('/approvals?limit=100') })
@@ -4303,35 +4381,35 @@ function ApprovalQueuePage() {
   const items = ownerFilter === 'MINE' ? mine : inProject
   const overdue = items.filter((item) => item.approval_overdue).length
   const whose = (item: Intake) => [
-    ...(item.approval_overdue ? ['quá hạn'] : []),
-    ...(isCto && item.approval_owner === 'PO' ? ['Project Owner quyết'] : !isCto && item.approval_owner === 'CTO' ? ['CTO quyết'] : []),
+    ...(item.approval_overdue ? [text('quá hạn', 'overdue')] : []),
+    ...(isCto && item.approval_owner === 'PO' ? [text('Project Owner quyết', 'Project Owner decides')] : !isCto && item.approval_owner === 'CTO' ? [text('CTO quyết', 'CTO decides')] : []),
   ].join(' · ')
   const urgent = items.filter((item) => ['P0', 'P1'].includes(priorityRank(item))).length
 
   return (
     <>
-      <PageHeader title="Chờ phê duyệt" helper={[
-        'Danh sách này chỉ dùng để chọn yêu cầu cần xem.',
-        'Mở trang chi tiết để đọc nội dung nguồn, kết quả AI, câu hỏi cần làm rõ và đề xuất tuyến xử lý.',
-        'Chỉ sau khi xem chi tiết mới có thể duyệt, yêu cầu làm rõ, hoãn hoặc từ chối.',
-        'Đồng bộ sang hệ thống giao việc vẫn được hỏi lại trước khi tạo dữ liệu.',
+      <PageHeader title={text('Chờ phê duyệt', 'Pending approval')} helper={[
+        text('Danh sách này chỉ dùng để chọn yêu cầu cần xem.', 'Use this list only to choose a request to review.'),
+        text('Mở trang chi tiết để đọc nội dung nguồn, kết quả AI, câu hỏi cần làm rõ và đề xuất tuyến xử lý.', 'Open the detail page to review source content, AI output, clarification questions, and the proposed routing.'),
+        text('Chỉ sau khi xem chi tiết mới có thể duyệt, yêu cầu làm rõ, hoãn hoặc từ chối.', 'Approval, clarification, deferral, and rejection are available only after opening the details.'),
+        text('Đồng bộ sang hệ thống giao việc vẫn được hỏi lại trước khi tạo dữ liệu.', 'You are asked to confirm again before data is created in the delivery system.'),
       ]} />
-      <FlowGuide here={['approve']} note="Chọn một yêu cầu, mở chi tiết để AI phân tích và làm rõ trước khi quyết định. Duyệt xong chưa ai được giao việc: việc chỉ vào kế hoạch sau khi có Issue và được xếp ở Daily Planning." />
+      <FlowGuide here={['approve']} note={text('Chọn một yêu cầu, mở chi tiết để AI phân tích và làm rõ trước khi quyết định. Duyệt xong chưa ai được giao việc: việc chỉ vào kế hoạch sau khi có Issue và được xếp ở Daily Planning.', 'Choose a request and open its details to review the AI analysis and clarify it before deciding. Approval does not assign work: it enters the plan only after an Issue exists and it is scheduled in Daily Planning.')} />
       <div className="approval-bar-top">
-        <span><strong>{items.length}</strong> yêu cầu đang chờ{urgent > 0 ? ` · ${urgent} yêu cầu P0/P1` : ''}{overdue > 0 ? ` · ${overdue} quá hạn` : ''}</span>
+        <span><strong>{items.length}</strong> {text('yêu cầu đang chờ', 'requests waiting')}{urgent > 0 ? text(` · ${urgent} yêu cầu P0/P1`, ` · ${urgent} P0/P1 requests`) : ''}{overdue > 0 ? text(` · ${overdue} quá hạn`, ` · ${overdue} overdue`) : ''}</span>
         {isCto && inProject.length !== mine.length && (
-          <div className="today-tabs" role="tablist" aria-label="Của ai">
-            <button type="button" role="tab" aria-selected={ownerFilter === 'MINE'} className={ownerFilter === 'MINE' ? 'active' : undefined} onClick={() => setOwnerFilter('MINE')}>Của tôi ({mine.length})</button>
-            <button type="button" role="tab" aria-selected={ownerFilter === 'ALL'} className={ownerFilter === 'ALL' ? 'active' : undefined} onClick={() => setOwnerFilter('ALL')}>Tất cả ({inProject.length})</button>
+          <div className="today-tabs" role="tablist" aria-label={text('Của ai', 'Decision owner')}>
+            <button type="button" role="tab" aria-selected={ownerFilter === 'MINE'} className={ownerFilter === 'MINE' ? 'active' : undefined} onClick={() => setOwnerFilter('MINE')}>{text('Của tôi', 'Mine')} ({mine.length})</button>
+            <button type="button" role="tab" aria-selected={ownerFilter === 'ALL'} className={ownerFilter === 'ALL' ? 'active' : undefined} onClick={() => setOwnerFilter('ALL')}>{text('Tất cả', 'All')} ({inProject.length})</button>
           </div>
         )}
-        {projectList.length > 1 && <select aria-label="Lọc dự án" value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}><option value="ALL">Mọi dự án</option>{projectList.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select>}
+        {projectList.length > 1 && <select aria-label={text('Lọc dự án', 'Filter by project')} value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}><option value="ALL">{text('Mọi dự án', 'All projects')}</option>{projectList.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select>}
       </div>
       <FeedbackQueue projectFilter={projectFilter} />
       {query.isLoading ? <LoadingBlock /> : query.error ? <ErrorNotice error={query.error} onRetry={() => { void query.refetch() }} /> : items.length === 0 ? (
-        <section className="panel"><EmptyState icon={<CircleCheck size={20} />} title={ownerFilter === 'MINE' && inProject.length > 0 ? 'Không có yêu cầu nào cần anh quyết' : 'Không còn quyết định tồn đọng'} text={ownerFilter === 'MINE' && inProject.length > 0 ? `${inProject.length} yêu cầu đang chờ Project Owner; sau 24 giờ chưa quyết sẽ về đây.` : 'Khi AI chuẩn hóa xong một yêu cầu mới, nó sẽ xuất hiện ở đây.'} /></section>
+        <section className="panel"><EmptyState icon={<CircleCheck size={20} />} title={ownerFilter === 'MINE' && inProject.length > 0 ? text('Không có yêu cầu nào cần anh quyết', 'No requests need your decision') : text('Không còn quyết định tồn đọng', 'No pending decisions')} text={ownerFilter === 'MINE' && inProject.length > 0 ? text(`${inProject.length} yêu cầu đang chờ Project Owner; sau 24 giờ chưa quyết sẽ về đây.`, `${inProject.length} requests are waiting for Project Owners; requests not decided within 24 hours will move here.`) : text('Khi AI chuẩn hóa xong một yêu cầu mới, nó sẽ xuất hiện ở đây.', 'New requests appear here after AI normalization is complete.')} /></section>
       ) : (
-        <section className="approval-list" aria-label="Yêu cầu chờ phê duyệt">
+        <section className="approval-list" aria-label={text('Yêu cầu chờ phê duyệt', 'Requests pending approval')}>
           {items.map((item) => (
             <ApprovalItem key={`${item.id}-${item.version}`} intake={item} project={projectList.find((project) => project.id === item.project_id)} showProject={projectList.length > 1} note={whose(item)} />
           ))}
@@ -4344,7 +4422,9 @@ function ApprovalQueuePage() {
 
 // What was decided lately, under the queue: a decision leaves the queue, not the record (FR-APR-15).
 const decisionWords: Record<ApprovalDecision['action'], string> = { APPROVED: 'Đã duyệt', REJECTED: 'Từ chối', DEFERRED: 'Hoãn', NEEDS_INFORMATION: 'Cần làm rõ', REOPENED: 'Rút lại' }
+const decisionWordsEn: Record<ApprovalDecision['action'], string> = { APPROVED: 'Approved', REJECTED: 'Rejected', DEFERRED: 'Deferred', NEEDS_INFORMATION: 'Needs information', REOPENED: 'Reopened' }
 function DecisionHistory({ projectFilter, showProject }: { projectFilter: string; showProject: boolean }) {
+  const { locale, text } = useLocale()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [older, setOlder] = useState<ApprovalDecision[]>([])
@@ -4367,35 +4447,35 @@ function DecisionHistory({ projectFilter, showProject }: { projectFilter: string
   const cursor = rows.length > 0 ? rows[rows.length - 1].at : recent.data?.since ?? null
   return (
     <details className="panel decision-history" open={open} onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
-      <summary><History size={16} aria-hidden="true" /><strong>Đã quyết định gần đây</strong><small>7 ngày, mới nhất trước; mở ra để tìm lại một quyết định đã rời hàng chờ</small></summary>
+      <summary><History size={16} aria-hidden="true" /><strong>{text('Đã quyết định gần đây', 'Recent decisions')}</strong><small>{text('7 ngày, mới nhất trước; mở ra để tìm lại một quyết định đã rời hàng chờ', 'Last 7 days, newest first; open to find decisions that have left the queue')}</small></summary>
       <div className="decision-history-bar">
-        <input type="search" aria-label="Tìm quyết định" placeholder="Tìm theo mã, tiêu đề, lý do, người quyết" value={search} onChange={(event) => setSearch(event.target.value)} />
-        <small className="muted">{rows.length} quyết định đã tải</small>
+        <input type="search" aria-label={text('Tìm quyết định', 'Search decisions')} placeholder={text('Tìm theo mã, tiêu đề, lý do, người quyết', 'Search by ID, title, reason, or decision maker')} value={search} onChange={(event) => setSearch(event.target.value)} />
+        <small className="muted">{text(`${rows.length} quyết định đã tải`, `${rows.length} decisions loaded`)}</small>
       </div>
       {recent.isLoading && <LoadingBlock />}
       {recent.error != null && <ErrorNotice error={recent.error} onRetry={() => { void recent.refetch() }} />}
       {more.error != null && <ErrorNotice error={more.error} />}
-      {recent.data && shown.length === 0 && <p className="muted">{needle ? 'Không có quyết định nào khớp.' : 'Chưa có quyết định nào trong 7 ngày; bấm "Xem cũ hơn" để lùi về trước.'}</p>}
+      {recent.data && shown.length === 0 && <p className="muted">{needle ? text('Không có quyết định nào khớp.', 'No matching decisions.') : text('Chưa có quyết định nào trong 7 ngày; bấm "Xem cũ hơn" để lùi về trước.', 'No decisions in the last 7 days; choose "View older" to go back further.')}</p>}
       <ul className="decision-rows">
         {shown.map((row) => (
           <li key={row.id}>
-            <span className={`decision-kind kind-${row.action.toLowerCase()}`}>{decisionWords[row.action]}</span>
+            <span className={`decision-kind kind-${row.action.toLowerCase()}`}>{(locale === 'en' ? decisionWordsEn : decisionWords)[row.action]}</span>
             <div>
               <Link className="ref-link" to={`/intakes/${row.intake_id}`}>{row.public_id}</Link> <strong>{row.title}</strong>
               <small>{dotted([
-                formatDate(row.at),
+                formatDate(row.at, locale),
                 row.actor_name,
                 showProject ? row.project_name : null,
-                row.action === 'APPROVED' ? [row.approved_priority, row.approved_route ? routeLabels[row.approved_route as RouteTarget] || row.approved_route : null].filter(Boolean).join(' · ') : null,
-                row.source === 'PLANNING' ? 'duyệt từ Daily Planning' : null,
-                row.reason ? `lý do: ${row.reason}` : null,
-                `hiện: ${statusLabels[row.status] || row.status}`,
+                row.action === 'APPROVED' ? [row.approved_priority, row.approved_route ? (locale === 'en' ? routeLabelsEn : routeLabels)[row.approved_route as RouteTarget] || row.approved_route : null].filter(Boolean).join(' · ') : null,
+                row.source === 'PLANNING' ? text('duyệt từ Daily Planning', 'approved from Daily Planning') : null,
+                row.reason ? text(`lý do: ${row.reason}`, `reason: ${row.reason}`) : null,
+                text(`hiện: ${statusLabels[row.status] || row.status}`, `current: ${statusLabelsEn[row.status] || row.status}`),
               ])}</small>
             </div>
           </li>
         ))}
       </ul>
-      {recent.data && !exhausted && cursor && <button type="button" className="button button-secondary button-small" disabled={more.isPending} onClick={() => more.mutate(cursor)}>{more.isPending ? 'Đang tải…' : 'Xem cũ hơn'}</button>}
+      {recent.data && !exhausted && cursor && <button type="button" className="button button-secondary button-small" disabled={more.isPending} onClick={() => more.mutate(cursor)}>{more.isPending ? text('Đang tải…', 'Loading…') : text('Xem cũ hơn', 'View older')}</button>}
     </details>
   )
 }
@@ -4429,6 +4509,7 @@ const capacityErrors: Record<string, string> = {
 }
 
 function CapacityEditPanel({ workDate, scope, memberId, onDone }: { workDate: string; scope: string; memberId: string; onDone: () => void }) {
+  const { locale, text } = useLocale()
   const queryClient = useQueryClient()
   const capacities = useQuery({ queryKey: ['planning-capacities', workDate, scope], queryFn: () => api<DailyCapacity[]>(`/planning/capacities/${workDate}${scope === 'ALL' ? '' : `?project_id=${scope}`}`) })
   const row = capacities.data?.find((entry) => entry.member_id === memberId)
@@ -4443,7 +4524,7 @@ function CapacityEditPanel({ workDate, scope, memberId, onDone }: { workDate: st
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['planning-capacities'] }); onDone() },
     onError: setError,
   })
-  if (!row) return capacities.isLoading ? <LoadingBlock /> : <p className="field-help">Không tìm thấy nhân sự này trong phạm vi đang chọn.</p>
+  if (!row) return capacities.isLoading ? <LoadingBlock /> : <p className="field-help">{text('Không tìm thấy nhân sự này trong phạm vi đang chọn.', 'This person was not found in the selected scope.')}</p>
 
   const base = row.base_hours
   const half = base > 0 ? base / 2 : 4
@@ -4468,33 +4549,34 @@ function CapacityEditPanel({ workDate, scope, memberId, onDone }: { workDate: st
   const code = error instanceof ApiError ? error.code : undefined
   return (
     <form className="add-work capacity-edit" onSubmit={(e) => { e.preventDefault(); mutation.mutate({ expected_version: row.version, override_hours: changed ? effective : null, meeting_hours: 0, review_hours: 0, support_hours: 0, fixed_hours: Number(busyValue || 0), reason: reasonValue.trim() || null }) }}>
-      <p className="capacity-edit-who"><strong>{row.display_name}</strong><small>{formatDay(workDate)} · bình thường làm {hoursText(base)}</small></p>
-      {error != null && (code && capacityErrors[code] ? <p className="notice notice-error">{capacityErrors[code]}</p> : <ErrorNotice error={error} />)}
-      <div className="capacity-presets" role="group" aria-label="Chọn nhanh">
-        {capacityPresets.map((entry) => <button key={entry.key} type="button" className={preset === entry.key ? 'active' : undefined} aria-pressed={preset === entry.key} onClick={() => choose(entry.key)}>{entry.label}</button>)}
+      <p className="capacity-edit-who"><strong>{row.display_name}</strong><small>{formatDay(workDate)} · {text(`bình thường làm ${hoursText(base)}`, `normally works ${hoursText(base)}`)}</small></p>
+      {error != null && (code && capacityErrors[code] ? <p className="notice notice-error">{text(capacityErrors[code], ({ OVERRIDE_REASON_REQUIRED: 'A reason is required when changing work hours.', CAPACITY_NEGATIVE: 'Busy hours exceed the available work hours.', CAPACITY_VERSION_CONFLICT: 'Someone else just changed this person\'s hours. Close this panel and open it again.' } as Record<string, string>)[code])}</p> : <ErrorNotice error={error} />)}
+      <div className="capacity-presets" role="group" aria-label={text('Chọn nhanh', 'Quick presets')}>
+        {capacityPresets.map((entry) => <button key={entry.key} type="button" className={preset === entry.key ? 'active' : undefined} aria-pressed={preset === entry.key} onClick={() => choose(entry.key)}>{locale === 'vi' ? entry.label : ({ normal: 'Regular day', half: 'Half day off', off: 'Full day off', extra: 'Overtime' } as Record<string, string>)[entry.key]}</button>)}
       </div>
       <div className="add-work-row">
-        <label>Số giờ làm hôm nay<input ref={hoursInput} type="number" min="0" max="24" step="0.5" value={hoursValue} onChange={(e) => setDayHours(e.target.value)} placeholder={`${base}`} /></label>
-        <label>Giờ bận việc khác<input type="number" min="0" max="24" step="0.5" value={busyValue} onChange={(e) => setBusy(e.target.value)} /></label>
+        <label>{text('Số giờ làm hôm nay', 'Work hours today')}<input ref={hoursInput} type="number" min="0" max="24" step="0.5" value={hoursValue} onChange={(e) => setDayHours(e.target.value)} placeholder={`${base}`} /></label>
+        <label>{text('Giờ bận việc khác', 'Hours busy with other work')}<input type="number" min="0" max="24" step="0.5" value={busyValue} onChange={(e) => setBusy(e.target.value)} /></label>
       </div>
-      <small className="field-help">Giờ bận là họp, review, hỗ trợ… Không xếp việc vào các giờ này.</small>
-      <label>Lý do{changed ? '' : ' (không bắt buộc)'}<input value={reasonValue} onChange={(e) => setReason(e.target.value)} placeholder={changed ? 'Bắt buộc khi đổi số giờ làm' : 'Ví dụ: họp khách hàng buổi chiều'} maxLength={2000} /></label>
-      <p className={`capacity-result${canWork < 0 ? ' is-over' : ''}`}>{canWork < 0 ? 'Giờ bận nhiều hơn số giờ làm.' : <>Có thể xếp việc: <strong>{hoursText(canWork)}</strong></>}</p>
-      <button className="button button-primary" type="submit" disabled={invalid || mutation.isPending}>{mutation.isPending ? 'Đang lưu…' : 'Lưu giờ làm'}</button>
+      <small className="field-help">{text('Giờ bận là họp, review, hỗ trợ… Không xếp việc vào các giờ này.', 'Busy time includes meetings, reviews, and support. Work will not be assigned during these hours.')}</small>
+      <label>{text('Lý do', 'Reason')}{changed ? '' : text(' (không bắt buộc)', ' (optional)')}<input value={reasonValue} onChange={(e) => setReason(e.target.value)} placeholder={changed ? text('Bắt buộc khi đổi số giờ làm', 'Required when changing work hours') : text('Ví dụ: họp khách hàng buổi chiều', 'Example: customer meeting in the afternoon')} maxLength={2000} /></label>
+      <p className={`capacity-result${canWork < 0 ? ' is-over' : ''}`}>{canWork < 0 ? text('Giờ bận nhiều hơn số giờ làm.', 'Busy hours exceed work hours.') : <>{text('Có thể xếp việc', 'Available for work')}: <strong>{hoursText(canWork)}</strong></>}</p>
+      <button className="button button-primary" type="submit" disabled={invalid || mutation.isPending}>{mutation.isPending ? text('Đang lưu…', 'Saving…') : text('Lưu giờ làm', 'Save capacity')}</button>
     </form>
   )
 }
 
 function IssueOption({ item, selected, disabled, onPick, extra }: { item: PlanningWorkItem; selected: boolean; disabled?: boolean; onPick: () => void; extra?: string }) {
-  const who = item.assignee_names.length > 0 ? item.assignee_names.join(', ') : item.unknown_assignees > 0 ? 'gán cho người ngoài danh sách nhân sự' : 'chưa gán ai'
-  const facts = [extra, who, item.milestone, item.due_date ? `hạn ${formatDay(item.due_date)}` : null, item.already_planned ? 'đã có trong kế hoạch hôm nay' : null].filter(Boolean)
+  const { text } = useLocale()
+  const who = item.assignee_names.length > 0 ? item.assignee_names.join(', ') : item.unknown_assignees > 0 ? text('gán cho người ngoài danh sách nhân sự', 'assigned outside the team') : text('chưa gán ai', 'unassigned')
+  const facts = [extra, who, item.milestone, item.due_date ? text(`hạn ${formatDay(item.due_date)}`, `due ${formatDay(item.due_date)}`) : null, item.already_planned ? text('đã có trong kế hoạch hôm nay', 'already in today\'s plan') : null].filter(Boolean)
   return (
     <div className={`issue-option${selected ? ' active' : ''}${item.already_planned ? ' dim' : ''}`}>
       <button type="button" role="option" aria-selected={selected} disabled={disabled} onClick={onPick}>
         <span><b>#{item.issue_external_id}</b>{item.priority ? ` · ${item.priority}` : ''} · {item.title}</span>
         <small>{facts.join(' · ')}</small>
       </button>
-      {item.url && <a href={item.url} target="_blank" rel="noreferrer" title="Mở Issue ở tab mới" aria-label={`Mở Issue #${item.issue_external_id} ở tab mới`}><ArrowUpRight size={15} /></a>}
+      {item.url && <a href={item.url} target="_blank" rel="noreferrer" title={text('Mở Issue ở tab mới', 'Open Issue in a new tab')} aria-label={text(`Mở Issue #${item.issue_external_id} ở tab mới`, `Open Issue #${item.issue_external_id} in a new tab`)}><ArrowUpRight size={15} /></a>}
     </div>
   )
 }
@@ -4502,6 +4584,7 @@ function IssueOption({ item, selected, disabled, onPick, extra }: { item: Planni
 // Members of the project without a tracker user, fixed where the plan needs them (FR-PLAN-32): the user the Issue is
 // already assigned to in one click, a match by name pre-chosen, or any user from the list.
 function TrackerUserFix({ projectId, trackerName, team, hasTrackerUser, issue }: { projectId: string; trackerName: string; team: WorkforceMember[]; hasTrackerUser: (member: WorkforceMember) => boolean; issue?: string | null }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const missing = team.filter((member) => !hasTrackerUser(member))
   // The API keeps no tracker token: the worker reads the user list through a probe, and this box polls for it.
@@ -4539,13 +4622,13 @@ function TrackerUserFix({ projectId, trackerName, team, hasTrackerUser, issue }:
   // The Issue's assignee on the tracker, when it is not mapped yet and a team member carries the same name.
   const assigneeHint = (data?.issue_assignees || []).map((id) => data!.users.find((user) => user.id === id)).find((user) => user && !user.mapped_member_id && user.suggested_member_id && missing.some((member) => member.id === user.suggested_member_id))
   return (
-    <div className="tracker-fix" role="group" aria-label={`Gắn người dùng ${trackerName}`}>
-      <p><strong>{missing.length} người chưa có người dùng {trackerName}</strong> ở dự án này, nên chưa gán việc được.{pending ? ` Đang đọc danh sách từ ${trackerName}…` : ''}</p>
+    <div className="tracker-fix" role="group" aria-label={text(`Gắn người dùng ${trackerName}`, `Link ${trackerName} users`)}>
+      <p><strong>{text(`${missing.length} người chưa có người dùng ${trackerName}`, `${missing.length} people have no ${trackerName} user`)}</strong> {text('ở dự án này, nên chưa gán việc được.', 'in this project, so work cannot be assigned to them.')}{pending ? text(` Đang đọc danh sách từ ${trackerName}…`, ` Loading users from ${trackerName}…`) : ''}</p>
       {error != null && <ErrorNotice error={error} onRetry={() => { setProbeId(undefined) }} />}
       {users.error != null && <ErrorNotice error={users.error} onRetry={() => { void users.refetch() }} />}
-      {failed && <p className="tracker-fix-hint"><span>{failed}</span> <button type="button" className="text-button" onClick={() => setProbeId(undefined)}>Thử lại</button></p>}
+      {failed && <p className="tracker-fix-hint"><span>{failed}</span> <button type="button" className="text-button" onClick={() => setProbeId(undefined)}>{text('Thử lại', 'Retry')}</button></p>}
       {assigneeHint && (
-        <p className="tracker-fix-hint">Issue đang gán cho <strong>{assigneeHint.name}</strong> trên {trackerName}. <button type="button" className="button button-primary button-small" disabled={save.isPending} onClick={() => save.mutate({ memberId: assigneeHint.suggested_member_id!, userId: assigneeHint.id })}>Gắn với {missing.find((member) => member.id === assigneeHint.suggested_member_id)?.display_name}</button></p>
+        <p className="tracker-fix-hint">{text('Issue đang gán cho', 'The Issue is assigned to')} <strong>{assigneeHint.name}</strong> {text('trên', 'on')} {trackerName}. <button type="button" className="button button-primary button-small" disabled={save.isPending} onClick={() => save.mutate({ memberId: assigneeHint.suggested_member_id!, userId: assigneeHint.id })}>{text('Gắn với', 'Link to')} {missing.find((member) => member.id === assigneeHint.suggested_member_id)?.display_name}</button></p>
       )}
       {data && (
         <ul>
@@ -4555,22 +4638,23 @@ function TrackerUserFix({ projectId, trackerName, team, hasTrackerUser, issue }:
             return (
               <li key={member.id}>
                 <span>{member.display_name}</span>
-                <select aria-label={`Người dùng ${trackerName} của ${member.display_name}`} value={picked} onChange={(event) => setChoice({ ...choice, [member.id]: event.target.value })}>
-                  <option value="">Chọn người dùng {trackerName}…</option>
-                  {free.map((user) => <option key={user.id} value={user.id}>{user.name}{user.username ? ` (${user.username})` : ''}{user.id === suggested ? ' · khớp tên' : ''}</option>)}
+                <select aria-label={text(`Người dùng ${trackerName} của ${member.display_name}`, `${member.display_name}'s ${trackerName} user`)} value={picked} onChange={(event) => setChoice({ ...choice, [member.id]: event.target.value })}>
+                  <option value="">{text(`Chọn người dùng ${trackerName}…`, `Choose a ${trackerName} user…`)}</option>
+                  {free.map((user) => <option key={user.id} value={user.id}>{user.name}{user.username ? ` (${user.username})` : ''}{user.id === suggested ? text(' · khớp tên', ' · name match') : ''}</option>)}
                 </select>
-                <button type="button" className="button button-secondary button-small" disabled={!picked || save.isPending} onClick={() => save.mutate({ memberId: member.id, userId: picked })}>Gắn</button>
+                <button type="button" className="button button-secondary button-small" disabled={!picked || save.isPending} onClick={() => save.mutate({ memberId: member.id, userId: picked })}>{text('Gắn', 'Link')}</button>
               </li>
             )
           })}
         </ul>
       )}
-      {data && data.unmapped.some((row) => row.suggested_user_id) && <button type="button" className="text-button" disabled={auto.isPending} onClick={() => auto.mutate()}>{auto.isPending ? 'Đang khớp…' : 'Gắn mọi người khớp tên'}</button>}
+      {data && data.unmapped.some((row) => row.suggested_user_id) && <button type="button" className="text-button" disabled={auto.isPending} onClick={() => auto.mutate()}>{auto.isPending ? text('Đang khớp…', 'Matching…') : text('Gắn mọi người khớp tên', 'Link all name matches')}</button>}
     </div>
   )
 }
 
 function AddWorkPanel({ runId, canApprove }: { runId: string; canApprove: boolean }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const runQuery = useQuery({ queryKey: ['planning-run', runId], queryFn: () => api<PlanningRun>(`/planning/runs/${runId}`) })
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
@@ -4612,7 +4696,7 @@ function AddWorkPanel({ runId, canApprove }: { runId: string; canApprove: boolea
     const timer = window.setInterval(() => {
       tries += 1
       void queryClient.invalidateQueries({ queryKey: ['planning-run', runId] })
-      if (tries >= 20) { window.clearInterval(timer); setWaitingFor(undefined); setMessage({ tone: 'warn', text: 'Issue chưa được tạo xong sau 40 giây. Việc vẫn nằm ở "Việc chờ phân công"; kiểm tra đồng bộ của Intake nếu nó không đổi trạng thái.' }) }
+      if (tries >= 20) { window.clearInterval(timer); setWaitingFor(undefined); setMessage({ tone: 'warn', text: text('Issue chưa được tạo xong sau 40 giây. Việc vẫn nằm ở "Việc chờ phân công"; kiểm tra đồng bộ của Intake nếu nó không đổi trạng thái.', 'The Issue was not created after 40 seconds. The item remains under Waiting for assignment; check Intake sync if its status does not change.') }) }
     }, 2000)
     return () => window.clearInterval(timer)
   }, [waitingFor, runId, queryClient])
@@ -4622,8 +4706,8 @@ function AddWorkPanel({ runId, canApprove }: { runId: string; canApprove: boolea
     if (!candidate || candidate.status === 'PENDING_TRIAGE') return
     setWaitingFor(undefined)
     setMessage(candidate.status === 'ASSIGNED'
-      ? { tone: 'success', text: `Đã tạo Issue #${candidate.gitlab_issue_external_id} và đưa việc vào kế hoạch.` }
-      : { tone: 'warn', text: `Đã tạo Issue #${candidate.gitlab_issue_external_id}. Việc đang ở "Việc chờ phân công" vì chưa phân công tự động được; hãy phân công ở thẻ của nó.` })
+      ? { tone: 'success', text: text(`Đã tạo Issue #${candidate.gitlab_issue_external_id} và đưa việc vào kế hoạch.`, `Issue #${candidate.gitlab_issue_external_id} was created and added to the plan.`) }
+      : { tone: 'warn', text: text(`Đã tạo Issue #${candidate.gitlab_issue_external_id}. Việc đang ở "Việc chờ phân công" vì chưa phân công tự động được; hãy phân công ở thẻ của nó.`, `Issue #${candidate.gitlab_issue_external_id} was created. The item is waiting for assignment because it could not be assigned automatically.`) })
   }, [run, waitingFor])
 
   const add = useMutation({
@@ -4648,17 +4732,17 @@ function AddWorkPanel({ runId, canApprove }: { runId: string; canApprove: boolea
       void queryClient.invalidateQueries({ queryKey: ['planning-run', runId] })
       void queryClient.invalidateQueries({ queryKey: ['planning-work-items', runId] })
       void queryClient.invalidateQueries({ queryKey: ['planning-capacities'] })
-      const slotLabel = slot === 'MORNING' ? 'Buổi sáng' : 'Buổi chiều'
-      if (result.state === 'PLANNED') setMessage({ tone: 'success', text: `Đã đưa vào cột ${slotLabel}.${result.added_as_secondary ? ' Người này đã có một việc chính trong ngày nên việc này được ghi là việc phụ.' : ''}` })
-      else if (result.state === 'CREATING_ISSUE') { setWaitingFor(result.candidate.id); setMessage({ tone: 'success', text: `Đã ghi nhận. Đang tạo Issue trên ${trackerName}; việc sẽ tự vào kế hoạch khi Issue có.` }) }
+      const slotLabel = slot === 'MORNING' ? text('Buổi sáng', 'Morning') : text('Buổi chiều', 'Afternoon')
+      if (result.state === 'PLANNED') setMessage({ tone: 'success', text: text(`Đã đưa vào cột ${slotLabel}.${result.added_as_secondary ? ' Người này đã có một việc chính trong ngày nên việc này được ghi là việc phụ.' : ''}`, `Added to ${slotLabel}.${result.added_as_secondary ? ' This person already has a primary task today, so this item is marked as secondary.' : ''}`) })
+      else if (result.state === 'CREATING_ISSUE') { setWaitingFor(result.candidate.id); setMessage({ tone: 'success', text: text(`Đã ghi nhận. Đang tạo Issue trên ${trackerName}; việc sẽ tự vào kế hoạch khi Issue có.`, `Saved. Creating the Issue on ${trackerName}; the item will enter the plan automatically when it is ready.`) }) }
       else if ((result.assignment_error === 'OVER_CAPACITY' || result.assignment_error === 'SLOT_OVER_CAPACITY') && memberId && result.candidate.gitlab_issue_external_id) setOverHours({ candidateId: result.candidate.id, code: result.assignment_error, issue: result.candidate.gitlab_issue_external_id })
-      else setMessage({ tone: 'warn', text: result.assignment_error ? `Đã thêm vào "Việc chờ phân công", nhưng chưa phân công được: ${addWorkErrors[result.assignment_error] || result.assignment_error}.` : 'Đã thêm vào "Việc chờ phân công". Chọn người làm ở thẻ của nó khi sẵn sàng.' })
+      else setMessage({ tone: 'warn', text: result.assignment_error ? text(`Đã thêm vào "Việc chờ phân công", nhưng chưa phân công được: ${addWorkErrors[result.assignment_error] || result.assignment_error}.`, `Added to Waiting for assignment, but assignment failed: ${result.assignment_error}.`) : text('Đã thêm vào "Việc chờ phân công". Chọn người làm ở thẻ của nó khi sẵn sàng.', 'Added to Waiting for assignment. Choose an assignee from its card when ready.') })
       setPicked(undefined); setTitle(''); setContent(''); setReason('')
     },
     onError: (failure) => {
       void queryClient.invalidateQueries({ queryKey: ['planning-run', runId] })
       setError(failure instanceof ApiError && failure.code === 'PLANNING_VERSION_CONFLICT'
-        ? new Error('Kế hoạch vừa thay đổi (có việc khác vừa vào hoặc được xếp). Đã tải lại, hãy bấm lại để tiếp tục.')
+        ? new Error(text('Kế hoạch vừa thay đổi (có việc khác vừa vào hoặc được xếp). Đã tải lại, hãy bấm lại để tiếp tục.', 'The plan just changed because another item was added or assigned. It has been reloaded; click again to continue.'))
         : failure)
     },
   })
@@ -4688,19 +4772,19 @@ function AddWorkPanel({ runId, canApprove }: { runId: string; canApprove: boolea
   return (
     <div className="add-work">
       {overHours && (
-        <ConfirmDialog title="Người này đã đủ giờ" confirmLabel="Vẫn xếp" busyLabel="Đang xếp…" busy={force.isPending} plain onConfirm={() => force.mutate()} onCancel={() => setOverHours(null)}>
-          <p>{overHours.code === 'SLOT_OVER_CAPACITY' ? 'Buổi này của người đó đã quá 4 giờ.' : 'Số giờ trong ngày của người đó, kể cả ở dự án khác, đã hết.'} Việc đã nằm ở "Việc chờ phân công"; vẫn xếp thì lý do "xác nhận xếp quá giờ" được ghi trên việc và thẻ người hiện đỏ.</p>
+        <ConfirmDialog title={text('Người này đã đủ giờ', 'This person is at capacity')} confirmLabel={text('Vẫn xếp', 'Assign anyway')} busyLabel={text('Đang xếp…', 'Assigning…')} busy={force.isPending} plain onConfirm={() => force.mutate()} onCancel={() => setOverHours(null)}>
+          <p>{text(overHours.code === 'SLOT_OVER_CAPACITY' ? 'Buổi này của người đó đã quá 4 giờ. Việc đã nằm ở "Việc chờ phân công"; vẫn xếp thì lý do "xác nhận xếp quá giờ" được ghi trên việc và thẻ người hiện đỏ.' : 'Số giờ trong ngày của người đó, kể cả ở dự án khác, đã hết. Việc đã nằm ở "Việc chờ phân công"; vẫn xếp thì lý do "xác nhận xếp quá giờ" được ghi trên việc và thẻ người hiện đỏ.', overHours.code === 'SLOT_OVER_CAPACITY' ? 'This person already has more than 4 hours in this time slot. The item is waiting for assignment; assigning anyway records the exception and highlights the person in red.' : 'This person has no remaining capacity today, including work in other projects. Assigning anyway records the exception and highlights the person in red.')}</p>
         </ConfirmDialog>
       )}
       <div className="quick-tabs add-work-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={mode === 'EXISTING'} className={mode === 'EXISTING' ? 'active' : ''} onClick={() => { setMode('EXISTING'); setMessage(undefined) }}>Việc đã có</button>
-        {canApprove && <button type="button" role="tab" aria-selected={mode === 'NEW'} className={mode === 'NEW' ? 'active' : ''} onClick={() => { setMode('NEW'); setMessage(undefined); setPicked(undefined); setPriority('P1'); setMemberId('') }}>Việc mới phát sinh</button>}
+        <button type="button" role="tab" aria-selected={mode === 'EXISTING'} className={mode === 'EXISTING' ? 'active' : ''} onClick={() => { setMode('EXISTING'); setMessage(undefined) }}>{text('Việc đã có', 'Existing work')}</button>
+        {canApprove && <button type="button" role="tab" aria-selected={mode === 'NEW'} className={mode === 'NEW' ? 'active' : ''} onClick={() => { setMode('NEW'); setMessage(undefined); setPicked(undefined); setPriority('P1'); setMemberId('') }}>{text('Việc mới phát sinh', 'New work')}</button>}
       </div>
       {mode === 'EXISTING' ? (
         <>
-          <label className="search-field add-work-search"><Search size={16} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setPicked(undefined) }} placeholder="Tìm theo tiêu đề, số Issue hoặc mã Intake…" aria-label="Tìm việc" /></label>
-          <div className="add-work-results" role="listbox" aria-label="Việc tìm thấy">
-            {results.isLoading ? <LoadingBlock /> : (results.data || []).length === 0 ? <p className="field-help">Không có Issue đang mở hay Intake chờ duyệt nào khớp. Nếu là việc chưa có ở đâu, chuyển sang tab "Việc mới phát sinh".</p> : (results.data || []).map((item) => {
+          <label className="search-field add-work-search"><Search size={16} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setPicked(undefined) }} placeholder={text('Tìm theo tiêu đề, số Issue hoặc mã Intake…', 'Search by title, Issue number, or Intake ID…')} aria-label={text('Tìm việc', 'Search work')} /></label>
+          <div className="add-work-results" role="listbox" aria-label={text('Việc tìm thấy', 'Matching work')}>
+            {results.isLoading ? <LoadingBlock /> : (results.data || []).length === 0 ? <p className="field-help">{text('Không có Issue đang mở hay Intake chờ duyệt nào khớp. Nếu là việc chưa có ở đâu, chuyển sang tab "Việc mới phát sinh".', 'No open Issues or pending Intake requests match. If this work does not exist yet, use the New work tab.')}</p> : (results.data || []).map((item) => {
               const key = `${item.kind}-${item.project_id}-${item.issue_external_id || item.intake_id}`
               const selected = picked != null && `${picked.kind}-${picked.project_id}-${picked.issue_external_id || picked.intake_id}` === key
               if (item.kind === 'ISSUE') return <IssueOption key={key} item={item} selected={selected} disabled={item.already_planned} extra={scope.length > 1 && item.project_name ? item.project_name : undefined} onPick={() => { setPicked(item); setMemberId(''); if (item.priority) setPriority(item.priority) }} />
@@ -4708,7 +4792,7 @@ function AddWorkPanel({ runId, canApprove }: { runId: string; canApprove: boolea
                 <button type="button" role="option" aria-selected={selected} key={key} className={selected ? 'add-work-item active' : 'add-work-item'} disabled={item.already_planned} onClick={() => { setPicked(item); setMemberId(''); if (item.priority) setPriority(item.priority) }}>
                   <strong>{item.title}</strong>
                   <small>{`Intake ${item.public_id}${item.issue_external_id ? ` · Issue #${item.issue_external_id}` : ''}`}{scope.length > 1 && item.project_name ? ` · ${item.project_name}` : ''}{item.priority ? ` · ${item.priority}` : ''}</small>
-                  {item.already_planned ? <span className="status report-valid">Đã trong kế hoạch</span> : item.needs_issue ? <span className="status report-warning">Chưa có Issue</span> : null}
+                  {item.already_planned ? <span className="status report-valid">{text('Đã trong kế hoạch', 'Already in plan')}</span> : item.needs_issue ? <span className="status report-warning">{text('Chưa có Issue', 'No Issue yet')}</span> : null}
                 </button>
               )
             })}
@@ -4716,43 +4800,43 @@ function AddWorkPanel({ runId, canApprove }: { runId: string; canApprove: boolea
         </>
       ) : (
         <>
-          {scope.length > 1 && <label>Dự án<select value={targetProject} onChange={(e) => { setProjectId(e.target.value); setMemberId('') }}>{scope.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></label>}
-          <label><span className="req-label">Tiêu đề<Req /></span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ví dụ: Khách không nhận được OTP khi đăng nhập" maxLength={255} /></label>
-          <label>Mô tả<textarea rows={4} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Điều gì đang xảy ra, ở đâu, ảnh hưởng thế nào. Có thể dán nguyên tin nhắn của khách." /></label>
+          {scope.length > 1 && <label>{text('Dự án', 'Project')}<select value={targetProject} onChange={(e) => { setProjectId(e.target.value); setMemberId('') }}>{scope.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></label>}
+          <label><span className="req-label">{text('Tiêu đề', 'Title')}<Req /></span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={text('Ví dụ: Khách không nhận được OTP khi đăng nhập', 'Example: Customer does not receive an OTP when signing in')} maxLength={255} /></label>
+          <label>{text('Mô tả', 'Description')}<textarea rows={4} value={content} onChange={(e) => setContent(e.target.value)} placeholder={text('Điều gì đang xảy ra, ở đâu, ảnh hưởng thế nào. Có thể dán nguyên tin nhắn của khách.', 'Describe what is happening, where, and its impact. You may paste the original customer message.')} /></label>
           <div className="add-work-row">
-            <label>Loại<select value={itemType} onChange={(e) => setItemType(e.target.value as typeof itemType)}><option value="BUG">Lỗi</option><option value="TASK">Việc cần làm</option><option value="FEATURE">Tính năng</option></select></label>
-            <label>Ưu tiên<select value={priority} onChange={(e) => setPriority(e.target.value)}>{['P0', 'P1', 'P2', 'P3'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+            <label>{text('Loại', 'Type')}<select value={itemType} onChange={(e) => setItemType(e.target.value as typeof itemType)}><option value="BUG">{text('Lỗi', 'Bug')}</option><option value="TASK">{text('Việc cần làm', 'Task')}</option><option value="FEATURE">{text('Tính năng', 'Feature')}</option></select></label>
+            <label>{text('Ưu tiên', 'Priority')}<select value={priority} onChange={(e) => setPriority(e.target.value)}>{['P0', 'P1', 'P2', 'P3'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
           </div>
         </>
       )}
-      {needsIssue && !canApprove && <p className="notice notice-warn approve-note"><strong>Việc này cần CTO phê duyệt.</strong> Việc chưa có Issue chỉ CTO thêm thẳng vào kế hoạch được. Bạn có thể duyệt yêu cầu ở trang Chờ phê duyệt, đồng bộ để có Issue, rồi quay lại chọn.</p>}
+      {needsIssue && !canApprove && <p className="notice notice-warn approve-note"><strong>{text('Việc này cần CTO phê duyệt.', 'This work requires CTO approval.')}</strong> {text('Việc chưa có Issue chỉ CTO thêm thẳng vào kế hoạch được. Bạn có thể duyệt yêu cầu ở trang Chờ phê duyệt, đồng bộ để có Issue, rồi quay lại chọn.', 'Only the CTO can add work without an Issue directly to a plan. Approve it from Pending approval, sync to create the Issue, then return here.')}</p>}
       {needsIssue && canApprove && (
         <div className="add-work-reason">
-          {mode === 'EXISTING' && <label>Ưu tiên<select value={priority} onChange={(e) => setPriority(e.target.value)}>{['P0', 'P1', 'P2', 'P3'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>}
-          <label><span className="req-label">Lý do đưa thẳng vào kế hoạch<Req /></span><textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ví dụ: khách đang không đăng nhập được, cần xử lý trong sáng nay" /></label>
-          <p className="notice notice-warn approve-note"><strong>Thao tác này phê duyệt Intake.</strong> Việc này chưa có Issue, nên bấm thêm nghĩa là bạn phê duyệt yêu cầu ngay tại đây (lý do được lưu lại): nó rời khỏi hàng Chờ phê duyệt, một Issue được tạo trên {trackerName} của dự án, rồi việc vào kế hoạch. Bạn sẽ không xem lại bản AI chuẩn hóa như ở trang Chờ phê duyệt. {project?.delivery_system === 'GITHUB' ? 'Issue trên GitHub của khách hàng chỉ gồm tiêu đề và mô tả.' : ''}</p>
+          {mode === 'EXISTING' && <label>{text('Ưu tiên', 'Priority')}<select value={priority} onChange={(e) => setPriority(e.target.value)}>{['P0', 'P1', 'P2', 'P3'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>}
+          <label><span className="req-label">{text('Lý do đưa thẳng vào kế hoạch', 'Reason for adding directly to the plan')}<Req /></span><textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={text('Ví dụ: khách đang không đăng nhập được, cần xử lý trong sáng nay', 'Example: customers cannot sign in and this must be handled this morning')} /></label>
+          <p className="notice notice-warn approve-note"><strong>{text('Thao tác này phê duyệt Intake.', 'This action approves the Intake request.')}</strong> {text(`Việc này chưa có Issue, nên bấm thêm nghĩa là bạn phê duyệt yêu cầu ngay tại đây (lý do được lưu lại): nó rời khỏi hàng Chờ phê duyệt, một Issue được tạo trên ${trackerName} của dự án, rồi việc vào kế hoạch. Bạn sẽ không xem lại bản AI chuẩn hóa như ở trang Chờ phê duyệt.`, `This work has no Issue. Adding it approves the request here, records the reason, removes it from Pending approval, creates an Issue on ${trackerName}, and adds it to the plan.`)} {project?.delivery_system === 'GITHUB' ? text('Issue trên GitHub của khách hàng chỉ gồm tiêu đề và mô tả.', 'The customer GitHub Issue contains only the title and description.') : ''}</p>
         </div>
       )}
       <fieldset className="add-work-assign">
-        <legend>Phân công</legend>
-        <label>Người làm
+        <legend>{text('Phân công', 'Assignment')}</legend>
+        <label>{text('Người làm', 'Assignee')}
           <select value={memberId} onChange={(e) => setMemberId(e.target.value)} disabled={!targetProject}>
-            <option value="">Chưa chọn: để ở "Việc chờ phân công"</option>
-            {team.map((member) => <option key={member.id} value={member.id} disabled={!hasTrackerUser(member)}>{member.display_name}{hasTrackerUser(member) ? '' : ` · thiếu người dùng ${trackerName}`}</option>)}
+            <option value="">{text('Chưa chọn: để ở "Việc chờ phân công"', 'Not selected: leave under Waiting for assignment')}</option>
+            {team.map((member) => <option key={member.id} value={member.id} disabled={!hasTrackerUser(member)}>{member.display_name}{hasTrackerUser(member) ? '' : text(` · thiếu người dùng ${trackerName}`, ` · missing ${trackerName} user`)}</option>)}
           </select>
-          {targetProject && team.length === 0 && <small className="field-help">Dự án này chưa có nhân sự. Gán ở Cài đặt &gt; Dự án.</small>}
+          {targetProject && team.length === 0 && <small className="field-help">{text('Dự án này chưa có nhân sự. Gán ở Cài đặt > Dự án.', 'This project has no team members. Assign them under Settings > Projects.')}</small>}
         </label>
         {targetProject && <TrackerUserFix projectId={targetProject} trackerName={trackerName} team={team} hasTrackerUser={hasTrackerUser} issue={mode === 'EXISTING' ? picked?.issue_external_id : null} />}
         {memberId && (
           <div className="add-work-row">
-            <label>Buổi<select value={slot} onChange={(e) => setSlot(e.target.value as PlanningSlot)}><option value="MORNING">Buổi sáng</option><option value="AFTERNOON">Buổi chiều</option></select></label>
-            <label><span className="req-label">Số giờ<Req /></span><input type="number" min="0.5" max="8" step="0.5" value={hours} onChange={(e) => setHours(e.target.value)} /></label>
+            <label>{text('Buổi', 'Time slot')}<select value={slot} onChange={(e) => setSlot(e.target.value as PlanningSlot)}><option value="MORNING">{text('Buổi sáng', 'Morning')}</option><option value="AFTERNOON">{text('Buổi chiều', 'Afternoon')}</option></select></label>
+            <label><span className="req-label">{text('Số giờ', 'Hours')}<Req /></span><input type="number" min="0.5" max="8" step="0.5" value={hours} onChange={(e) => setHours(e.target.value)} /></label>
           </div>
         )}
       </fieldset>
       {error != null && <ErrorNotice error={error} />}
       {message && <p className={`notice ${message.tone === 'success' ? 'notice-success' : 'notice-warn'}`} role="status">{message.text}</p>}
-      <button className="button button-primary button-wide" type="button" disabled={!ready || add.isPending || Boolean(waitingFor)} onClick={() => add.mutate()}>{add.isPending ? 'Đang thêm…' : waitingFor ? 'Đang tạo Issue…' : needsIssue ? 'Phê duyệt và thêm vào kế hoạch' : memberId ? 'Thêm vào kế hoạch' : 'Thêm vào việc chờ phân công'}</button>
+      <button className="button button-primary button-wide" type="button" disabled={!ready || add.isPending || Boolean(waitingFor)} onClick={() => add.mutate()}>{add.isPending ? text('Đang thêm…', 'Adding…') : waitingFor ? text('Đang tạo Issue…', 'Creating Issue…') : needsIssue ? text('Phê duyệt và thêm vào kế hoạch', 'Approve and add to plan') : memberId ? text('Thêm vào kế hoạch', 'Add to plan') : text('Thêm vào việc chờ phân công', 'Add to waiting list')}</button>
     </div>
   )
 }
@@ -4762,12 +4846,14 @@ const reportStatusWords: Record<string, string> = { PLANNED: 'Kế hoạch', IN_
 // Older entries store the report status as its code; show it in plain words.
 // The two ids a line of work carries, told apart and each a link: the Issue on the tracker, the request in Intake.
 function IssueRef({ issue, url, label = 'Issue' }: { issue: string | null; url: string | null; label?: string }) {
+  const { text } = useLocale()
   if (!issue) return null
-  return url ? <a className="ref-link" href={url} target="_blank" rel="noreferrer" title="Mở Issue trên tracker">{label} #{issue} <ArrowUpRight size={11} /></a> : <span>{label} #{issue}</span>
+  return url ? <a className="ref-link" href={url} target="_blank" rel="noreferrer" title={text('Mở Issue trên tracker', 'Open Issue in tracker')}>{label} #{issue} <ArrowUpRight size={11} /></a> : <span>{label} #{issue}</span>
 }
 function IntakeRef({ id, publicId, label = 'Intake' }: { id: string | null; publicId: string | null; label?: string }) {
+  const { text } = useLocale()
   if (!id) return null
-  return <Link className="ref-link" to={`/intakes/${id}`} title="Mở yêu cầu trong Intake">{label} {publicId || ''} <ArrowUpRight size={11} /></Link>
+  return <Link className="ref-link" to={`/intakes/${id}`} title={text('Mở yêu cầu trong Intake', 'Open request in Intake')}>{label} {publicId || ''} <ArrowUpRight size={11} /></Link>
 }
 
 // One meta line for a waiting entry, the same on the project's plan page and on the overview:
@@ -4776,17 +4862,18 @@ function WaitingMeta({ sourceType, intakeId, intakePublicId, priority, issue, is
   sourceType: string; intakeId: string | null; intakePublicId: string | null; priority: Priority | null; issue: string | null; issueUrl: string | null
   memberName: string | null; originAt: string | null; tail?: ReactNode
 }) {
-  const head = sourceType === 'INTAKE' && intakeId ? <IntakeRef id={intakeId} publicId={intakePublicId} label="Từ Intake" />
-    : sourceType === 'REPORT' ? `Từ báo cáo${memberName ? ` của ${memberName}` : ''}`
-    : sourceType === 'VERIFICATION' ? 'Làm lại'
-    : sourceType === 'GITLAB' ? `Làm tiếp${memberName ? ` · ${memberName}` : ''}`
-    : memberName ? `Đề xuất của ${memberName}` : 'Bạn thêm'
+  const { text } = useLocale()
+  const head = sourceType === 'INTAKE' && intakeId ? <IntakeRef id={intakeId} publicId={intakePublicId} label={text('Từ Intake', 'From Intake')} />
+    : sourceType === 'REPORT' ? text(`Từ báo cáo${memberName ? ` của ${memberName}` : ''}`, `From ${memberName ? `${memberName}'s ` : ''}report`)
+    : sourceType === 'VERIFICATION' ? text('Làm lại', 'Rework')
+    : sourceType === 'GITLAB' ? text(`Làm tiếp${memberName ? ` · ${memberName}` : ''}`, `Continue${memberName ? ` · ${memberName}` : ''}`)
+    : memberName ? text(`Đề xuất của ${memberName}`, `Suggested by ${memberName}`) : text('Bạn thêm', 'Added by you')
   const tracker = issueUrl && /github\.com/.test(issueUrl) ? 'GitHub' : 'GitLab'
   return <small>{dotted([
     head,
     priority ? <span className={`priority priority-inline priority-${priority.toLowerCase()}`}>{priority}</span> : null,
-    issue ? <IssueRef issue={issue} url={issueUrl} label={tracker} /> : 'chưa có Issue',
-    originAt ? `${sourceType === 'INTAKE' ? 'tạo' : 'từ'} ${formatDay(originAt)}` : null,
+    issue ? <IssueRef issue={issue} url={issueUrl} label={tracker} /> : text('chưa có Issue', 'no Issue yet'),
+    originAt ? text(`${sourceType === 'INTAKE' ? 'tạo' : 'từ'} ${formatDay(originAt)}`, `${sourceType === 'INTAKE' ? 'created' : 'from'} ${formatDay(originAt)}`) : null,
     sourceType !== 'INTAKE' && intakeId ? <IntakeRef id={intakeId} publicId={intakePublicId} /> : null,
     tail ?? null,
   ])}</small>
@@ -4804,6 +4891,7 @@ function waitingNote(candidate: PlanningCandidate) {
 }
 
 function AssignWorkPanel({ runId, candidateId, canApprove, onDone }: { runId: string; candidateId: string; canApprove: boolean; onDone: () => void }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const runQuery = useQuery({ queryKey: ['planning-run', runId], queryFn: () => api<PlanningRun>(`/planning/runs/${runId}`) })
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
@@ -4849,13 +4937,13 @@ function AssignWorkPanel({ runId, candidateId, canApprove, onDone }: { runId: st
     const timer = window.setInterval(() => {
       tries += 1
       void queryClient.invalidateQueries({ queryKey: ['planning-run', runId] })
-      if (tries >= 20) { window.clearInterval(timer); setCreating(false); setMessage('Issue chưa được tạo xong sau 40 giây. Việc vẫn nằm trong danh sách chờ; kiểm tra đồng bộ của Intake nếu nó không đổi trạng thái.') }
+      if (tries >= 20) { window.clearInterval(timer); setCreating(false); setMessage(text('Issue chưa được tạo xong sau 40 giây. Việc vẫn nằm trong danh sách chờ; kiểm tra đồng bộ của Intake nếu nó không đổi trạng thái.', 'The Issue was not created after 40 seconds. The item remains in the waiting list; check Intake sync if its status does not change.')) }
     }, 2000)
     return () => window.clearInterval(timer)
   }, [creating, runId, queryClient])
   useEffect(() => {
     if (creating && candidate && candidate.status === 'ASSIGNED') { setCreating(false); onDone() }
-    if (creating && candidate && candidate.status === 'READY') { setCreating(false); setMessage(`Đã tạo Issue #${candidate.gitlab_issue_external_id}, nhưng chưa phân công tự động được. Kiểm tra người làm và số giờ rồi bấm lại.`) }
+    if (creating && candidate && candidate.status === 'READY') { setCreating(false); setMessage(text(`Đã tạo Issue #${candidate.gitlab_issue_external_id}, nhưng chưa phân công tự động được. Kiểm tra người làm và số giờ rồi bấm lại.`, `Issue #${candidate.gitlab_issue_external_id} was created but could not be assigned automatically. Check the assignee and hours, then try again.`)) }
   }, [creating, candidate, onDone])
 
   const assign = useMutation({
@@ -4872,9 +4960,9 @@ function AssignWorkPanel({ runId, candidateId, canApprove, onDone }: { runId: st
       void queryClient.invalidateQueries({ queryKey: ['planning-run', runId] })
       void queryClient.invalidateQueries({ queryKey: ['planning-capacities'] })
       if (result.state === 'PLANNED') onDone()
-      else if (result.state === 'CREATING_ISSUE') { setCreating(true); setMessage(`Đang tạo Issue trên ${trackerName}; việc sẽ tự vào kế hoạch khi Issue có.`) }
+      else if (result.state === 'CREATING_ISSUE') { setCreating(true); setMessage(text(`Đang tạo Issue trên ${trackerName}; việc sẽ tự vào kế hoạch khi Issue có.`, `Creating the Issue on ${trackerName}; the item will enter the plan automatically when ready.`)) }
       else if (result.assignment_error === 'OVER_CAPACITY' || result.assignment_error === 'SLOT_OVER_CAPACITY') setOverHours({ candidateId: result.candidate.id, code: result.assignment_error })
-      else setMessage(`Chưa phân công được: ${addWorkErrors[result.assignment_error || ''] || result.assignment_error}.`)
+      else setMessage(text(`Chưa phân công được: ${addWorkErrors[result.assignment_error || ''] || result.assignment_error}.`, `Assignment failed: ${result.assignment_error}.`))
     },
     onError: setError,
   })
@@ -4896,8 +4984,8 @@ function AssignWorkPanel({ runId, candidateId, canApprove, onDone }: { runId: st
   if (!run || !candidate) return <LoadingBlock />
   const note = waitingNote(candidate)
   const overDialog = overHours && (
-    <ConfirmDialog title="Người này đã đủ giờ" confirmLabel="Vẫn xếp" busyLabel="Đang xếp…" busy={force.isPending} plain onConfirm={() => force.mutate()} onCancel={() => setOverHours(null)}>
-      <p>{overHours.code === 'SLOT_OVER_CAPACITY' ? 'Buổi này của người đó đã quá 4 giờ.' : 'Số giờ trong ngày của người đó, kể cả ở dự án khác, đã hết.'} Vẫn xếp thì lý do "xác nhận xếp quá giờ" được ghi trên việc và thẻ người hiện đỏ.</p>
+    <ConfirmDialog title={text('Người này đã đủ giờ', 'This person is at capacity')} confirmLabel={text('Vẫn xếp', 'Assign anyway')} busyLabel={text('Đang xếp…', 'Assigning…')} busy={force.isPending} plain onConfirm={() => force.mutate()} onCancel={() => setOverHours(null)}>
+      <p>{text(overHours.code === 'SLOT_OVER_CAPACITY' ? 'Buổi này của người đó đã quá 4 giờ. Vẫn xếp thì lý do "xác nhận xếp quá giờ" được ghi trên việc và thẻ người hiện đỏ.' : 'Số giờ trong ngày của người đó, kể cả ở dự án khác, đã hết. Vẫn xếp thì lý do "xác nhận xếp quá giờ" được ghi trên việc và thẻ người hiện đỏ.', overHours.code === 'SLOT_OVER_CAPACITY' ? 'This person already has more than 4 hours in this time slot. Assigning anyway records the exception and highlights the person in red.' : 'This person has no remaining capacity today, including work in other projects. Assigning anyway records the exception and highlights the person in red.')}</p>
     </ConfirmDialog>
   )
   const ready = Boolean(person) && Number(chosenHours) > 0 && (hasIssue || (issueMode === 'EXISTING' ? Boolean(issueId) : reason.trim().length >= 5))
@@ -4907,19 +4995,19 @@ function AssignWorkPanel({ runId, candidateId, canApprove, onDone }: { runId: st
       {overDialog}
       <div className="assign-work-title">
         <strong>{candidate.title}</strong>
-        <small>{[project?.name, candidate.source_type === 'REPORT' ? candidate.source_reference.replace('Daily Report', 'Báo cáo ngày') : null, hasIssue ? `Issue #${candidate.gitlab_issue_external_id}` : null].filter(Boolean).join(' · ')}</small>
+        <small>{[project?.name, candidate.source_type === 'REPORT' ? candidate.source_reference.replace('Daily Report', text('Báo cáo ngày', 'Daily Report')) : null, hasIssue ? `Issue #${candidate.gitlab_issue_external_id}` : null].filter(Boolean).join(' · ')}</small>
         {note.rest && <p>{note.rest}</p>}
       </div>
       {!hasIssue && (
         <fieldset className="option-list option-list-compact">
-          <legend>Việc này chưa gắn Issue</legend>
+          <legend>{text('Việc này chưa gắn Issue', 'This work has no Issue')}</legend>
           <label className={issueMode === 'EXISTING' ? 'option active' : 'option'} title={`Việc đã có Issue trên ${trackerName} nhưng báo cáo không ghi số.`}>
             <input type="radio" name="issue-mode" checked={issueMode === 'EXISTING'} onChange={() => setIssueMode('EXISTING')} />
-            <span><strong>Chọn Issue đã có</strong></span>
+            <span><strong>{text('Chọn Issue đã có', 'Choose an existing Issue')}</strong></span>
           </label>
           <label className={issueMode === 'CREATE' ? 'option active' : 'option'} title={canApprove ? `Chưa có Issue nào cho việc này; hệ thống tạo trên ${trackerName} sau khi bạn xác nhận.` : 'Chỉ CTO tạo được Issue mới từ đây, vì thao tác này phê duyệt một yêu cầu.'}>
             <input type="radio" name="issue-mode" checked={issueMode === 'CREATE'} disabled={!canApprove} onChange={() => setIssueMode('CREATE')} />
-            <span><strong>Tạo Issue mới</strong></span>
+            <span><strong>{text('Tạo Issue mới', 'Create a new Issue')}</strong></span>
           </label>
         </fieldset>
       )}
@@ -4928,20 +5016,20 @@ function AssignWorkPanel({ runId, candidateId, canApprove, onDone }: { runId: st
           {chosenIssue ? (
             // Once an Issue is chosen the list gets out of the way, so the assignment below is in view.
             <div className="issue-chosen">
-              <small>Issue đã chọn</small>
+              <small>{text('Issue đã chọn', 'Selected Issue')}</small>
               <IssueOption item={chosenIssue} selected onPick={() => undefined} />
-              <button type="button" className="text-button" onClick={() => setIssueId('')}>Đổi Issue</button>
+              <button type="button" className="text-button" onClick={() => setIssueId('')}>{text('Đổi Issue', 'Change Issue')}</button>
             </div>
           ) : (
             <>
-              <label className="search-field add-work-search"><Search size={16} aria-hidden="true" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tìm Issue theo tiêu đề hoặc số…" aria-label="Tìm Issue" /></label>
-              <div className="issue-groups" role="listbox" aria-label="Issue tìm thấy">
-                {issues.isLoading ? <LoadingBlock /> : projectIssues.length === 0 ? <p className="field-help">Không có Issue đang mở nào khớp. Nếu việc này chưa có Issue, chọn "Tạo Issue mới".</p> : (
+              <label className="search-field add-work-search"><Search size={16} aria-hidden="true" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={text('Tìm Issue theo tiêu đề hoặc số…', 'Search Issues by title or number…')} aria-label={text('Tìm Issue', 'Search Issues')} /></label>
+              <div className="issue-groups" role="listbox" aria-label={text('Issue tìm thấy', 'Matching Issues')}>
+                {issues.isLoading ? <LoadingBlock /> : projectIssues.length === 0 ? <p className="field-help">{text('Không có Issue đang mở nào khớp. Nếu việc này chưa có Issue, chọn "Tạo Issue mới".', 'No open Issues match. If this work does not have an Issue, choose Create a new Issue.')}</p> : (
                   <>
-                    {suggestedIssues.length > 0 && <section><h4>Gợi ý cho việc này</h4>{suggestedIssues.map((item) => <IssueOption key={item.issue_external_id} item={item} selected={false} extra={item.suggested === 'PERSON' ? 'đang gán cho người này' : 'tiêu đề gần giống'} onPick={() => setIssueId(item.issue_external_id || '')} />)}</section>}
-                    {otherIssues.length > 0 && <section><h4>{suggestedIssues.length > 0 ? 'Issue khác' : 'Issue đang mở'}</h4>{otherIssues.map((item) => <IssueOption key={item.issue_external_id} item={item} selected={false} onPick={() => setIssueId(item.issue_external_id || '')} />)}</section>}
-                    {theirIssues.length > 0 && <details open={search.trim() !== ''}><summary>Đang gán cho người khác <small>{theirIssues.length}</small></summary>{theirIssues.map((item) => <IssueOption key={item.issue_external_id} item={item} selected={false} onPick={() => setIssueId(item.issue_external_id || '')} />)}</details>}
-                    {plannedIssues.length > 0 && <details open={search.trim() !== ''}><summary>Đã có trong kế hoạch hôm nay <small>{plannedIssues.length}</small></summary>{plannedIssues.map((item) => <IssueOption key={item.issue_external_id} item={item} selected={false} onPick={() => setIssueId(item.issue_external_id || '')} />)}</details>}
+                    {suggestedIssues.length > 0 && <section><h4>{text('Gợi ý cho việc này', 'Suggested for this work')}</h4>{suggestedIssues.map((item) => <IssueOption key={item.issue_external_id} item={item} selected={false} extra={item.suggested === 'PERSON' ? text('đang gán cho người này', 'assigned to this person') : text('tiêu đề gần giống', 'similar title')} onPick={() => setIssueId(item.issue_external_id || '')} />)}</section>}
+                    {otherIssues.length > 0 && <section><h4>{suggestedIssues.length > 0 ? text('Issue khác', 'Other Issues') : text('Issue đang mở', 'Open Issues')}</h4>{otherIssues.map((item) => <IssueOption key={item.issue_external_id} item={item} selected={false} onPick={() => setIssueId(item.issue_external_id || '')} />)}</section>}
+                    {theirIssues.length > 0 && <details open={search.trim() !== ''}><summary>{text('Đang gán cho người khác', 'Assigned to someone else')} <small>{theirIssues.length}</small></summary>{theirIssues.map((item) => <IssueOption key={item.issue_external_id} item={item} selected={false} onPick={() => setIssueId(item.issue_external_id || '')} />)}</details>}
+                    {plannedIssues.length > 0 && <details open={search.trim() !== ''}><summary>{text('Đã có trong kế hoạch hôm nay', 'Already in today\'s plan')} <small>{plannedIssues.length}</small></summary>{plannedIssues.map((item) => <IssueOption key={item.issue_external_id} item={item} selected={false} onPick={() => setIssueId(item.issue_external_id || '')} />)}</details>}
                   </>
                 )}
               </div>
@@ -4951,35 +5039,36 @@ function AssignWorkPanel({ runId, candidateId, canApprove, onDone }: { runId: st
       )}
       {!hasIssue && issueMode === 'CREATE' && (
         <div className="add-work-reason">
-          <label>Ưu tiên<select value={priority} onChange={(e) => setPriority(e.target.value)}>{['P0', 'P1', 'P2', 'P3'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-          <label><span className="req-label">Lý do đưa thẳng vào kế hoạch<Req /></span><textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ví dụ: việc đã thống nhất trong buổi họp sáng" /></label>
-          <p className="notice notice-warn approve-note"><strong>Thao tác này phê duyệt Intake.</strong> Bấm xếp việc nghĩa là bạn phê duyệt việc này ngay tại đây (lý do được lưu lại): một Intake được tạo và duyệt, rồi Issue được tạo trên {trackerName} từ tiêu đề của việc. Nó sẽ không đi qua hàng Chờ phê duyệt.</p>
+          <label>{text('Ưu tiên', 'Priority')}<select value={priority} onChange={(e) => setPriority(e.target.value)}>{['P0', 'P1', 'P2', 'P3'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          <label><span className="req-label">{text('Lý do đưa thẳng vào kế hoạch', 'Reason for adding directly to the plan')}<Req /></span><textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={text('Ví dụ: việc đã thống nhất trong buổi họp sáng', 'Example: this work was agreed in the morning meeting')} /></label>
+          <p className="notice notice-warn approve-note"><strong>{text('Thao tác này phê duyệt Intake.', 'This action approves the Intake request.')}</strong> {text(`Bấm xếp việc nghĩa là bạn phê duyệt việc này ngay tại đây (lý do được lưu lại): một Intake được tạo và duyệt, rồi Issue được tạo trên ${trackerName} từ tiêu đề của việc. Nó sẽ không đi qua hàng Chờ phê duyệt.`, `Assigning this work approves it here and records the reason. Intake creates and approves a request, then creates an Issue on ${trackerName}. It will not pass through Pending approval.`)}</p>
         </div>
       )}
       <fieldset className="add-work-assign">
-        <legend>Phân công</legend>
-        <label>Người làm
+        <legend>{text('Phân công', 'Assignment')}</legend>
+        <label>{text('Người làm', 'Assignee')}
           <select value={person} onChange={(e) => setMemberId(e.target.value)}>
-            <option value="" disabled>Chọn người làm…</option>
-            {team.map((member) => <option key={member.id} value={member.id} disabled={!hasTrackerUser(member)}>{member.display_name}{hasTrackerUser(member) ? '' : ` · thiếu người dùng ${trackerName}`}</option>)}
+            <option value="" disabled>{text('Chọn người làm…', 'Choose an assignee…')}</option>
+            {team.map((member) => <option key={member.id} value={member.id} disabled={!hasTrackerUser(member)}>{member.display_name}{hasTrackerUser(member) ? '' : text(` · thiếu người dùng ${trackerName}`, ` · missing ${trackerName} user`)}</option>)}
           </select>
-          {team.length === 0 && <small className="field-help">Dự án này chưa có nhân sự. Gán ở Cài đặt &gt; Dự án.</small>}
+          {team.length === 0 && <small className="field-help">{text('Dự án này chưa có nhân sự. Gán ở Cài đặt > Dự án.', 'This project has no team members. Assign them under Settings > Projects.')}</small>}
         </label>
         {candidate.project_id && <TrackerUserFix projectId={candidate.project_id} trackerName={trackerName} team={team} hasTrackerUser={hasTrackerUser} issue={candidate.gitlab_issue_external_id} />}
         <div className="add-work-row">
-          <label>Buổi<select value={chosenSlot} onChange={(e) => setSlot(e.target.value as PlanningSlot)}><option value="MORNING">Buổi sáng</option><option value="AFTERNOON">Buổi chiều</option></select></label>
-          <label>Số giờ<input type="number" min="0.5" max="8" step="0.5" value={chosenHours} onChange={(e) => setHours(e.target.value)} /></label>
+          <label>{text('Buổi', 'Time slot')}<select value={chosenSlot} onChange={(e) => setSlot(e.target.value as PlanningSlot)}><option value="MORNING">{text('Buổi sáng', 'Morning')}</option><option value="AFTERNOON">{text('Buổi chiều', 'Afternoon')}</option></select></label>
+          <label>{text('Số giờ', 'Hours')}<input type="number" min="0.5" max="8" step="0.5" value={chosenHours} onChange={(e) => setHours(e.target.value)} /></label>
         </div>
       </fieldset>
       {error != null && <ErrorNotice error={error} />}
       {message && <p className="notice notice-warn" role="status">{message}</p>}
-      <button className="button button-primary button-wide" type="button" disabled={!ready || assign.isPending || creating} onClick={() => assign.mutate()}>{assign.isPending ? 'Đang xếp…' : creating ? 'Đang tạo Issue…' : !hasIssue && issueMode === 'CREATE' ? 'Phê duyệt và xếp vào kế hoạch' : 'Xếp vào kế hoạch'}</button>
+      <button className="button button-primary button-wide" type="button" disabled={!ready || assign.isPending || creating} onClick={() => assign.mutate()}>{assign.isPending ? text('Đang xếp…', 'Assigning…') : creating ? text('Đang tạo Issue…', 'Creating Issue…') : !hasIssue && issueMode === 'CREATE' ? text('Phê duyệt và xếp vào kế hoạch', 'Approve and assign to plan') : text('Xếp vào kế hoạch', 'Assign to plan')}</button>
     </div>
   )
 }
 
 // The day's spot checks: one or two Issues closed lately, what stands behind each, and the CTO's call.
 function VerificationList({ run, members, projects, editable, onChanged }: { run: PlanningRun; members: WorkforceMember[]; projects: Project[]; editable: boolean; onChanged: () => void }) {
+  const { locale, text } = useLocale()
   const queryClient = useQueryClient()
   const [error, setError] = useState<unknown>()
   const [rejecting, setRejecting] = useState<IssueVerification>()
@@ -4996,16 +5085,16 @@ function VerificationList({ run, members, projects, editable, onChanged }: { run
   if (rows.length === 0) return null
   const nameOf = (id: string | null) => members.find((member) => member.id === id)?.display_name
   const projectOf = (id: string) => projects.find((project) => project.id === id)
-  const levelLabel: Record<string, string> = { SELF_REPORTED: 'Tự khai', CLOSED: 'Đã đóng, chưa có dấu vết', TRACED: 'Có dấu vết code', ACCEPTED: 'Đã nghiệm thu' }
+  const levelLabel: Record<string, string> = locale === 'vi' ? { SELF_REPORTED: 'Tự khai', CLOSED: 'Đã đóng, chưa có dấu vết', TRACED: 'Có dấu vết code', ACCEPTED: 'Đã nghiệm thu' } : { SELF_REPORTED: 'Self-reported', CLOSED: 'Closed, no code evidence', TRACED: 'Code evidence found', ACCEPTED: 'Accepted' }
   const pending = rows.filter((row) => row.decision === 'PENDING').length
   return (
     <section className="planning-section" id="plan-verifications">
-      <div className="planning-section-title"><div><h2>Nghiệm thu hôm nay</h2></div><span>{pending > 0 ? `${pending} việc cần xem` : 'Đã xem xong'}</span></div>
+      <div className="planning-section-title"><div><h2>{text('Nghiệm thu hôm nay', 'Today\'s acceptance')}</h2></div><span>{pending > 0 ? text(`${pending} việc cần xem`, `${pending} items to review`) : text('Đã xem xong', 'Review complete')}</span></div>
       {error != null && <ErrorNotice error={error} />}
       {rejecting && (
-        <ConfirmDialog title={`Chưa xong: ${rejecting.title}`} confirmLabel="Ghi chưa xong" busyLabel="Đang ghi…" plain busy={decide.isPending} error={decide.error ?? undefined} onConfirm={() => { if (reason.trim().length >= 3) decide.mutate({ id: rejecting.id, decision: 'reject', why: reason.trim() }) }} onCancel={() => { setRejecting(undefined); setReason('') }}>
-          <label>Chưa xong ở chỗ nào<textarea rows={3} value={reason} maxLength={1000} onChange={(event) => setReason(event.target.value)} placeholder="Ví dụ: đơn vẫn tạo trùng khi khách bấm hai lần" /></label>
-          <ul><li>Việc quay lại "Việc chờ phân công" dưới dạng "Làm lại", người từng nhận được cảnh báo.</li><li>Issue trên GitLab không bị mở lại từ đây; mở lại bằng tay nếu cần.</li></ul>
+        <ConfirmDialog title={text(`Chưa xong: ${rejecting.title}`, `Not done: ${rejecting.title}`)} confirmLabel={text('Ghi chưa xong', 'Mark as not done')} busyLabel={text('Đang ghi…', 'Saving…')} plain busy={decide.isPending} error={decide.error ?? undefined} onConfirm={() => { if (reason.trim().length >= 3) decide.mutate({ id: rejecting.id, decision: 'reject', why: reason.trim() }) }} onCancel={() => { setRejecting(undefined); setReason('') }}>
+          <label>{text('Chưa xong ở chỗ nào', 'What is incomplete?')}<textarea rows={3} value={reason} maxLength={1000} onChange={(event) => setReason(event.target.value)} placeholder={text('Ví dụ: đơn vẫn tạo trùng khi khách bấm hai lần', 'Example: duplicate orders are still created when customers click twice')} /></label>
+          <ul><li>{text('Việc quay lại "Việc chờ phân công" dưới dạng "Làm lại", người từng nhận được cảnh báo.', 'The item returns to Waiting for assignment as Rework, and the previous assignee is notified.')}</li><li>{text('Issue trên GitLab không bị mở lại từ đây; mở lại bằng tay nếu cần.', 'The GitLab Issue is not reopened here; reopen it manually if needed.')}</li></ul>
         </ConfirmDialog>
       )}
       <div className="panel waiting-list verification-list">
@@ -5014,9 +5103,9 @@ function VerificationList({ run, members, projects, editable, onChanged }: { run
             const project = projectOf(row.project_id)
             const evidence = row.evidence
             const traces = [
-              evidence.commits > 0 ? `${evidence.commits} commit nhắc Issue` : null,
-              evidence.merge_requests > 0 ? `${evidence.merged}/${evidence.merge_requests} MR đã merge` : null,
-              evidence.pipeline ? `pipeline ${evidence.pipeline === 'success' ? 'xanh' : evidence.pipeline === 'failed' ? 'đỏ' : evidence.pipeline}` : null,
+              evidence.commits > 0 ? text(`${evidence.commits} commit nhắc Issue`, `${evidence.commits} commits reference the Issue`) : null,
+              evidence.merge_requests > 0 ? text(`${evidence.merged}/${evidence.merge_requests} MR đã merge`, `${evidence.merged}/${evidence.merge_requests} MRs merged`) : null,
+              evidence.pipeline ? text(`pipeline ${evidence.pipeline === 'success' ? 'xanh' : evidence.pipeline === 'failed' ? 'đỏ' : evidence.pipeline}`, `pipeline ${evidence.pipeline}`) : null,
             ].filter(Boolean)
             return (
               <li key={row.id} className={`waiting-row verification-row level-${row.level_name.toLowerCase()} decision-${row.decision.toLowerCase()}`}>
@@ -5025,35 +5114,36 @@ function VerificationList({ run, members, projects, editable, onChanged }: { run
                   <small>
                     <span className={`status verification-level`}>{levelLabel[row.level_name] || row.level_name}</span>
                     {project ? ` · ${project.name}` : ''}
-                    {row.closed_at ? ` · đóng ${formatDate(row.closed_at)}` : ''}
-                    {row.closed_by_member_id ? ` bởi ${nameOf(row.closed_by_member_id)}` : ''}
-                    {row.assignee_member_id ? ` · người làm ${nameOf(row.assignee_member_id)}` : ''}
-                    {` · ${traces.length > 0 ? traces.join(', ') : row.evidence_fetched_at ? 'không có commit hay MR nào nhắc Issue' : 'chưa đọc dấu vết code'}`}
-                    {row.intake_public_id ? ` · từ ${row.intake_public_id}` : ''}
+                    {row.closed_at ? text(` · đóng ${formatDate(row.closed_at)}`, ` · closed ${formatDate(row.closed_at)}`) : ''}
+                    {row.closed_by_member_id ? text(` bởi ${nameOf(row.closed_by_member_id)}`, ` by ${nameOf(row.closed_by_member_id)}`) : ''}
+                    {row.assignee_member_id ? text(` · người làm ${nameOf(row.assignee_member_id)}`, ` · assignee ${nameOf(row.assignee_member_id)}`) : ''}
+                    {` · ${traces.length > 0 ? traces.join(', ') : row.evidence_fetched_at ? text('không có commit hay MR nào nhắc Issue', 'no commits or MRs reference the Issue') : text('chưa đọc dấu vết code', 'code evidence not loaded')}`}
+                    {row.intake_public_id ? text(` · từ ${row.intake_public_id}`, ` · from ${row.intake_public_id}`) : ''}
                   </small>
                   {row.acceptance.length > 0 && <ul className="verification-acceptance">{row.acceptance.map((item, index) => <li key={index}>{item}</li>)}</ul>}
-                  {row.decision === 'REJECTED' && <p className="verification-reason">Chưa xong: {row.reason}</p>}
+                  {row.decision === 'REJECTED' && <p className="verification-reason">{text('Chưa xong', 'Not done')}: {row.reason}</p>}
                   {editable && project && (
-                    <small className="verification-rule">Dự án này tính dấu vết bằng {row.done_evidence === 'MR' ? 'MR đã merge' : 'commit nhắc Issue'} · <button type="button" className="text-button" disabled={rule.isPending} onClick={() => rule.mutate({ projectId: project.id, value: row.done_evidence === 'MR' ? 'COMMIT' : 'MR' })}>đổi sang {row.done_evidence === 'MR' ? 'commit' : 'MR'}</button></small>
+                    <small className="verification-rule">{text('Dự án này tính dấu vết bằng', 'This project uses')} {row.done_evidence === 'MR' ? text('MR đã merge', 'merged MRs') : text('commit nhắc Issue', 'commits referencing the Issue')} · <button type="button" className="text-button" disabled={rule.isPending} onClick={() => rule.mutate({ projectId: project.id, value: row.done_evidence === 'MR' ? 'COMMIT' : 'MR' })}>{text('đổi sang', 'switch to')} {row.done_evidence === 'MR' ? 'commit' : 'MR'}</button></small>
                   )}
                 </div>
                 {row.decision === 'PENDING' && editable ? (
                   <span className="waiting-actions">
-                    <button className="button button-primary button-small" type="button" disabled={decide.isPending} onClick={() => decide.mutate({ id: row.id, decision: 'accept' })}>Đúng là xong</button>
-                    <button className="button button-secondary button-small" type="button" disabled={decide.isPending} onClick={() => { setReason(''); setRejecting(row) }}>Chưa xong</button>
+                    <button className="button button-primary button-small" type="button" disabled={decide.isPending} onClick={() => decide.mutate({ id: row.id, decision: 'accept' })}>{text('Đúng là xong', 'Confirm done')}</button>
+                    <button className="button button-secondary button-small" type="button" disabled={decide.isPending} onClick={() => { setReason(''); setRejecting(row) }}>{text('Chưa xong', 'Not done')}</button>
                   </span>
-                ) : row.decision !== 'PENDING' ? <span className={`status decision-${row.decision.toLowerCase()}`}>{row.decision === 'ACCEPTED' ? 'Đã nghiệm thu' : 'Chưa xong'}</span> : null}
+                ) : row.decision !== 'PENDING' ? <span className={`status decision-${row.decision.toLowerCase()}`}>{row.decision === 'ACCEPTED' ? text('Đã nghiệm thu', 'Accepted') : text('Chưa xong', 'Not done')}</span> : null}
               </li>
             )
           })}
         </ul>
-        <p className="field-help">Mỗi ngày hệ thống chọn tối đa hai Issue đóng trong tuần qua, ưu tiên việc ít dấu vết nhất. Bằng chứng đọc từ GitLab/GitHub ở lần làm mới 06:45.</p>
+        <p className="field-help">{text('Mỗi ngày hệ thống chọn tối đa hai Issue đóng trong tuần qua, ưu tiên việc ít dấu vết nhất. Bằng chứng đọc từ GitLab/GitHub ở lần làm mới 06:45.', 'Each day, Intake selects up to two Issues closed in the past week, prioritizing those with the least evidence. Evidence is refreshed from GitLab or GitHub at 06:45.')}</p>
       </div>
     </section>
   )
 }
 
 function WaitingList({ run, members, editable, onAssign, onChanged }: { run: PlanningRun; members: WorkforceMember[]; editable: boolean; onAssign: (candidateId: string) => void; onChanged: () => void }) {
+  const { text } = useLocale()
   const [error, setError] = useState<unknown>()
   const [cancelling, setCancelling] = useState<{ id: string; title: string } | null>(null)
   const act = useMutation({
@@ -5080,9 +5170,9 @@ function WaitingList({ run, members, editable, onAssign, onChanged }: { run: Pla
     const proposed = candidate.source_type === 'FORM' && Boolean(candidate.member_id) && candidate.source_reference.startsWith('Đề xuất của ')
     const key = fromReport ? `report:${candidate.member_id}:${candidate.source_reference}` : fromRework ? 'rework' : carried ? 'carried' : proposed ? 'proposed' : fromIntake ? 'intake' : 'added'
     // Where the work came from goes in a badge; the rest of the heading says whose or which.
-    const source = fromReport ? 'Từ báo cáo' : fromRework ? 'Làm lại' : carried ? 'Làm tiếp' : proposed ? 'Đề xuất' : fromIntake ? 'Từ Intake' : 'Bạn thêm'
+    const source = fromReport ? text('Từ báo cáo', 'From report') : fromRework ? text('Làm lại', 'Rework') : carried ? text('Làm tiếp', 'Continue') : proposed ? text('Đề xuất', 'Suggested') : fromIntake ? text('Từ Intake', 'From Intake') : text('Bạn thêm', 'Added by you')
     const tone = fromReport ? 'report' : fromRework ? 'rework' : carried ? 'carried' : proposed ? 'proposed' : fromIntake ? 'intake' : 'added'
-    const title = fromReport ? `${nameOf(candidate.member_id) || 'Nhân sự'} · ${formatDay(candidate.source_reference.replace('Daily Report ', ''))}` : fromRework ? 'CTO xem lại: chưa xong' : carried ? 'Chưa xong ở kế hoạch trước' : proposed ? 'Nhân sự đề xuất, chờ bạn xếp' : fromIntake ? 'Đã có Issue, chưa ai nhận' : 'Việc đưa thẳng vào kế hoạch'
+    const title = fromReport ? `${nameOf(candidate.member_id) || text('Nhân sự', 'Team member')} · ${formatDay(candidate.source_reference.replace('Daily Report ', ''))}` : fromRework ? text('CTO xem lại: chưa xong', 'CTO review: not done') : carried ? text('Chưa xong ở kế hoạch trước', 'Incomplete from an earlier plan') : proposed ? text('Nhân sự đề xuất, chờ bạn xếp', 'Team suggestion, waiting for assignment') : fromIntake ? text('Đã có Issue, chưa ai nhận', 'Has an Issue but no assignee') : text('Việc đưa thẳng vào kế hoạch', 'Work added directly to the plan')
     if (!groups.has(key)) groups.set(key, { source, tone, title, items: [] })
     groups.get(key)!.items.push(candidate)
   }
@@ -5099,37 +5189,37 @@ function WaitingList({ run, members, editable, onAssign, onChanged }: { run: Pla
             tail={candidate.source_type === 'INTAKE' ? (candidate.status === 'PENDING_TRIAGE' && !candidate.gitlab_issue_external_id ? 'đang tạo Issue' : null) : dotted([note.status, note.rest])} />
         </div>
         {editable && (isDismissed
-          ? <button className="button button-secondary button-small" type="button" disabled={act.isPending} onClick={() => act.mutate({ id: candidate.id, action: 'restore' })}>Đưa lại</button>
+          ? <button className="button button-secondary button-small" type="button" disabled={act.isPending} onClick={() => act.mutate({ id: candidate.id, action: 'restore' })}>{text('Đưa lại', 'Restore')}</button>
           : <span className="waiting-actions">
-              <button className="button button-primary button-small" type="button" onClick={() => onAssign(candidate.id)}>Xếp việc</button>
-              <button className="button button-secondary button-small" type="button" title="Hôm nay không xếp việc này; ngày mai nó hiện lại nếu Issue còn mở" disabled={act.isPending} onClick={() => act.mutate({ id: candidate.id, action: 'dismiss' })}>Hoãn</button>
-              <button className="button button-secondary button-small" type="button" title="Việc này đã làm xong ngoài kế hoạch: ghi ai làm, rồi bỏ khỏi danh sách chờ và đưa Issue vào Nghiệm thu" onClick={() => setCancelling({ id: candidate.id, title: candidate.title })}>Đã làm rồi</button>
+              <button className="button button-primary button-small" type="button" onClick={() => onAssign(candidate.id)}>{text('Xếp việc', 'Assign')}</button>
+              <button className="button button-secondary button-small" type="button" title={text('Hôm nay không xếp việc này; ngày mai nó hiện lại nếu Issue còn mở', 'Skip this item today; it will return tomorrow if the Issue remains open')} disabled={act.isPending} onClick={() => act.mutate({ id: candidate.id, action: 'dismiss' })}>{text('Hoãn', 'Defer')}</button>
+              <button className="button button-secondary button-small" type="button" title={text('Việc này đã làm xong ngoài kế hoạch: ghi ai làm, rồi bỏ khỏi danh sách chờ và đưa Issue vào Nghiệm thu', 'Record work completed outside the plan and send its Issue to Acceptance')} onClick={() => setCancelling({ id: candidate.id, title: candidate.title })}>{text('Đã làm rồi', 'Already done')}</button>
             </span>)}
       </li>
     )
   }
   return (
     <section className="planning-section">
-      <div className="planning-section-title"><div><h2>Việc chờ phân công</h2></div><span>{waiting.length} việc{dismissed.length > 0 ? ` · ${dismissed.length} đã hoãn` : ''}{doneElsewhere.length > 0 ? ` · ${doneElsewhere.length} đã làm rồi` : ''}</span></div>
+      <div className="planning-section-title"><div><h2>{text('Việc chờ phân công', 'Waiting for assignment')}</h2></div><span>{text(`${waiting.length} việc`, `${waiting.length} items`)}{dismissed.length > 0 ? text(` · ${dismissed.length} đã hoãn`, ` · ${dismissed.length} deferred`) : ''}{doneElsewhere.length > 0 ? text(` · ${doneElsewhere.length} đã làm rồi`, ` · ${doneElsewhere.length} already done`) : ''}</span></div>
       {error != null && <ErrorNotice error={error} />}
-      {waiting.length === 0 && dismissed.length === 0 && doneElsewhere.length === 0 ? <div className="panel"><EmptyState icon={<Inbox size={20} />} title="Không có việc nào đang chờ" text="Việc chưa xong trong báo cáo ngày đã xác nhận sẽ tự hiện ở đây. Bấm 'Thêm việc vào kế hoạch' để đưa thêm việc." /></div> : (
+      {waiting.length === 0 && dismissed.length === 0 && doneElsewhere.length === 0 ? <div className="panel"><EmptyState icon={<Inbox size={20} />} title={text('Không có việc nào đang chờ', 'No work is waiting')} text={text("Việc chưa xong trong báo cáo ngày đã xác nhận sẽ tự hiện ở đây. Bấm 'Thêm việc vào kế hoạch' để đưa thêm việc.", 'Incomplete work from confirmed daily reports appears here automatically. Use Add work to plan to add more.')} /></div> : (
         <div className="panel waiting-list">
-          {waiting.length === 0 && <p className="field-help waiting-empty">Không còn việc nào chờ phân công.</p>}
+          {waiting.length === 0 && <p className="field-help waiting-empty">{text('Không còn việc nào chờ phân công.', 'No work is waiting for assignment.')}</p>}
           {ordered.map(([key, group]) => (
             <details key={key} open={key === 'added' || group.items.length <= 4 || ordered.length === 1}>
-              <summary><span className={`status waiting-source source-${group.tone}`}>{group.source}</span>{group.title}<small>{group.items.length} việc</small></summary>
+              <summary><span className={`status waiting-source source-${group.tone}`}>{group.source}</span>{group.title}<small>{text(`${group.items.length} việc`, `${group.items.length} items`)}</small></summary>
               <ul>{group.items.map((candidate) => row(candidate))}</ul>
             </details>
           ))}
           {dismissed.length > 0 && (
             <details>
-              <summary>Đã hoãn hôm nay, mai hiện lại<small>{dismissed.length} việc</small></summary>
+              <summary>{text('Đã hoãn hôm nay, mai hiện lại', 'Deferred today, returns tomorrow')}<small>{text(`${dismissed.length} việc`, `${dismissed.length} items`)}</small></summary>
               <ul>{dismissed.map((candidate) => row(candidate, true))}</ul>
             </details>
           )}
           {doneElsewhere.length > 0 && (
             <details>
-              <summary>Đã làm rồi ngoài kế hoạch, chờ nghiệm thu<small>{doneElsewhere.length} việc</small></summary>
+              <summary>{text('Đã làm rồi ngoài kế hoạch, chờ nghiệm thu', 'Completed outside the plan, awaiting acceptance')}<small>{text(`${doneElsewhere.length} việc`, `${doneElsewhere.length} items`)}</small></summary>
               <ul>
                 {doneElsewhere.map((candidate) => {
                   const note = waitingNote(candidate)
@@ -5141,12 +5231,12 @@ function WaitingList({ run, members, editable, onAssign, onChanged }: { run: Pla
                           issue={candidate.gitlab_issue_external_id} issueUrl={candidate.issue_url} memberName={candidate.member_id ? nameOf(candidate.member_id) ?? null : null} originAt={candidate.origin_at}
                           tail={dotted([note.status, note.rest])} />
                       </div>
-                      {candidate.gitlab_issue_external_id ? <Link className="button button-secondary button-small" to="/nghiem-thu">Nghiệm thu</Link> : <span className="muted">Không có Issue để nghiệm thu</span>}
+                      {candidate.gitlab_issue_external_id ? <Link className="button button-secondary button-small" to="/acceptance">{text('Nghiệm thu', 'Acceptance')}</Link> : <span className="muted">{text('Không có Issue để nghiệm thu', 'No Issue to accept')}</span>}
                     </li>
                   )
                 })}
               </ul>
-              <p className="field-help">Việc ghi "Đã làm rồi" không quay lại danh sách chờ; Issue của nó nằm ở Nghiệm thu với ghi chú ai làm. Chấp nhận ở đó thì Issue đóng.</p>
+              <p className="field-help">{text('Việc ghi "Đã làm rồi" không quay lại danh sách chờ; Issue của nó nằm ở Nghiệm thu với ghi chú ai làm. Chấp nhận ở đó thì Issue đóng.', 'Work recorded as Already done does not return to the waiting list. Its Issue moves to Acceptance with the completion note and closes when accepted.')}</p>
             </details>
           )}
         </div>
@@ -5157,6 +5247,7 @@ function WaitingList({ run, members, editable, onAssign, onChanged }: { run: Pla
 }
 
 function SyncJobPanel({ syncStatus, onChanged, onError }: { syncStatus: PlanningRunSyncStatus; onChanged: () => void; onError: (error: unknown) => void }) {
+  const { text } = useLocale()
   const retryMutation = useMutation({
     mutationFn: (jobId: string) => api(`/planning/runs/${syncStatus.planning_run_id}/sync-jobs/${jobId}/retry`, { method: 'POST' }),
     onMutate: () => onError(undefined),
@@ -5166,15 +5257,15 @@ function SyncJobPanel({ syncStatus, onChanged, onError }: { syncStatus: Planning
   const active = syncStatus.jobs.filter((job) => ['PENDING', 'RUNNING', 'RETRY'].includes(job.status)).length
   return (
     <section className="planning-section sync-job-section">
-      <div className="planning-section-title"><div><h2>Đồng bộ theo từng Issue</h2></div><span>{active > 0 ? `${active} job đang xử lý` : `${syncStatus.jobs.length} job đã kết thúc`}</span></div>
+      <div className="planning-section-title"><div><h2>{text('Đồng bộ theo từng Issue', 'Sync by Issue')}</h2></div><span>{active > 0 ? text(`${active} job đang xử lý`, `${active} jobs in progress`) : text(`${syncStatus.jobs.length} job đã kết thúc`, `${syncStatus.jobs.length} jobs finished`)}</span></div>
       <div className="sync-job-grid">
         {syncStatus.jobs.map((job) => {
           const retryable = job.status === 'FAILED' && job.attempt < job.max_attempts
           return <article className={`sync-job-card sync-job-${job.status.toLowerCase()}`} key={job.id}>
             <div className="sync-job-head"><strong>GitLab #{job.gitlab_issue_external_id}</strong><span>{job.status}</span></div>
-            <p>Lần thử {job.attempt}/{job.max_attempts}{job.next_attempt_at ? ` · tiếp theo ${formatDate(job.next_attempt_at)}` : ''}</p>
+            <p>{text('Lần thử', 'Attempt')} {job.attempt}/{job.max_attempts}{job.next_attempt_at ? text(` · tiếp theo ${formatDate(job.next_attempt_at)}`, ` · next ${formatDate(job.next_attempt_at)}`) : ''}</p>
             {job.error_code && <code>{job.error_code}</code>}
-            {retryable && <button className="button button-secondary button-small" onClick={() => retryMutation.mutate(job.id)} disabled={retryMutation.isPending}>{retryMutation.isPending ? 'Đang enqueue…' : 'Thử lại đồng bộ'}</button>}
+            {retryable && <button className="button button-secondary button-small" onClick={() => retryMutation.mutate(job.id)} disabled={retryMutation.isPending}>{retryMutation.isPending ? text('Đang enqueue…', 'Queuing…') : text('Thử lại đồng bộ', 'Retry sync')}</button>}
           </article>
         })}
       </div>
@@ -5205,14 +5296,40 @@ const planningWarningHints: Record<string, string> = {
   GITLAB_MILESTONE_MISSING: 'Vẫn chốt được; khi ghi lên GitLab, Intake chỉ gửi trường có giá trị. Bổ sung trên Issue khi tiện.',
   GITLAB_DUE_DATE_MISSING: 'Vẫn chốt được; khi ghi lên GitLab, Intake chỉ gửi trường có giá trị. Bổ sung trên Issue khi tiện.',
 }
+const planningWarningLabelsEn: Record<string, string> = {
+  REPORT_MISSING: 'Previous daily report is missing',
+  REPORT_IDENTITY_UNMAPPED: 'Report sender email is not configured',
+  REPORT_AI_UNREVIEWED: 'AI-parsed report has not been confirmed',
+  REPORT_MALFORMED: 'Report format is invalid',
+  REPORT_LATE: 'Report was sent late',
+  REPORT_BLOCKER: 'Report contains blocked work',
+  GITLAB_REFERENCE_NOT_FOUND: 'Report references an Issue not found in the list',
+  EMAIL_DONE_GITLAB_OPEN: 'Report says done but the Issue is still open',
+  EMAIL_ACTIVE_GITLAB_CLOSED: 'Report says active but the Issue is closed',
+  GITLAB_MILESTONE_MISSING: 'Issue has no milestone',
+  GITLAB_DUE_DATE_MISSING: 'Issue has no due date',
+}
+const planningWarningHintsEn: Record<string, string> = {
+  REPORT_MISSING: 'The plan can still use Issues; only this person\'s report context is missing.',
+  REPORT_IDENTITY_UNMAPPED: 'Add the email under Settings > Team so Intake can identify their reports.',
+  REPORT_AI_UNREVIEWED: 'Tasks from these reports are not used until confirmed under Daily reports.',
+  REPORT_MALFORMED: 'Parsed content is for reference only; Issues remain the source of truth.',
+  EMAIL_DONE_GITLAB_OPEN: 'The Issue status takes priority.',
+  EMAIL_ACTIVE_GITLAB_CLOSED: 'The Issue status takes priority.',
+  GITLAB_MILESTONE_MISSING: 'You can still close the plan. Intake only sends fields with values when syncing.',
+  GITLAB_DUE_DATE_MISSING: 'You can still close the plan. Intake only sends fields with values when syncing.',
+}
 
 // The planner raises one warning per person or Issue. Same-kind warnings are shown as one line with the names.
 function PlanningWarnings({ warnings, members, editable, acknowledged, onChange }: { warnings: PlanningWarning[]; members: WorkforceMember[]; editable: boolean; acknowledged: string[]; onChange: (ids: string[]) => void }) {
+  const { locale, text } = useLocale()
+  const labels = locale === 'vi' ? planningWarningLabels : planningWarningLabelsEn
+  const hints = locale === 'vi' ? planningWarningHints : planningWarningHintsEn
   const groups = warnings.reduce<Record<string, PlanningWarning[]>>((all, warning) => ({ ...all, [warning.code]: [...(all[warning.code] || []), warning] }), {})
   const detail = (warning: PlanningWarning) => warning.message.match(/#[\w-]+/)?.[0] || warning.message.match(/'([^']+)'/)?.[1] || ''
   return (
     <section className="warning-stack">
-      <div className="planning-section-title"><div><h2>Cảnh báo cần xem</h2></div><span>{Object.keys(groups).length} loại · {warnings.length} trường hợp</span></div>
+      <div className="planning-section-title"><div><h2>{text('Cảnh báo cần xem', 'Warnings to review')}</h2></div><span>{text(`${Object.keys(groups).length} loại · ${warnings.length} trường hợp`, `${Object.keys(groups).length} types · ${warnings.length} cases`)}</span></div>
       {Object.entries(groups).map(([code, items]) => {
         const open = items.filter((warning) => !warning.acknowledged_at)
         const checked = items.every((warning) => warning.acknowledged_at || acknowledged.includes(warning.id))
@@ -5224,13 +5341,13 @@ function PlanningWarnings({ warnings, members, editable, acknowledged, onChange 
         }).filter(Boolean)))
         return (
           <label className={`planning-warning warning-${items.some((warning) => warning.severity !== 'WARNING') ? 'critical' : 'warning'}`} key={code} title={code}>
-            <input type="checkbox" aria-label={`Đã xem: ${planningWarningLabels[code] || code}`} checked={checked} disabled={!editable || open.length === 0}
+            <input type="checkbox" aria-label={text(`Đã xem: ${labels[code] || code}`, `Reviewed: ${labels[code] || code}`)} checked={checked} disabled={!editable || open.length === 0}
               onChange={(e) => onChange(e.target.checked ? Array.from(new Set([...acknowledged, ...ids])) : acknowledged.filter((id) => !ids.includes(id)))} />
             <span>
-              <strong>{planningWarningLabels[code] || code}{items.length > 1 ? ` · ${items.length}` : ''}{planningWarningHints[code] && <InfoTip label={`Giải thích: ${planningWarningLabels[code] || code}`} text={planningWarningHints[code]} />}</strong>
+              <strong>{labels[code] || code}{items.length > 1 ? ` · ${items.length}` : ''}{hints[code] && <InfoTip label={text(`Giải thích: ${labels[code] || code}`, `About: ${labels[code] || code}`)} text={hints[code]} />}</strong>
               <span className="warning-who" title={who.length > 0 ? who.join(', ') : items[0].message}>{who.length > 0 ? who.join(', ') : items[0].message}</span>
             </span>
-            <em>{checked ? 'Đã xem' : 'Chưa xem'}</em>
+            <em>{checked ? text('Đã xem', 'Reviewed') : text('Chưa xem', 'Not reviewed')}</em>
           </label>
         )
       })}
@@ -5261,11 +5378,20 @@ const runStatusLabels: Record<string, string> = {
   DRAFT: 'Đang xếp', REVIEW_REQUIRED: 'Đang xếp', APPROVED: 'Đã chốt', SYNCING: 'Đã chốt, đang ghi lên Issue', SYNCED: 'Đã chốt và ghi lên Issue',
   PARTIAL: 'Đã chốt, ghi lên Issue chưa đủ', SYNC_FAILED: 'Đã chốt, ghi lên Issue lỗi', SUPERSEDED: 'Đã thay bằng bản mới',
 }
+const runStatusLabelsEn: Record<string, string> = {
+  DRAFT: 'Planning', REVIEW_REQUIRED: 'Planning', APPROVED: 'Closed', SYNCING: 'Closed, syncing Issues', SYNCED: 'Closed and synced to Issues',
+  PARTIAL: 'Closed, partially synced', SYNC_FAILED: 'Closed, Issue sync failed', SUPERSEDED: 'Superseded by a newer revision',
+}
 // Short marks for warnings that are about one piece of work or one person; the full list sits next to "Chốt kế hoạch".
 const warningMarks: Record<string, string> = {
   GITLAB_MILESTONE_MISSING: 'Thiếu milestone', GITLAB_DUE_DATE_MISSING: 'Thiếu hạn chót',
   REPORT_MISSING: 'Chưa có báo cáo', REPORT_AI_UNREVIEWED: 'Báo cáo chờ xác nhận', REPORT_MALFORMED: 'Báo cáo sai mẫu', REPORT_LATE: 'Báo cáo muộn',
   REPORT_BLOCKER: 'Có việc bị chặn', REPORT_IDENTITY_UNMAPPED: 'Chưa có email báo cáo',
+}
+const warningMarksEn: Record<string, string> = {
+  GITLAB_MILESTONE_MISSING: 'Missing milestone', GITLAB_DUE_DATE_MISSING: 'Missing due date',
+  REPORT_MISSING: 'Missing report', REPORT_AI_UNREVIEWED: 'Report awaiting confirmation', REPORT_MALFORMED: 'Invalid report format', REPORT_LATE: 'Late report',
+  REPORT_BLOCKER: 'Blocked work', REPORT_IDENTITY_UNMAPPED: 'Missing report email',
 }
 
 type BoardMove = { dragging: string | null; target: string | null; pending: string | null; start: (id: string) => void; end: () => void; over: (cell: string | null) => void; move: (id: string, slot: PlanningSlot, memberId: string) => void; unassign: (id: string) => void }
@@ -5275,19 +5401,21 @@ type BoardMoveRequest = { id: string; slot: PlanningSlot; memberId: string; over
 // The plan as a board: one row per person with the hours they have left, and their morning and afternoon side by side.
 // Capacity is not a separate block; it is the first cell of each row.
 const workStatusWords: Record<WorkStatus, string> = { PLANNED: 'Chưa bắt đầu', IN_PROGRESS: 'Đang làm', DONE: 'Xong', BLOCKED: 'Bị chặn' }
+const workStatusWordsEn: Record<WorkStatus, string> = { PLANNED: 'Not started', IN_PROGRESS: 'In progress', DONE: 'Done', BLOCKED: 'Blocked' }
 
 // Where a placed piece of work stands, set from the web (FR-PLAN-34). A closed plan still takes a status.
 function WorkStatusPicker({ runId, assignmentId, value, note, onChanged }: { runId: string; assignmentId: string; value: WorkStatus; note: string | null; onChanged: () => void }) {
+  const { locale, text } = useLocale()
   const [said, setSaid] = useState<string | null>(null)
   const change = useMutation({
     mutationFn: (status: WorkStatus) => api<WorkStatusResult>(`/planning/runs/${runId}/assignments/${assignmentId}/work-status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-    onSuccess: (result) => { setSaid(result.acceptance_queued ? 'Đã vào Nghiệm thu' : null); onChanged() },
+    onSuccess: (result) => { setSaid(result.acceptance_queued ? text('Đã vào Nghiệm thu', 'Sent to Acceptance') : null); onChanged() },
     onError: (error) => setSaid(formatError(error)),
   })
   return (
     <span className={`work-status-pick work-${value.toLowerCase()}`} title={note || undefined}>
-      <select aria-label="Trạng thái việc" value={value} disabled={change.isPending} onChange={(event) => change.mutate(event.target.value as WorkStatus)}>
-        {(Object.keys(workStatusWords) as WorkStatus[]).map((key) => <option key={key} value={key}>{workStatusWords[key]}</option>)}
+      <select aria-label={text('Trạng thái việc', 'Work status')} value={value} disabled={change.isPending} onChange={(event) => change.mutate(event.target.value as WorkStatus)}>
+        {(Object.keys(workStatusWords) as WorkStatus[]).map((key) => <option key={key} value={key}>{(locale === 'vi' ? workStatusWords : workStatusWordsEn)[key]}</option>)}
       </select>
       {said && <small>{said}</small>}
     </span>
@@ -5302,22 +5430,23 @@ function PlanBoard({ run, rows, members, editable, onEditHours, moving, onStatus
   run?: PlanningRun; rows: DailyCapacity[]; members: WorkforceMember[]; editable: boolean; onEditHours: (memberId: string) => void; moving: BoardMove; onStatus?: () => void
   focusedIntake: string | null; onFocusIntake: (publicId: string) => void
 }) {
+  const { locale, text } = useLocale()
   const assignments = run?.assignments || []
   const warnings = run?.warnings || []
   // Someone with work in the plan but outside the scope's team still gets a row, so no work is hidden.
   const people = [
     ...rows.map((row) => ({ id: row.member_id, name: row.display_name, capacity: row as DailyCapacity | undefined })),
     ...Array.from(new Set(assignments.map((assignment) => assignment.member_id))).filter((id) => !rows.some((row) => row.member_id === id))
-      .map((id) => ({ id, name: members.find((member) => member.id === id)?.display_name || 'Chưa rõ tên', capacity: undefined })),
+      .map((id) => ({ id, name: members.find((member) => member.id === id)?.display_name || text('Chưa rõ tên', 'Unknown name'), capacity: undefined })),
   ]
   const slots: PlanningSlot[] = ['MORNING', 'AFTERNOON']
   const slotHours = (slot: PlanningSlot) => assignments.filter((assignment) => assignment.slot === slot).reduce((sum, assignment) => sum + assignment.planned_hours, 0)
   const dragged = assignments.find((assignment) => assignment.id === moving.dragging)
   return (
-    <div className="panel plan-board" role="table" aria-label="Kế hoạch theo người">
+    <div className="panel plan-board" role="table" aria-label={text('Kế hoạch theo người', 'Plan by person')}>
       <div className="plan-board-head" role="row">
-        <span role="columnheader">Người làm</span>
-        {slots.map((slot) => <span role="columnheader" key={slot}>{slot === 'MORNING' ? <Sun size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />}{slot === 'MORNING' ? 'Buổi sáng' : 'Buổi chiều'}<small>{hoursText(slotHours(slot))}</small></span>)}
+        <span role="columnheader">{text('Người làm', 'Assignee')}</span>
+        {slots.map((slot) => <span role="columnheader" key={slot}>{slot === 'MORNING' ? <Sun size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />}{slot === 'MORNING' ? text('Buổi sáng', 'Morning') : text('Buổi chiều', 'Afternoon')}<small>{hoursText(slotHours(slot))}</small></span>)}
       </div>
       {people.map((person) => {
         const mine = assignments.filter((assignment) => assignment.member_id === person.id)
@@ -5326,37 +5455,37 @@ function PlanBoard({ run, rows, members, editable, onEditHours, moving, onStatus
         const left = total == null ? null : total - used
         const row = person.capacity
         const notes = row ? [
-          row.override_hours == null ? (row.base_hours === 0 ? (row.is_cto ? '' : 'Ngày nghỉ') : '') : row.override_hours === 0 ? 'Nghỉ cả ngày' : row.override_hours > row.base_hours ? `Làm thêm: ${hoursText(row.override_hours)}` : `Làm ${hoursText(row.override_hours)} thay vì ${hoursText(row.base_hours)}`,
-          busyHours(row) > 0 ? `bận ${hoursText(busyHours(row))}` : '',
-          row.personal_hours > 0 ? `${hoursText(row.personal_hours)} việc riêng` : '',
-          row.planned_elsewhere_hours > 0 ? (row.planned_elsewhere && row.planned_elsewhere.length > 0 ? row.planned_elsewhere.map((other) => `${other.project_name} ${hoursText(other.hours)}`).join(', ') : `${hoursText(row.planned_elsewhere_hours)} ở dự án khác`) : '',
-        ].filter(Boolean) : ['ngoài đội của phạm vi này']
-        const marks = Array.from(new Set(warnings.filter((warning) => !warning.assignment_id && warning.member_id === person.id).map((warning) => warningMarks[warning.code]).filter(Boolean)))
+          row.override_hours == null ? (row.base_hours === 0 ? (row.is_cto ? '' : text('Ngày nghỉ', 'Day off')) : '') : row.override_hours === 0 ? text('Nghỉ cả ngày', 'Day off') : row.override_hours > row.base_hours ? text(`Làm thêm: ${hoursText(row.override_hours)}`, `Extra hours: ${hoursText(row.override_hours)}`) : text(`Làm ${hoursText(row.override_hours)} thay vì ${hoursText(row.base_hours)}`, `Working ${hoursText(row.override_hours)} instead of ${hoursText(row.base_hours)}`),
+          busyHours(row) > 0 ? text(`bận ${hoursText(busyHours(row))}`, `busy ${hoursText(busyHours(row))}`) : '',
+          row.personal_hours > 0 ? text(`${hoursText(row.personal_hours)} việc riêng`, `${hoursText(row.personal_hours)} personal work`) : '',
+          row.planned_elsewhere_hours > 0 ? (row.planned_elsewhere && row.planned_elsewhere.length > 0 ? row.planned_elsewhere.map((other) => `${other.project_name} ${hoursText(other.hours)}`).join(', ') : text(`${hoursText(row.planned_elsewhere_hours)} ở dự án khác`, `${hoursText(row.planned_elsewhere_hours)} in other projects`)) : '',
+        ].filter(Boolean) : [text('ngoài đội của phạm vi này', 'outside this scope')]
+        const marks = Array.from(new Set(warnings.filter((warning) => !warning.assignment_id && warning.member_id === person.id).map((warning) => (locale === 'vi' ? warningMarks : warningMarksEn)[warning.code]).filter(Boolean)))
         return (
           <div className="plan-board-row" role="row" key={person.id}>
             <div className="plan-person" role="rowheader">
-              <strong>{person.name}{row?.is_owner && <span className="capacity-owner">Project Owner</span>}{row?.is_cto && <span className="capacity-owner" title="Hồ sơ của chính CTO: đặt giờ cho ngày muốn nhận việc">CTO</span>}</strong>
+              <strong>{person.name}{row?.is_owner && <span className="capacity-owner">Project Owner</span>}{row?.is_cto && <span className="capacity-owner" title={text('Hồ sơ của chính CTO: đặt giờ cho ngày muốn nhận việc', 'CTO profile: set hours for days when the CTO takes work')}>CTO</span>}</strong>
               {total != null && left != null && (
                 <span className={`plan-left${total === 0 ? ' is-off' : left < 0 ? ' is-over' : left === 0 ? ' is-full' : ''}`}>
-                  {total === 0 ? (row?.is_cto ? 'Chưa đặt giờ' : 'Không làm hôm nay') : left < 0 ? `quá ${hoursText(-left)} / ${hoursText(total)}` : `còn ${hoursText(left)} / ${hoursText(total)}`}
+                  {total === 0 ? (row?.is_cto ? text('Chưa đặt giờ', 'Hours not set') : text('Không làm hôm nay', 'Not working today')) : left < 0 ? text(`quá ${hoursText(-left)} / ${hoursText(total)}`, `over by ${hoursText(-left)} / ${hoursText(total)}`) : text(`còn ${hoursText(left)} / ${hoursText(total)}`, `${hoursText(left)} left / ${hoursText(total)}`)}
                 </span>
               )}
-              {(notes.length > 0 || row?.override_reason) && <small>{[...notes, row?.override_reason ? `lý do: ${row.override_reason}` : ''].filter(Boolean).join(' · ')}</small>}
+              {(notes.length > 0 || row?.override_reason) && <small>{[...notes, row?.override_reason ? text(`lý do: ${row.override_reason}`, `reason: ${row.override_reason}`) : ''].filter(Boolean).join(' · ')}</small>}
               {marks.length > 0 && <span className="plan-marks">{marks.map((mark) => <span key={mark}>{mark}</span>)}</span>}
-              {row && <button type="button" className="text-button plan-hours-button" onClick={() => onEditHours(person.id)}>Sửa giờ</button>}
+              {row && <button type="button" className="text-button plan-hours-button" onClick={() => onEditHours(person.id)}>{text('Sửa giờ', 'Edit hours')}</button>}
             </div>
             {slots.map((slot) => {
               const cell = `${person.id}:${slot}`
               const items = mine.filter((assignment) => assignment.slot === slot)
               const accepts = editable && dragged != null && (dragged.member_id !== person.id || dragged.slot !== slot)
               return (
-                <div role="cell" key={slot} className={`plan-cell${accepts ? ' can-drop' : ''}${accepts && moving.target === cell ? ' drop-here' : ''}`} data-slot={slot === 'MORNING' ? 'Buổi sáng' : 'Buổi chiều'}
+                <div role="cell" key={slot} className={`plan-cell${accepts ? ' can-drop' : ''}${accepts && moving.target === cell ? ' drop-here' : ''}`} data-slot={slot === 'MORNING' ? text('Buổi sáng', 'Morning') : text('Buổi chiều', 'Afternoon')}
                   onDragOver={(event) => { if (accepts) { event.preventDefault(); moving.over(cell) } }}
                   onDragLeave={() => { if (moving.target === cell) moving.over(null) }}
                   onDrop={(event) => { event.preventDefault(); if (accepts && dragged) moving.move(dragged.id, slot, person.id); moving.end() }}>
-                  {items.length === 0 ? <span className="plan-empty">{accepts ? 'Thả vào đây' : '—'}</span> : items.map((assignment) => {
+                  {items.length === 0 ? <span className="plan-empty">{accepts ? text('Thả vào đây', 'Drop here') : '—'}</span> : items.map((assignment) => {
                     const title = assignment.title || run?.candidates.find((candidate) => candidate.assignment_id === assignment.id)?.title || assignment.source_reference
-                    const cardMarks = Array.from(new Set(warnings.filter((warning) => warning.assignment_id === assignment.id).map((warning) => warningMarks[warning.code] || warning.code)))
+                    const cardMarks = Array.from(new Set(warnings.filter((warning) => warning.assignment_id === assignment.id).map((warning) => (locale === 'vi' ? warningMarks : warningMarksEn)[warning.code] || warning.code)))
                     const accepted = assignment.approved_assignee_external_id != null
                     return (
                       <article key={assignment.id} id={assignment.intake_public_id ? planningIntakeCardId(assignment.intake_public_id) : undefined}
@@ -5366,16 +5495,16 @@ function PlanBoard({ run, rows, members, editable, onEditHours, moving, onStatus
                         onKeyDown={(event) => { if (assignment.intake_public_id && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onFocusIntake(assignment.intake_public_id) } }}
                         draggable={editable || undefined}
                         onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', assignment.id); moving.start(assignment.id) }} onDragEnd={moving.end}>
-                        <div className="plan-card-top"><PriorityBadge priority={assignment.approved_priority || assignment.proposed_priority} /><strong>{assignment.gitlab_issue_external_id ? (assignment.issue_url ? <a className="ref-link" href={assignment.issue_url} target="_blank" rel="noreferrer" title="Mở Issue trên tracker">#{assignment.gitlab_issue_external_id}</a> : `#${assignment.gitlab_issue_external_id}`) : null}{assignment.gitlab_issue_external_id ? ' ' : ''}{title}</strong><span>{hoursText(assignment.planned_hours)}</span></div>
+                        <div className="plan-card-top"><PriorityBadge priority={assignment.approved_priority || assignment.proposed_priority} /><strong>{assignment.gitlab_issue_external_id ? (assignment.issue_url ? <a className="ref-link" href={assignment.issue_url} target="_blank" rel="noreferrer" title={text('Mở Issue trên tracker', 'Open Issue in tracker')}>#{assignment.gitlab_issue_external_id}</a> : `#${assignment.gitlab_issue_external_id}`) : null}{assignment.gitlab_issue_external_id ? ' ' : ''}{title}</strong><span>{hoursText(assignment.planned_hours)}</span></div>
                         <div className="plan-card-meta">
-                          <span>{accepted ? 'Đã chấp nhận' : 'Đề xuất'}{assignment.is_primary ? '' : ' · việc phụ'}</span>
-                          {assignment.accepted_at ? <span className="plan-mark work-accepted" title={`CTO nghiệm thu ${formatDate(assignment.accepted_at)}; giờ đã xếp giữ nguyên trong bản ghi của ngày`}>Đã nghiệm thu</span>
+                          <span>{accepted ? text('Đã chấp nhận', 'Accepted') : text('Đề xuất', 'Suggested')}{assignment.is_primary ? '' : text(' · việc phụ', ' · secondary')}</span>
+                          {assignment.accepted_at ? <span className="plan-mark work-accepted" title={text(`CTO nghiệm thu ${formatDate(assignment.accepted_at)}; giờ đã xếp giữ nguyên trong bản ghi của ngày`, `Accepted by the CTO ${formatDate(assignment.accepted_at)}; planned hours remain in the daily record`)}>{text('Đã nghiệm thu', 'Accepted')}</span>
                             : onStatus && run ? <WorkStatusPicker runId={run.id} assignmentId={assignment.id} value={assignment.work_status || 'PLANNED'} note={assignment.work_status_note} onChanged={onStatus} />
-                            : assignment.work_status && assignment.work_status !== 'PLANNED' && <span className={`plan-mark work-${assignment.work_status.toLowerCase()}`} title={assignment.work_status_note || undefined}>{assignment.work_status === 'IN_PROGRESS' ? 'Đang làm' : assignment.work_status === 'DONE' ? 'Báo xong' : 'Bị chặn'}</span>}
+                            : assignment.work_status && assignment.work_status !== 'PLANNED' && <span className={`plan-mark work-${assignment.work_status.toLowerCase()}`} title={assignment.work_status_note || undefined}>{assignment.work_status === 'IN_PROGRESS' ? text('Đang làm', 'In progress') : assignment.work_status === 'DONE' ? text('Báo xong', 'Reported done') : text('Bị chặn', 'Blocked')}</span>}
                           {cardMarks.map((mark) => <span className="plan-mark" key={mark}>{mark}</span>)}
                           {assignment.intake_id && <Link to={`/intakes/${assignment.intake_id}`}>Intake {assignment.intake_public_id} <ArrowUpRight size={11} /></Link>}
-                          {editable && <button type="button" className="text-button plan-unassign" title="Đưa việc này về Việc chờ phân công; giờ và ưu tiên giữ nguyên, người làm được giải phóng" disabled={moving.pending === assignment.id} onClick={() => moving.unassign(assignment.id)}>↩ Về chờ phân công</button>}
-                          {editable && <button type="button" className="text-button" disabled={moving.pending === assignment.id} onClick={() => moving.move(assignment.id, slot === 'MORNING' ? 'AFTERNOON' : 'MORNING', person.id)}>{moving.pending === assignment.id ? 'Đang chuyển…' : slot === 'MORNING' ? 'Sang chiều →' : '← Sang sáng'}</button>}
+                          {editable && <button type="button" className="text-button plan-unassign" title={text('Đưa việc này về Việc chờ phân công; giờ và ưu tiên giữ nguyên, người làm được giải phóng', 'Return this item to Waiting for assignment; hours and priority stay unchanged and the assignee is released')} disabled={moving.pending === assignment.id} onClick={() => moving.unassign(assignment.id)}>↩ {text('Về chờ phân công', 'Return to waiting')}</button>}
+                          {editable && <button type="button" className="text-button" disabled={moving.pending === assignment.id} onClick={() => moving.move(assignment.id, slot === 'MORNING' ? 'AFTERNOON' : 'MORNING', person.id)}>{moving.pending === assignment.id ? text('Đang chuyển…', 'Moving…') : slot === 'MORNING' ? text('Sang chiều →', 'Move to afternoon →') : text('← Sang sáng', '← Move to morning')}</button>}
                         </div>
                       </article>
                     )
@@ -5393,20 +5522,21 @@ function PlanBoard({ run, rows, members, editable, onEditHours, moving, onStatus
 // "Tất cả dự án": the day as it stands across projects, read-only (FR-PLAN-33). Each project is a block: its plan,
 // the people with work, the people still free, and what waits to be placed; a button opens that project's plan.
 function OffPlanWorkList({ items }: { items: DayPlanProject['off_plan'] }) {
+  const { text } = useLocale()
   if (items.length === 0) return null
   return (
     <div className="day-plan-off-plan">
-      <strong>Việc phát sinh ngoài kế hoạch · {items.length}</strong>
-      <p className="field-help">Kết quả thực tế trong ngày; không cộng vào giờ đã lập kế hoạch và không sửa kế hoạch đã chốt.</p>
+      <strong>{text('Việc phát sinh ngoài kế hoạch', 'Unplanned completed work')} · {items.length}</strong>
+      <p className="field-help">{text('Kết quả thực tế trong ngày; không cộng vào giờ đã lập kế hoạch và không sửa kế hoạch đã chốt.', 'Actual results for the day; these do not add to planned hours or change a closed plan.')}</p>
       <ul>
         {items.map((item) => (
           <li key={item.id} className={`off-plan-row${item.accepted_at || item.review_decision !== 'PENDING' ? ' is-decided' : ''}`}>
             <div>
               <strong>{item.issue_url ? <a href={item.issue_url} target="_blank" rel="noreferrer">#{item.issue}</a> : `#${item.issue}`} {item.title}</strong>
-              <small>{item.executor}{item.actual_minutes != null ? ` · ${hoursText(item.actual_minutes / 60)} thực tế` : ''}{item.deployed === true ? ' · đã triển khai' : item.deployed === false ? ' · chưa triển khai' : ''}</small>
+              <small>{item.executor}{item.actual_minutes != null ? text(` · ${hoursText(item.actual_minutes / 60)} thực tế`, ` · ${hoursText(item.actual_minutes / 60)} actual`) : ''}{item.deployed === true ? text(' · đã triển khai', ' · deployed') : item.deployed === false ? text(' · chưa triển khai', ' · not deployed') : ''}</small>
             </div>
             <span className="waiting-actions">
-              <span className={`status decision-${item.review_decision.toLowerCase()}`}>{item.accepted_at ? 'Đã nghiệm thu' : item.review_decision === 'PENDING' ? 'Chờ nghiệm thu' : item.review_decision === 'RETURNED' ? 'Đã trả lại' : 'Đã xác nhận'}</span>
+              <span className={`status decision-${item.review_decision.toLowerCase()}`}>{item.accepted_at ? text('Đã nghiệm thu', 'Accepted') : item.review_decision === 'PENDING' ? text('Chờ nghiệm thu', 'Pending acceptance') : item.review_decision === 'RETURNED' ? text('Đã trả lại', 'Returned') : text('Đã xác nhận', 'Confirmed')}</span>
               <Link className="button button-secondary button-small" to={`/intakes/${item.intake_id}`}>Intake {item.intake_public_id} <ArrowUpRight size={12} /></Link>
             </span>
           </li>
@@ -5435,6 +5565,7 @@ type ProjectOrderingControls = {
 }
 
 function DayPlanProjectBlock({ block, onOpen, collapsed, onToggle, onChanged, ordering }: { block: DayPlanProject; onOpen: (projectId: string) => void; collapsed: boolean; onToggle: () => void; onChanged: () => void; ordering?: ProjectOrderingControls }) {
+  const { locale, text } = useLocale()
   const run = block.run
   const [cancelling, setCancelling] = useState<{ id: string; title: string } | null>(null)
   // Same three actions as the project's own plan page: place it, put it off until tomorrow, or note it was done already.
@@ -5442,34 +5573,34 @@ function DayPlanProjectBlock({ block, onOpen, collapsed, onToggle, onChanged, or
     mutationFn: (candidateId: string) => api(`/planning/runs/${run?.id}/candidates/${candidateId}/dismiss`, { method: 'POST' }),
     onSuccess: () => onChanged(),
   })
-  const status = !run ? 'Chưa có kế hoạch' : runStatusLabels[run.status] || run.status
+  const status = !run ? text('Chưa có kế hoạch', 'No plan yet') : (locale === 'vi' ? runStatusLabels : runStatusLabelsEn)[run.status] || run.status
   const tone = !run ? 'none' : run.open ? 'open' : 'closed'
   // Folded, the heading still says how the day stands: who has work, who is free, what waits.
   const folded = [
-    block.people.length > 0 ? `${block.people.length} người có việc` : null,
-    block.free.length > 0 ? `${block.free.length} còn trống` : null,
-    block.waiting.length > 0 ? `${block.waiting.length} chờ phân công` : null,
-    block.off_plan.length > 0 ? `${block.off_plan.length} ngoài kế hoạch` : null,
+    block.people.length > 0 ? text(`${block.people.length} người có việc`, `${block.people.length} people assigned`) : null,
+    block.free.length > 0 ? text(`${block.free.length} còn trống`, `${block.free.length} available`) : null,
+    block.waiting.length > 0 ? text(`${block.waiting.length} chờ phân công`, `${block.waiting.length} waiting for assignment`) : null,
+    block.off_plan.length > 0 ? text(`${block.off_plan.length} ngoài kế hoạch`, `${block.off_plan.length} unplanned`) : null,
   ].filter(Boolean).join(' · ')
   return (
     <section className={`panel day-plan-project${collapsed ? ' is-collapsed' : ''}${ordering?.dragging ? ' is-dragging' : ''}`} aria-label={block.name}
       onDragOver={ordering ? (event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } : undefined}
       onDrop={ordering ? (event) => { event.preventDefault(); ordering.onDrop() } : undefined}>
       <header className="day-plan-head" onClick={onToggle}>
-        <button type="button" className="day-plan-fold" aria-expanded={!collapsed} aria-label={collapsed ? `Mở rộng ${block.name}` : `Thu gọn ${block.name}`} onClick={(event) => { event.stopPropagation(); onToggle() }}>{collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>
+        <button type="button" className="day-plan-fold" aria-expanded={!collapsed} aria-label={collapsed ? text(`Mở rộng ${block.name}`, `Expand ${block.name}`) : text(`Thu gọn ${block.name}`, `Collapse ${block.name}`)} onClick={(event) => { event.stopPropagation(); onToggle() }}>{collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>
         <div>
           <h2>{block.name}</h2>
-          <small>{block.owner_name ? `Project Owner: ${block.owner_name}` : 'Chưa có Project Owner'}{run ? ` · ${run.assignments} việc · ${hoursText(run.assigned_hours)}${run.revision > 1 ? ` · bản ${run.revision}` : ''}` : ''}{run && run.unseen_warnings > 0 ? ` · ${run.unseen_warnings} cảnh báo chưa xem` : ''}</small>
+          <small>{block.owner_name ? `Project Owner: ${block.owner_name}` : text('Chưa có Project Owner', 'No Project Owner')}{run ? text(` · ${run.assignments} việc · ${hoursText(run.assigned_hours)}${run.revision > 1 ? ` · bản ${run.revision}` : ''}`, ` · ${run.assignments} items · ${hoursText(run.assigned_hours)}${run.revision > 1 ? ` · revision ${run.revision}` : ''}`) : ''}{run && run.unseen_warnings > 0 ? text(` · ${run.unseen_warnings} cảnh báo chưa xem`, ` · ${run.unseen_warnings} unread warnings`) : ''}</small>
         </div>
         <div className="day-plan-tools" onClick={(event) => event.stopPropagation()}>
           {collapsed && folded && <small className="day-plan-folded">{folded}</small>}
-          {ordering && <span className="day-plan-order-controls" aria-label="Sắp xếp dự án">
-            <button type="button" className="text-button day-plan-drag" draggable={!ordering.busy} disabled={ordering.busy} aria-label={`Kéo để sắp xếp ${block.name}`} title="Kéo để đổi thứ tự" onDragStart={ordering.onDragStart} onDragEnd={ordering.onDragEnd}><GripVertical size={15} /></button>
-            <button type="button" className="text-button" disabled={ordering.busy || ordering.index === 0} aria-label={`Đưa ${block.name} lên trên`} onClick={() => ordering.onMove(ordering.index - 1)}><ArrowUp size={14} /></button>
-            <button type="button" className="text-button" disabled={ordering.busy || ordering.index === ordering.total - 1} aria-label={`Đưa ${block.name} xuống dưới`} onClick={() => ordering.onMove(ordering.index + 1)}><ArrowDown size={14} /></button>
+          {ordering && <span className="day-plan-order-controls" aria-label={text('Sắp xếp dự án', 'Reorder projects')}>
+            <button type="button" className="text-button day-plan-drag" draggable={!ordering.busy} disabled={ordering.busy} aria-label={text(`Kéo để sắp xếp ${block.name}`, `Drag to reorder ${block.name}`)} title={text('Kéo để đổi thứ tự', 'Drag to reorder')} onDragStart={ordering.onDragStart} onDragEnd={ordering.onDragEnd}><GripVertical size={15} /></button>
+            <button type="button" className="text-button" disabled={ordering.busy || ordering.index === 0} aria-label={text(`Đưa ${block.name} lên trên`, `Move ${block.name} up`)} onClick={() => ordering.onMove(ordering.index - 1)}><ArrowUp size={14} /></button>
+            <button type="button" className="text-button" disabled={ordering.busy || ordering.index === ordering.total - 1} aria-label={text(`Đưa ${block.name} xuống dưới`, `Move ${block.name} down`)} onClick={() => ordering.onMove(ordering.index + 1)}><ArrowDown size={14} /></button>
           </span>}
           <span className={`run-status plan-tone-${tone}`}>{status}</span>
-          <button type="button" className="button button-secondary button-small" onClick={() => onOpen(block.id)}>{run ? 'Mở kế hoạch' : 'Lập kế hoạch'} <ArrowUpRight size={13} /></button>
+          <button type="button" className="button button-secondary button-small" onClick={() => onOpen(block.id)}>{run ? text('Mở kế hoạch', 'Open plan') : text('Lập kế hoạch', 'Create plan')} <ArrowUpRight size={13} /></button>
         </div>
       </header>
       {collapsed ? null : <>
@@ -5481,10 +5612,10 @@ function DayPlanProjectBlock({ block, onOpen, collapsed, onToggle, onChanged, or
               <div className="day-plan-cards">
                 {person.assignments.map((item) => (
                   <article key={item.id} className={`plan-card is-compact${item.accepted_at ? ' is-accepted' : ''}`}>
-                    <div className="plan-card-top"><PriorityBadge priority={item.priority} /><strong title={item.title}>{item.issue ? (item.issue_url ? <a className="ref-link" href={item.issue_url} target="_blank" rel="noreferrer" title="Mở Issue trên tracker">#{item.issue}</a> : `#${item.issue}`) : null}{item.issue ? ' ' : ''}{item.title}</strong><span className="plan-card-hours">{hoursText(item.hours)}</span></div>
+                    <div className="plan-card-top"><PriorityBadge priority={item.priority} /><strong title={item.title}>{item.issue ? (item.issue_url ? <a className="ref-link" href={item.issue_url} target="_blank" rel="noreferrer" title={text('Mở Issue trên tracker', 'Open Issue in tracker')}>#{item.issue}</a> : `#${item.issue}`) : null}{item.issue ? ' ' : ''}{item.title}</strong><span className="plan-card-hours">{hoursText(item.hours)}</span></div>
                     <div className="plan-card-meta">
-                      <span>{item.slot === 'MORNING' ? 'Sáng' : 'Chiều'}{item.accepted ? '' : ' · đề xuất'}</span>
-                      {item.accepted_at ? <span className="plan-mark work-accepted" title={`CTO nghiệm thu ${formatDate(item.accepted_at)}`}>Đã nghiệm thu</span> : item.work_status !== 'PLANNED' && <span className={`plan-mark work-${item.work_status.toLowerCase()}`}>{item.work_status === 'IN_PROGRESS' ? 'Đang làm' : item.work_status === 'DONE' ? 'Báo xong' : 'Bị chặn'}</span>}
+                      <span>{item.slot === 'MORNING' ? text('Sáng', 'Morning') : text('Chiều', 'Afternoon')}{item.accepted ? '' : text(' · đề xuất', ' · suggested')}</span>
+                      {item.accepted_at ? <span className="plan-mark work-accepted" title={text(`CTO nghiệm thu ${formatDate(item.accepted_at)}`, `Accepted by CTO ${formatDate(item.accepted_at)}`)}>{text('Đã nghiệm thu', 'Accepted')}</span> : item.work_status !== 'PLANNED' && <span className={`plan-mark work-${item.work_status.toLowerCase()}`}>{item.work_status === 'IN_PROGRESS' ? text('Đang làm', 'In progress') : item.work_status === 'DONE' ? text('Báo xong', 'Reported done') : text('Bị chặn', 'Blocked')}</span>}
                       {item.intake_id && <Link to={`/intakes/${item.intake_id}`}>Intake {item.intake_public_id} <ArrowUpRight size={11} /></Link>}
                     </div>
                   </article>
@@ -5496,14 +5627,14 @@ function DayPlanProjectBlock({ block, onOpen, collapsed, onToggle, onChanged, or
       )}
       {(block.free.length > 0 || block.off.length > 0) && (
         <p className="day-plan-free">
-          {block.free.length > 0 && <span>Còn trống: {block.free.map((person) => `${person.name} ${hoursText(person.hours)}${person.elsewhere.length > 0 ? ` (${person.elsewhere.map((row) => `${row.project_name} ${hoursText(row.hours)}`).join(', ')})` : ''}`).join(', ')}</span>}
-          {block.off.length > 0 && <span className="muted">Nghỉ: {block.off.join(', ')}</span>}
+          {block.free.length > 0 && <span>{text('Còn trống', 'Available')}: {block.free.map((person) => `${person.name} ${hoursText(person.hours)}${person.elsewhere.length > 0 ? ` (${person.elsewhere.map((row) => `${row.project_name} ${hoursText(row.hours)}`).join(', ')})` : ''}`).join(', ')}</span>}
+          {block.off.length > 0 && <span className="muted">{text('Nghỉ', 'Off')}: {block.off.join(', ')}</span>}
         </p>
       )}
-      {block.people.length === 0 && block.free.length === 0 && block.off.length === 0 && <p className="day-plan-free muted">Dự án chưa có nhân sự.</p>}
+      {block.people.length === 0 && block.free.length === 0 && block.off.length === 0 && <p className="day-plan-free muted">{text('Dự án chưa có nhân sự.', 'This project has no team members.')}</p>}
       {block.waiting.length > 0 && (
         <div className="day-plan-waiting">
-          <strong>Chờ phân công · {block.waiting.length}</strong>
+          <strong>{text('Chờ phân công', 'Waiting for assignment')} · {block.waiting.length}</strong>
           <ul>
             {block.waiting.map((item) => (
               <li key={item.id} className="waiting-row">
@@ -5512,9 +5643,9 @@ function DayPlanProjectBlock({ block, onOpen, collapsed, onToggle, onChanged, or
                   <WaitingMeta sourceType={item.source_type} intakeId={item.intake_id} intakePublicId={item.intake_public_id} priority={item.priority} issue={item.issue} issueUrl={item.issue_url} memberName={item.member_name} originAt={item.origin_at} />
                 </div>
                 <span className="waiting-actions">
-                  <button type="button" className="button button-primary button-small" onClick={() => onOpen(block.id)}>Xếp việc</button>
-                  <button type="button" className="button button-secondary button-small" title={run ? 'Hôm nay không xếp việc này; ngày mai nó hiện lại nếu Issue còn mở' : 'Lập kế hoạch ngày trước rồi mới hoãn được'} disabled={!run || dismiss.isPending} onClick={() => dismiss.mutate(item.id)}>Hoãn</button>
-                  <button type="button" className="button button-secondary button-small" title={run ? 'Việc này đã làm xong ngoài kế hoạch: ghi ai làm, rồi bỏ khỏi danh sách chờ và đưa Issue vào Nghiệm thu' : 'Lập kế hoạch ngày trước rồi mới ghi được'} disabled={!run} onClick={() => setCancelling({ id: item.id, title: item.title })}>Đã làm rồi</button>
+                  <button type="button" className="button button-primary button-small" onClick={() => onOpen(block.id)}>{text('Xếp việc', 'Assign')}</button>
+                  <button type="button" className="button button-secondary button-small" title={run ? text('Hôm nay không xếp việc này; ngày mai nó hiện lại nếu Issue còn mở', 'Skip this item today; it will return tomorrow if the Issue remains open') : text('Lập kế hoạch ngày trước rồi mới hoãn được', 'Create the daily plan before deferring work')} disabled={!run || dismiss.isPending} onClick={() => dismiss.mutate(item.id)}>{text('Hoãn', 'Defer')}</button>
+                  <button type="button" className="button button-secondary button-small" title={run ? text('Việc này đã làm xong ngoài kế hoạch: ghi ai làm, rồi bỏ khỏi danh sách chờ và đưa Issue vào Nghiệm thu', 'Record completed unplanned work, remove it from waiting, and send its Issue to Acceptance') : text('Lập kế hoạch ngày trước rồi mới ghi được', 'Create the daily plan before recording completed work')} disabled={!run} onClick={() => setCancelling({ id: item.id, title: item.title })}>{text('Đã làm rồi', 'Already done')}</button>
                 </span>
               </li>
             ))}
@@ -5533,23 +5664,25 @@ const FOLDED_KEY = 'intake-day-plans-folded'
 
 // A waiting entry that was done already, outside the plan: a note, then off the list and into acceptance (FR-PLAN-34).
 function DoneElsewhereDialog({ runId, candidateId, title, onDone, onCancel }: { runId: string; candidateId: string; title: string; onDone: () => void; onCancel: () => void }) {
+  const { text } = useLocale()
   const [note, setNote] = useState('')
   const mark = useMutation({
     mutationFn: () => api<PlanningCandidate & { acceptance_queued: boolean }>(`/planning/runs/${runId}/candidates/${candidateId}/done`, { method: 'POST', body: JSON.stringify({ note: note.trim() }) }),
     onSuccess: onDone,
   })
   return (
-    <ConfirmDialog title="Việc đã làm ngoài kế hoạch" confirmLabel="Ghi là đã làm" busyLabel="Đang ghi…" busy={mark.isPending} error={mark.error} plain onConfirm={() => { if (note.trim().length >= 3) mark.mutate() }} onCancel={onCancel}>
+    <ConfirmDialog title={text('Việc đã làm ngoài kế hoạch', 'Completed outside the plan')} confirmLabel={text('Ghi là đã làm', 'Record as completed')} busyLabel={text('Đang ghi…', 'Saving…')} busy={mark.isPending} error={mark.error} plain onConfirm={() => { if (note.trim().length >= 3) mark.mutate() }} onCancel={onCancel}>
       <p><strong>{title}</strong></p>
-      <p>Việc đã làm rồi nhưng chưa tổng hợp? Ghi ai làm, làm khi nào. Việc rời danh sách chờ; nếu có Issue thì vào Nghiệm thu, CTO xác nhận là Issue được đóng kèm đúng ghi chú này, nên ngày sau không hiện lại. Chỉ muốn hôm nay không xếp thì bấm "Hoãn" thay vì nút này.</p>
-      <label className="done-note">Ghi chú<textarea rows={3} value={note} autoFocus onChange={(event) => setNote(event.target.value)} placeholder="vd. Nam đã làm hôm qua, chưa kịp báo" /></label>
-      {note.trim().length > 0 && note.trim().length < 3 && <small className="field-help">Ghi chú cần ít nhất 3 ký tự.</small>}
+      <p>{text('Việc đã làm rồi nhưng chưa tổng hợp? Ghi ai làm, làm khi nào. Việc rời danh sách chờ; nếu có Issue thì vào Nghiệm thu, CTO xác nhận là Issue được đóng kèm đúng ghi chú này, nên ngày sau không hiện lại. Chỉ muốn hôm nay không xếp thì bấm "Hoãn" thay vì nút này.', 'Record who completed the work and when. The item leaves the waiting list; if it has an Issue, it moves to Acceptance. If you only want to skip it today, use Defer instead.')}</p>
+      <label className="done-note">{text('Ghi chú', 'Note')}<textarea rows={3} value={note} autoFocus onChange={(event) => setNote(event.target.value)} placeholder={text('vd. Nam đã làm hôm qua, chưa kịp báo', 'Example: Alex completed it yesterday but had not reported it')} /></label>
+      {note.trim().length > 0 && note.trim().length < 3 && <small className="field-help">{text('Ghi chú cần ít nhất 3 ký tự.', 'The note must contain at least 3 characters.')}</small>}
     </ConfirmDialog>
   )
 }
 
 function DayPlansOverview({ date, onOpen }: { date: string; onOpen: (projectId: string) => void }) {
   const { user } = useAuth()
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const [view, setView] = useState<'projects' | 'people'>('projects')
   const plans = useQuery({ queryKey: ['planning-day-plans', date], queryFn: () => api<DayPlans>(`/planning/day-plans/${date}`), refetchInterval: 60_000 })
@@ -5580,13 +5713,13 @@ function DayPlansOverview({ date, onOpen }: { date: string; onOpen: (projectId: 
   return (
     <>
       <p className="day-plan-totals">
-        <span><strong>{totals.unclosed}</strong>/{totals.projects} dự án chưa chốt</span><span><strong>{totals.free_people}</strong> người còn trống · {hoursText(totals.free_hours)}</span><span><strong>{totals.waiting}</strong> việc chờ phân công</span>{totals.off_plan > 0 && <span><strong>{totals.off_plan}</strong> ngoài kế hoạch{totals.off_plan_actual_minutes > 0 ? ` · ${hoursText(totals.off_plan_actual_minutes / 60)} thực tế` : ''}</span>}<span className="muted">Tổng quan chỉ đọc: xếp và chốt trong từng dự án.</span>
-        <span className="day-plan-views"><button type="button" className={view === 'projects' ? 'active' : undefined} onClick={() => setView('projects')}>Theo dự án</button><button type="button" className={view === 'people' ? 'active' : undefined} onClick={() => setView('people')}>Theo người</button></span>
-        {view === 'projects' && <span className="day-plan-sort"><label>Thứ tự <select value={preference.mode} disabled={saveOrder.isPending} onChange={(event) => changeMode(event.target.value as PlanningProjectOrder['mode'])}><option value="PRIORITY">Ưu tiên xử lý</option><option value="CUSTOM">Tùy chỉnh</option></select></label>{preference.mode === 'CUSTOM' && <button type="button" className="text-button" disabled={saveOrder.isPending} onClick={() => changeMode('PRIORITY')}><RotateCcw size={13} /> Khôi phục ưu tiên</button>}</span>}
-        {view === 'projects' && ids.length > 1 && <button type="button" className="text-button day-plan-fold-all" onClick={() => remember(allFolded ? [] : ids)}>{allFolded ? 'Mở rộng tất cả' : 'Thu gọn tất cả'}</button>}
+        <span><strong>{totals.unclosed}</strong>/{totals.projects} {text('dự án chưa chốt', 'projects not closed')}</span><span><strong>{totals.free_people}</strong> {text('người còn trống', 'people available')} · {hoursText(totals.free_hours)}</span><span><strong>{totals.waiting}</strong> {text('việc chờ phân công', 'items waiting for assignment')}</span>{totals.off_plan > 0 && <span><strong>{totals.off_plan}</strong> {text('ngoài kế hoạch', 'unplanned')}{totals.off_plan_actual_minutes > 0 ? text(` · ${hoursText(totals.off_plan_actual_minutes / 60)} thực tế`, ` · ${hoursText(totals.off_plan_actual_minutes / 60)} actual`) : ''}</span>}<span className="muted">{text('Tổng quan chỉ đọc: xếp và chốt trong từng dự án.', 'Read-only overview: assign and close work inside each project.')}</span>
+        <span className="day-plan-views"><button type="button" className={view === 'projects' ? 'active' : undefined} onClick={() => setView('projects')}>{text('Theo dự án', 'By project')}</button><button type="button" className={view === 'people' ? 'active' : undefined} onClick={() => setView('people')}>{text('Theo người', 'By person')}</button></span>
+        {view === 'projects' && <span className="day-plan-sort"><label>{text('Thứ tự', 'Order')} <select value={preference.mode} disabled={saveOrder.isPending} onChange={(event) => changeMode(event.target.value as PlanningProjectOrder['mode'])}><option value="PRIORITY">{text('Ưu tiên xử lý', 'Processing priority')}</option><option value="CUSTOM">{text('Tùy chỉnh', 'Custom')}</option></select></label>{preference.mode === 'CUSTOM' && <button type="button" className="text-button" disabled={saveOrder.isPending} onClick={() => changeMode('PRIORITY')}><RotateCcw size={13} /> {text('Khôi phục ưu tiên', 'Restore priority order')}</button>}</span>}
+        {view === 'projects' && ids.length > 1 && <button type="button" className="text-button day-plan-fold-all" onClick={() => remember(allFolded ? [] : ids)}>{allFolded ? text('Mở rộng tất cả', 'Expand all') : text('Thu gọn tất cả', 'Collapse all')}</button>}
       </p>
       {saveOrder.error != null && <ErrorNotice error={saveOrder.error} />}
-      {view === 'people' ? <div className="panel"><PeopleBoard day={date} /></div> : orderedProjects.length === 0 ? <div className="panel"><EmptyState icon={<CalendarDays size={20} />} title="Chưa có dự án phần mềm" text="Thêm dự án ở Cài đặt > Dự án." /></div> : orderedProjects.map((block, index) => <DayPlanProjectBlock key={block.id} block={block} onOpen={onOpen} collapsed={folded.includes(block.id)} onToggle={() => toggle(block.id)} onChanged={() => { void plans.refetch() }} ordering={preference.mode === 'CUSTOM' ? {
+      {view === 'people' ? <div className="panel"><PeopleBoard day={date} /></div> : orderedProjects.length === 0 ? <div className="panel"><EmptyState icon={<CalendarDays size={20} />} title={text('Chưa có dự án phần mềm', 'No software projects yet')} text={text('Thêm dự án ở Cài đặt > Dự án.', 'Add a project under Settings > Projects.')} /></div> : orderedProjects.map((block, index) => <DayPlanProjectBlock key={block.id} block={block} onOpen={onOpen} collapsed={folded.includes(block.id)} onToggle={() => toggle(block.id)} onChanged={() => { void plans.refetch() }} ordering={preference.mode === 'CUSTOM' ? {
         index, total: orderedProjects.length, busy: saveOrder.isPending, dragging: draggingProject === block.id,
         onMove: (targetIndex) => reorder(block.id, targetIndex),
         onDragStart: (event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', block.id); setDraggingProject(block.id) },
@@ -5598,7 +5731,7 @@ function DayPlansOverview({ date, onOpen }: { date: string; onOpen: (projectId: 
 }
 
 function PlanningPage() {
-  const { text } = useLocale()
+  const { locale, text } = useLocale()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
@@ -5672,7 +5805,7 @@ function PlanningPage() {
   })
   const reopenPlan = () => {
     if (!run) return
-    if (!window.confirm(`Mở lại kế hoạch ngày ${formatDay(run.plan_date)} thành bản ${run.revision + 1} để sửa? Bản đã chốt vẫn được giữ. Khi chốt lại, chỉ Issue có thay đổi mới được ghi lên GitLab.`)) return
+    if (!window.confirm(text(`Mở lại kế hoạch ngày ${formatDay(run.plan_date)} thành bản ${run.revision + 1} để sửa? Bản đã chốt vẫn được giữ. Khi chốt lại, chỉ Issue có thay đổi mới được ghi lên GitLab.`, `Reopen the plan for ${formatDay(run.plan_date)} as revision ${run.revision + 1}? The closed revision will be preserved, and only changed Issues will be updated when you close it again.`))) return
     reopenMutation.mutate()
   }
   // A missing milestone or due date is something the person closing must have seen, not a reason to stop (ADR-0013):
@@ -5680,7 +5813,7 @@ function PlanningPage() {
   const closePlan = () => {
     const fieldIds = (run?.warnings || []).filter((warning) => ['GITLAB_MILESTONE_MISSING', 'GITLAB_DUE_DATE_MISSING'].includes(warning.code) && !warning.acknowledged_at).map((warning) => warning.id)
     const unseen = fieldIds.filter((id) => !acknowledged.includes(id))
-    if (unseen.length > 0 && !window.confirm(`${unseen.length} việc có Issue thiếu milestone hoặc hạn chót. Vẫn chốt kế hoạch? Khi ghi lên GitLab, Intake chỉ gửi trường có giá trị.`)) return
+    if (unseen.length > 0 && !window.confirm(text(`${unseen.length} việc có Issue thiếu milestone hoặc hạn chót. Vẫn chốt kế hoạch? Khi ghi lên GitLab, Intake chỉ gửi trường có giá trị.`, `${unseen.length} items have Issues without a milestone or due date. Close the plan anyway? Intake will only send fields that have values.`))) return
     const ids = Array.from(new Set([...acknowledged, ...fieldIds]))
     setAcknowledged(ids)
     approveMutation.mutate(ids)
@@ -5703,12 +5836,12 @@ function PlanningPage() {
         setOverrideMove({ ...variables, code })
         return
       }
-      setMoveError(code === 'SLOT_OVER_CAPACITY' ? 'Không chuyển được: buổi đó của người nhận sẽ quá 4 giờ.'
-        : code === 'OVER_CAPACITY' ? 'Không chuyển được: người nhận không còn đủ giờ trong ngày.'
-          : code === 'MULTIPLE_PRIMARY_DOING' ? 'Không chuyển được: người nhận đã có một việc phát triển chính khác.'
-            : code === 'GITLAB_ASSIGNEE_REQUIRED' ? 'Không chuyển được: người nhận chưa được liên kết với tài khoản GitLab của dự án.'
-              : code === 'MEMBER_NOT_IN_PROJECT' ? 'Không chuyển được: người nhận không còn thuộc dự án này.'
-                : code === 'PLANNING_VERSION_CONFLICT' ? 'Kế hoạch vừa được người khác sửa. Tải lại trang rồi thử lại.' : formatError(error))
+      setMoveError(code === 'SLOT_OVER_CAPACITY' ? text('Không chuyển được: buổi đó của người nhận sẽ quá 4 giờ.', 'Cannot move: the assignee would have more than 4 hours in that time slot.')
+        : code === 'OVER_CAPACITY' ? text('Không chuyển được: người nhận không còn đủ giờ trong ngày.', 'Cannot move: the assignee does not have enough available hours today.')
+          : code === 'MULTIPLE_PRIMARY_DOING' ? text('Không chuyển được: người nhận đã có một việc phát triển chính khác.', 'Cannot move: the assignee already has another primary development task.')
+            : code === 'GITLAB_ASSIGNEE_REQUIRED' ? text('Không chuyển được: người nhận chưa được liên kết với tài khoản GitLab của dự án.', 'Cannot move: the assignee is not linked to a GitLab account for this project.')
+              : code === 'MEMBER_NOT_IN_PROJECT' ? text('Không chuyển được: người nhận không còn thuộc dự án này.', 'Cannot move: the assignee is no longer a member of this project.')
+                : code === 'PLANNING_VERSION_CONFLICT' ? text('Kế hoạch vừa được người khác sửa. Tải lại trang rồi thử lại.', 'Someone else just changed this plan. Reload and try again.') : formatError(error))
       refreshRun()
     },
   })
@@ -5719,7 +5852,7 @@ function PlanningPage() {
     onSuccess: (updated) => queryClient.setQueryData(['planning-run', updated.id], updated),
     onError: (error) => {
       const code = error instanceof ApiError ? error.code : undefined
-      setMoveError(code === 'PLANNING_VERSION_CONFLICT' ? 'Kế hoạch vừa được người khác sửa; đã tải lại.' : code === 'PLANNING_RUN_IMMUTABLE' ? 'Kế hoạch đã chốt, không đưa việc về chờ phân công được.' : formatError(error))
+      setMoveError(code === 'PLANNING_VERSION_CONFLICT' ? text('Kế hoạch vừa được người khác sửa; đã tải lại.', 'Someone else just changed this plan; it has been reloaded.') : code === 'PLANNING_RUN_IMMUTABLE' ? text('Kế hoạch đã chốt, không đưa việc về chờ phân công được.', 'This plan is closed, so work cannot be returned to the waiting list.') : formatError(error))
       refreshRun()
     },
   })
@@ -5730,17 +5863,17 @@ function PlanningPage() {
   useEffect(() => {
     if (!panelMember) return
     const close = () => setPanel(null)
-    setRightPanel({ title: 'Giờ làm trong ngày', content: <CapacityEditPanel key={`${panelMember}-${planDate}`} workDate={planDate} scope={projectScope} memberId={panelMember} onDone={close} />, onClose: close })
+    setRightPanel({ title: text('Giờ làm trong ngày', 'Daily capacity'), content: <CapacityEditPanel key={`${panelMember}-${planDate}`} workDate={planDate} scope={projectScope} memberId={panelMember} onDone={close} />, onClose: close })
     return () => setRightPanel(null)
-  }, [panelMember, planDate, projectScope, setRightPanel])
+  }, [panelMember, planDate, projectScope, setRightPanel, text])
   useEffect(() => {
     if (!panelKind || panelKind === 'capacity' || !openRunId || !mutable) return
     const close = () => setPanel(null)
     setRightPanel(panelKind === 'assign' && panelCandidate
-      ? { title: 'Xếp việc vào kế hoạch', content: <AssignWorkPanel key={panelCandidate} runId={openRunId} candidateId={panelCandidate} canApprove onDone={close} />, onClose: close }
-      : { title: 'Thêm việc vào kế hoạch', content: <AddWorkPanel key={openRunId} runId={openRunId} canApprove />, onClose: close })
+      ? { title: text('Xếp việc vào kế hoạch', 'Assign work to plan'), content: <AssignWorkPanel key={panelCandidate} runId={openRunId} candidateId={panelCandidate} canApprove onDone={close} />, onClose: close }
+      : { title: text('Thêm việc vào kế hoạch', 'Add work to plan'), content: <AddWorkPanel key={openRunId} runId={openRunId} canApprove />, onClose: close })
     return () => setRightPanel(null)
-  }, [panelKind, panelCandidate, openRunId, mutable, setRightPanel])
+  }, [panelKind, panelCandidate, openRunId, mutable, setRightPanel, text])
   const hasUnaccepted = Boolean(run?.assignments.some((assignment) => assignment.proposed_priority && !assignment.approved_priority))
   const projectList = projects.data || []
   const softwareIds = new Set(projectList.filter((project) => project.kind === 'SOFTWARE' && project.status === 'ACTIVE').map((project) => project.id))
@@ -5791,12 +5924,12 @@ function PlanningPage() {
     move: (id, slot, memberId) => moveAssignment.mutate({ id, slot, memberId }),
     unassign: (id) => unassignAssignment.mutate(id),
   }
-  const overrideMember = overrideMove ? memberList.find((member) => member.id === overrideMove.memberId)?.display_name || 'người nhận' : ''
+  const overrideMember = overrideMove ? memberList.find((member) => member.id === overrideMove.memberId)?.display_name || text('người nhận', 'the assignee') : ''
   const moveOverrideReason = overrideMove?.code === 'MULTIPLE_PRIMARY_DOING'
-    ? 'Người xếp việc xác nhận giao thêm một việc phát triển chính'
+    ? text('Người xếp việc xác nhận giao thêm một việc phát triển chính', 'Planner confirmed assigning an additional primary development task')
     : overrideMove?.code === 'SLOT_OVER_CAPACITY'
-      ? 'Người xếp việc xác nhận buổi làm của người nhận vượt 4 giờ'
-      : 'Người xếp việc xác nhận đổi người dù vượt giới hạn giờ trong ngày'
+      ? text('Người xếp việc xác nhận buổi làm của người nhận vượt 4 giờ', 'Planner confirmed the assignee will exceed 4 hours in this time slot')
+      : text('Người xếp việc xác nhận đổi người dù vượt giới hạn giờ trong ngày', 'Planner confirmed reassignment despite exceeding the daily capacity limit')
   const warningKinds = new Set((run?.warnings || []).map((warning) => warning.code)).size
   const unseenWarnings = (run?.warnings || []).filter((warning) => !warning.acknowledged_at && !acknowledged.includes(warning.id)).length
   const approvalBar = useRef<HTMLElement>(null)
@@ -5814,31 +5947,31 @@ function PlanningPage() {
         text('CTO hoặc Project Owner của dự án chốt kế hoạch.', 'The CTO or Project Owner closes the plan.'),
       ]} action={mutable && !overview ? <button className="button button-primary" type="button" onClick={() => setPanel({ kind: 'add' })}><Plus size={16} /> {text('Thêm việc vào kế hoạch', 'Add work to plan')}</button> : undefined} />
       {overrideMove && (
-        <ConfirmDialog plain title={`Vẫn giao việc cho ${overrideMember}?`} confirmLabel="Vẫn chuyển việc" busyLabel="Đang chuyển…" busy={moveAssignment.isPending} error={moveError} onConfirm={() => moveAssignment.mutate({ ...overrideMove, overrideReason: moveOverrideReason })} onCancel={() => { if (!moveAssignment.isPending) { setOverrideMove(undefined); setMoveError(undefined) } }}>
-          <p>{overrideMove.code === 'MULTIPLE_PRIMARY_DOING' ? `${overrideMember} đã có một việc phát triển chính khác trong ngày.` : overrideMove.code === 'SLOT_OVER_CAPACITY' ? `Buổi nhận việc của ${overrideMember} sẽ vượt 4 giờ.` : `${overrideMember} không còn đủ giờ làm trong ngày.`}</p>
-          <p className="field-help">Chỉ CTO hoặc Project Owner được xác nhận ngoại lệ này. Hệ thống sẽ lưu lý do vào lịch sử kế hoạch.</p>
+        <ConfirmDialog plain title={text(`Vẫn giao việc cho ${overrideMember}?`, `Assign this work to ${overrideMember} anyway?`)} confirmLabel={text('Vẫn chuyển việc', 'Move anyway')} busyLabel={text('Đang chuyển…', 'Moving…')} busy={moveAssignment.isPending} error={moveError} onConfirm={() => moveAssignment.mutate({ ...overrideMove, overrideReason: moveOverrideReason })} onCancel={() => { if (!moveAssignment.isPending) { setOverrideMove(undefined); setMoveError(undefined) } }}>
+          <p>{overrideMove.code === 'MULTIPLE_PRIMARY_DOING' ? text(`${overrideMember} đã có một việc phát triển chính khác trong ngày.`, `${overrideMember} already has another primary development task today.`) : overrideMove.code === 'SLOT_OVER_CAPACITY' ? text(`Buổi nhận việc của ${overrideMember} sẽ vượt 4 giờ.`, `${overrideMember} will have more than 4 hours in this time slot.`) : text(`${overrideMember} không còn đủ giờ làm trong ngày.`, `${overrideMember} does not have enough available hours today.`)}</p>
+          <p className="field-help">{text('Chỉ CTO hoặc Project Owner được xác nhận ngoại lệ này. Hệ thống sẽ lưu lý do vào lịch sử kế hoạch.', 'Only the CTO or Project Owner can confirm this exception. The reason will be saved in the plan history.')}</p>
         </ConfirmDialog>
       )}
       {/* A closed plan is past "Xếp việc": only the last step stays lit. */}
       <FlowGuide here={run && !mutable ? ['close'] : ['assign', 'close']} note={run && !mutable ? text('Kế hoạch ngày này đã chốt; người phụ trách được ghi lên từng Issue. Cần sửa thì bấm "Mở lại để sửa" ở thanh dưới: bản mới thay bản cũ, chốt lại chỉ ghi Issue có thay đổi.', 'This daily plan is closed and assignees were written to their Issues. Reopen it to create a new revision when changes are needed.') : text('Ở đây bạn giao việc đã có Issue cho từng người rồi chốt kế hoạch ngày. Chốt kế hoạch không phê duyệt yêu cầu nào; riêng việc thêm mới chưa có Issue thì được phê duyệt ngay tại khung thêm việc.', 'Assign work that already has an Issue, then close the daily plan. Closing a plan does not approve requests.')} />
       <div className="plan-bar">
-        <button type="button" className="button button-secondary plan-day-step" title="Ngày trước" onClick={() => goDay(shiftDay(planDate, -1))}>← {shiftDay(planDate, -1) === todayInPlanningTimezone() ? 'Hôm nay' : planDate === todayInPlanningTimezone() ? 'Hôm qua' : shortDay(shiftDay(planDate, -1))}</button>
+        <button type="button" className="button button-secondary plan-day-step" title={text('Ngày trước', 'Previous day')} onClick={() => goDay(shiftDay(planDate, -1))}>← {shiftDay(planDate, -1) === todayInPlanningTimezone() ? text('Hôm nay', 'Today') : planDate === todayInPlanningTimezone() ? text('Hôm qua', 'Yesterday') : shortDay(shiftDay(planDate, -1))}</button>
         <input type="date" aria-label={text('Ngày kế hoạch', 'Plan date')} value={planDate} onChange={(e) => goDay(e.target.value)} />
-        <button type="button" className="button button-secondary plan-day-step" title="Ngày sau" onClick={() => goDay(shiftDay(planDate, 1))}>{shiftDay(planDate, 1) === todayInPlanningTimezone() ? 'Hôm nay' : planDate === todayInPlanningTimezone() ? 'Ngày mai' : shortDay(shiftDay(planDate, 1))} →</button>
+        <button type="button" className="button button-secondary plan-day-step" title={text('Ngày sau', 'Next day')} onClick={() => goDay(shiftDay(planDate, 1))}>{shiftDay(planDate, 1) === todayInPlanningTimezone() ? text('Hôm nay', 'Today') : planDate === todayInPlanningTimezone() ? text('Ngày mai', 'Tomorrow') : shortDay(shiftDay(planDate, 1))} →</button>
         <select aria-label={text('Phạm vi', 'Scope')} title={text('Tất cả dự án là tổng quan chỉ đọc của cả đội; chọn một dự án để xếp và chốt kế hoạch của dự án đó.', 'All projects is a read-only team overview. Select one project to assign and close its plan.')} value={projectScope} onChange={(e) => { setProjectScope(e.target.value); setRunId(''); setPanel(null); updatePlanningUrl(planDate, e.target.value, null) }}><option value="ALL">{text('Tất cả dự án', 'All projects')}</option>{plannable.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select>
-        {overview ? <span className="plan-bar-note">Tổng quan theo dự án</span> : run ? <span className={`run-status run-${run.status.toLowerCase()}`} title={`Danh sách Issue cập nhật lúc ${formatDate(run.source_snapshot_at)}`}>{runStatusLabels[run.status] || run.status}</span> : openMutation.isPending ? <span className="plan-bar-note">Đang mở kế hoạch…</span> : null}
-        <span className="plan-bar-note plan-bar-right">{!overview && capacityRows.length > 0 ? `${capacityRows.length} người · còn ${hoursText(capacityLeft)} / ${hoursText(capacityTotal)}` : ''}</span>
-        {run && !overview && run.warnings.length > 0 && <a className="plan-bar-warnings" href="#plan-warnings">{warningKinds} loại cảnh báo</a>}
-        {run && !overview && run.assignments.length > 0 && <button className="button button-secondary" type="button" title="Chép kế hoạch theo từng người để dán vào chat" onClick={copyPlan}>{copiedPlan ? <><Check size={14} /> Đã chép</> : 'Chép kế hoạch'}</button>}
+        {overview ? <span className="plan-bar-note">{text('Tổng quan theo dự án', 'Project overview')}</span> : run ? <span className={`run-status run-${run.status.toLowerCase()}`} title={text(`Danh sách Issue cập nhật lúc ${formatDate(run.source_snapshot_at)}`, `Issue list updated at ${formatDate(run.source_snapshot_at)}`)}>{(locale === 'vi' ? runStatusLabels : runStatusLabelsEn)[run.status] || run.status}</span> : openMutation.isPending ? <span className="plan-bar-note">{text('Đang mở kế hoạch…', 'Opening plan…')}</span> : null}
+        <span className="plan-bar-note plan-bar-right">{!overview && capacityRows.length > 0 ? text(`${capacityRows.length} người · còn ${hoursText(capacityLeft)} / ${hoursText(capacityTotal)}`, `${capacityRows.length} people · ${hoursText(capacityLeft)} / ${hoursText(capacityTotal)} available`) : ''}</span>
+        {run && !overview && run.warnings.length > 0 && <a className="plan-bar-warnings" href="#plan-warnings">{text(`${warningKinds} loại cảnh báo`, `${warningKinds} warning types`)}</a>}
+        {run && !overview && run.assignments.length > 0 && <button className="button button-secondary" type="button" title={text('Chép kế hoạch theo từng người để dán vào chat', 'Copy the plan by person to paste into chat')} onClick={copyPlan}>{copiedPlan ? <><Check size={14} /> {text('Đã chép', 'Copied')}</> : text('Chép kế hoạch', 'Copy plan')}</button>}
       </div>
       {actionError != null && <ErrorNotice error={actionError} onRetry={() => runId ? refreshRun() : openMutation.mutate()} />}
       {(projects.error || members.error || capacities.error || runQuery.error || syncQuery.error) && <ErrorNotice error={projects.error || members.error || capacities.error || runQuery.error || syncQuery.error} onRetry={() => { void projects.refetch(); void members.refetch(); void capacities.refetch(); if (runId) { void runQuery.refetch(); void syncQuery.refetch() } }} />}
       {moveError != null && <p className="notice notice-error" role="alert">{moveError}</p>}
 
       {overview ? <DayPlansOverview date={planDate} onOpen={openProject} /> : capacities.isLoading ? <LoadingBlock /> : capacityRows.length === 0 && !(run && run.assignments.length > 0) ? (
-        <div className="panel"><EmptyState icon={<UserRound size={20} />} title={projectScope === 'ALL' ? 'Chưa có nhân sự nào thuộc dự án phần mềm' : 'Dự án này chưa có nhân sự'} text="Chọn Project Owner và Member ở Cài đặt > Dự án > Sửa > Nhân sự của dự án." /></div>
+        <div className="panel"><EmptyState icon={<UserRound size={20} />} title={projectScope === 'ALL' ? text('Chưa có nhân sự nào thuộc dự án phần mềm', 'No one belongs to a software project yet') : text('Dự án này chưa có nhân sự', 'This project has no team members')} text={text('Chọn Project Owner và Member ở Cài đặt > Dự án > Sửa > Nhân sự của dự án.', 'Choose a Project Owner and members under Settings > Projects > Edit > Project team.')} /></div>
       ) : <PlanBoard run={run} rows={capacityRows} members={memberList} editable={mutable} onEditHours={(memberId) => setPanel({ kind: 'capacity', memberId })} moving={moving} onStatus={run ? refreshRun : undefined} focusedIntake={focusedIntake} onFocusIntake={focusIntake} />}
-      {isCto && projectScope === 'ALL' && unassignedCount > 0 && <p className="field-help capacity-note">{unassignedCount} nhân sự chưa thuộc dự án phần mềm nào nên không hiện ở đây. <Link to="/settings/projects">Gán ở Cài đặt &gt; Dự án</Link>.</p>}
+      {isCto && projectScope === 'ALL' && unassignedCount > 0 && <p className="field-help capacity-note">{text(`${unassignedCount} nhân sự chưa thuộc dự án phần mềm nào nên không hiện ở đây.`, `${unassignedCount} people are not assigned to any software project and are not shown here.`)} <Link to="/settings/projects">{text('Gán ở Cài đặt > Dự án', 'Assign them under Settings > Projects')}</Link>.</p>}
       {!overview && <ProjectOffPlanWork date={planDate} projectId={projectScope} />}
 
       {run && !overview && (
@@ -5849,23 +5982,23 @@ function PlanningPage() {
           {syncQuery.data?.snapshot_id && <SyncJobPanel syncStatus={syncQuery.data} onChanged={refreshSync} onError={setActionError} />}
           <div className="pinned-bar-space" aria-hidden="true" />
           {canClose ? (
-            <section className="panel planning-approval-bar" ref={approvalBar} aria-label="Chốt kế hoạch">
+            <section className="panel planning-approval-bar" ref={approvalBar} aria-label={text('Chốt kế hoạch', 'Close plan')}>
               <div className="approval-lead">
                 <h2>{mutable ? text('Chốt kế hoạch', 'Close plan') : run.status === 'SUPERSEDED' ? text('Bản đã thay', 'Superseded revision') : text('Kế hoạch đã chốt', 'Plan closed')}</h2>
-                <InfoTip label="Về chốt kế hoạch" text="Chấp nhận các đề xuất trước, rồi chốt. Với dự án dùng GitLab, người phụ trách, milestone và hạn chót được ghi lên từng Issue. Kế hoạch đã chốt mở lại được thành bản mới; chốt lại chỉ ghi Issue có thay đổi. Chốt kế hoạch không phê duyệt Intake nào." />
-                <span className="approval-stats">{run.assignments.length} việc{run.revision > 1 ? ` · bản ${run.revision}` : ''}{mutable && unseenWarnings > 0 && <> · <a href="#plan-warnings">{unseenWarnings} cảnh báo chưa xem</a></>}</span>
+                <InfoTip label={text('Về chốt kế hoạch', 'About closing plans')} text={text('Chấp nhận các đề xuất trước, rồi chốt. Với dự án dùng GitLab, người phụ trách, milestone và hạn chót được ghi lên từng Issue. Kế hoạch đã chốt mở lại được thành bản mới; chốt lại chỉ ghi Issue có thay đổi. Chốt kế hoạch không phê duyệt Intake nào.', 'Accept suggestions first, then close the plan. For GitLab projects, assignees, milestones, and due dates are written to each Issue. Reopening creates a new revision, and closing it again updates only changed Issues. Closing a plan does not approve any Intake requests.')} />
+                <span className="approval-stats">{text(`${run.assignments.length} việc`, `${run.assignments.length} items`)}{run.revision > 1 ? text(` · bản ${run.revision}`, ` · revision ${run.revision}`) : ''}{mutable && unseenWarnings > 0 && <> · <a href="#plan-warnings">{text(`${unseenWarnings} cảnh báo chưa xem`, `${unseenWarnings} unseen warnings`)}</a></>}</span>
               </div>
               <div>
-                {!mutable && run.status !== 'SUPERSEDED' && <button className="button button-secondary" onClick={reopenPlan} disabled={reopenMutation.isPending}>{reopenMutation.isPending ? 'Đang mở lại…' : <><Pencil size={15} /> Mở lại để sửa</>}</button>}
+                {!mutable && run.status !== 'SUPERSEDED' && <button className="button button-secondary" onClick={reopenPlan} disabled={reopenMutation.isPending}>{reopenMutation.isPending ? text('Đang mở lại…', 'Reopening…') : <><Pencil size={15} /> {text('Mở lại để sửa', 'Reopen to edit')}</>}</button>}
                 <button className="button button-secondary" onClick={() => acceptMutation.mutate()} disabled={!mutable || !hasUnaccepted || acceptMutation.isPending}>{acceptMutation.isPending ? text('Đang chấp nhận…', 'Accepting…') : <><Check size={15} /> {text('Chấp nhận đề xuất', 'Accept suggestions')}</>}</button><button className="button button-primary" onClick={closePlan} disabled={!mutable || hasUnaccepted || run.assignments.length === 0 || approveMutation.isPending}>{approveMutation.isPending ? text('Đang chốt…', 'Closing…') : <><ClipboardCheck size={15} /> {text('Chốt kế hoạch', 'Close plan')}</>}</button>
               </div>
             </section>
           ) : (
-            <section className="panel planning-approval-bar" ref={approvalBar} aria-label="CTO chốt kế hoạch">
+            <section className="panel planning-approval-bar" ref={approvalBar} aria-label={text('CTO chốt kế hoạch', 'CTO closes the plan')}>
               <div className="approval-lead">
-                <h2>{mutable ? 'CTO chốt kế hoạch' : 'Kế hoạch đã chốt'}</h2>
-                <InfoTip label="Về chốt kế hoạch" text={mutable ? 'Bạn xếp việc cho đội mình; CTO xem lại và chốt. Khi xếp xong, hãy báo CTO.' : 'Kế hoạch này đã được chốt và không sửa được nữa.'} />
-                <span className="approval-stats">{run.assignments.length} việc</span>
+                <h2>{mutable ? text('CTO chốt kế hoạch', 'CTO closes the plan') : text('Kế hoạch đã chốt', 'Plan closed')}</h2>
+                <InfoTip label={text('Về chốt kế hoạch', 'About closing plans')} text={mutable ? text('Bạn xếp việc cho đội mình; CTO xem lại và chốt. Khi xếp xong, hãy báo CTO.', 'Assign work for your team, then ask the CTO to review and close the plan.') : text('Kế hoạch này đã được chốt và không sửa được nữa.', 'This plan has been closed and can no longer be edited.')} />
+                <span className="approval-stats">{text(`${run.assignments.length} việc`, `${run.assignments.length} items`)}</span>
               </div>
             </section>
           )}
@@ -6035,9 +6168,16 @@ const mailboxErrors: Record<string, string> = {
   gaierror: 'không tìm thấy máy chủ thư',
   WORKER_UNAVAILABLE: 'tiến trình đọc thư không chạy',
 }
+const mailboxErrorsEn: Record<string, string> = {
+  error: 'the mail server rejected the sign-in',
+  TimeoutError: 'the mail server did not respond',
+  gaierror: 'the mail server could not be found',
+  WORKER_UNAVAILABLE: 'the mail-reading worker is not running',
+}
 
 // The API holds no mailbox password: the button leaves a request that the mail worker picks up within seconds.
 function MailboxScanControl({ onNewMail }: { onNewMail: () => void }) {
+  const { locale, text } = useLocale()
   const queryClient = useQueryClient()
   const mailbox = useQuery({
     queryKey: ['report-mailbox'],
@@ -6058,23 +6198,24 @@ function MailboxScanControl({ onNewMail }: { onNewMail: () => void }) {
   if (!data) return null
   const last = data.last
   const busy = Boolean(data.current) || scan.isPending
-  const note = !data.enabled ? 'Quét hộp thư đang tắt (REPORT_IMAP_ENABLED)'
-    : busy ? `Đang quét ${data.mailbox}…`
-    : scan.error ? 'Không gửi được yêu cầu quét'
-    : !last ? `Tự quét ${data.poll_minutes} phút một lần`
-    : last.status === 'FAILED' ? `Lần quét ${formatDate(last.completed_at || last.created_at)} lỗi: ${mailboxErrors[last.error_code || ''] || 'không đọc được hộp thư'}`
-    : `Quét gần nhất ${formatDate(last.completed_at || last.created_at)} · ${last.ingested > 0 ? `${last.ingested} thư mới` : 'không có thư mới'}${last.failed > 0 ? ` · ${last.failed} thư lỗi` : ''}`
+  const note = !data.enabled ? text('Quét hộp thư đang tắt (REPORT_IMAP_ENABLED)', 'Mailbox scanning is disabled (REPORT_IMAP_ENABLED)')
+    : busy ? text(`Đang quét ${data.mailbox}…`, `Scanning ${data.mailbox}…`)
+    : scan.error ? text('Không gửi được yêu cầu quét', 'The scan request could not be sent')
+    : !last ? text(`Tự quét ${data.poll_minutes} phút một lần`, `Automatically scans every ${data.poll_minutes} minutes`)
+    : last.status === 'FAILED' ? text(`Lần quét ${formatDate(last.completed_at || last.created_at, locale)} lỗi: ${mailboxErrors[last.error_code || ''] || 'không đọc được hộp thư'}`, `The scan at ${formatDate(last.completed_at || last.created_at, locale)} failed: ${mailboxErrorsEn[last.error_code || ''] || 'the mailbox could not be read'}`)
+    : text(`Quét gần nhất ${formatDate(last.completed_at || last.created_at, locale)} · ${last.ingested > 0 ? `${last.ingested} thư mới` : 'không có thư mới'}${last.failed > 0 ? ` · ${last.failed} thư lỗi` : ''}`, `Last scan ${formatDate(last.completed_at || last.created_at, locale)} · ${last.ingested > 0 ? `${last.ingested} new messages` : 'no new messages'}${last.failed > 0 ? ` · ${last.failed} failed messages` : ''}`)
   return (
     <div className="mailbox-scan">
-      <small className={last?.status === 'FAILED' && !busy ? 'mailbox-scan-failed' : undefined} title={data.enabled ? `Tự quét ${data.poll_minutes} phút một lần` : undefined}>{note}</small>
+      <small className={last?.status === 'FAILED' && !busy ? 'mailbox-scan-failed' : undefined} title={data.enabled ? text(`Tự quét ${data.poll_minutes} phút một lần`, `Automatically scans every ${data.poll_minutes} minutes`) : undefined}>{note}</small>
       <button className="button button-secondary" type="button" disabled={!data.enabled || busy} onClick={() => scan.mutate()}>
-        <RefreshCw size={15} className={busy ? 'spin' : undefined} aria-hidden="true" /> Quét email ngay
+        <RefreshCw size={15} className={busy ? 'spin' : undefined} aria-hidden="true" /> {text('Quét email ngay', 'Scan email now')}
       </button>
     </div>
   )
 }
 
 function ReportsPage() {
+  const { text } = useLocale()
   const aiMissing = useAiMissing()
   const queryClient = useQueryClient()
   const { user } = useAuth()
@@ -6139,11 +6280,11 @@ function ReportsPage() {
   return (
     <>
       <AgentHint command="end_day" />
-      <PageHeader title="Báo cáo ngày" helper="Đối chiếu task đã trích với thư gốc trước khi dùng cho kế hoạch. Xem thư gốc được ghi audit." action={user?.role === 'CTO' ? <MailboxScanControl onNewMail={refreshReports} /> : undefined} />
+      <PageHeader title={text('Báo cáo ngày', 'Daily reports')} helper={text('Đối chiếu task đã trích với thư gốc trước khi dùng cho kế hoạch. Xem thư gốc được ghi audit.', 'Compare extracted tasks with the original email before using them for planning. Opening the original email is audited.')} action={user?.role === 'CTO' ? <MailboxScanControl onNewMail={refreshReports} /> : undefined} />
       {reports.error && <ErrorNotice error={reports.error} onRetry={() => { void reports.refetch() }} />}
       {error != null && <ErrorNotice error={error} />}
       {reports.isLoading ? <LoadingBlock /> : dates.length === 0 ? (
-        <section className="panel"><EmptyState icon={<Inbox size={20} />} title="Chưa có báo cáo nào" text="Báo cáo xuất hiện ở đây sau khi hộp thư report@ được quét." /></section>
+        <section className="panel"><EmptyState icon={<Inbox size={20} />} title={text('Chưa có báo cáo nào', 'No reports yet')} text={text('Báo cáo xuất hiện ở đây sau khi hộp thư report@ được quét.', 'Reports appear here after the report@ mailbox is scanned.')} /></section>
       ) : (
         <>
           {/* What the menu badge still counts on other days, said where it is seen, not in a line at the far right. */}
@@ -6217,11 +6358,13 @@ Các task của báo cáo này sẽ bị gỡ khỏi Planning và không khôi p
                   )}
                   <div className="review-grid report-compare">
                     <section className="panel">
-                      <div className="panel-heading"><div><h2>Thư gốc</h2></div><span className="restricted-tag">CTO only</span></div>
+                      <div className="panel-heading"><div><h2>Thư gốc</h2></div><span className="restricted-tag">Có audit</span></div>
                       {source.data ? (
                         <div className="report-source"><strong>{source.data.subject}</strong><pre>{source.data.purged ? 'Nội dung đã bị xóa theo thời hạn lưu trữ.' : source.data.body}</pre>{!source.data.purged && source.data.signature && <details className="report-signature"><summary>Hiện chữ ký</summary><pre>{source.data.signature}</pre></details>}</div>
-                      ) : (
+                      ) : user?.role === 'CTO' || current.hidden_items === 0 ? (
                         <div className="raw-guard"><ShieldCheck size={22} aria-hidden="true" /><strong>Nội dung được bảo vệ</strong><p>Mỗi lần mở thư gốc được ghi vào audit.</p><button className="button button-secondary" type="button" disabled={source.isFetching} onClick={() => { void source.refetch() }}><Eye size={15} /> {source.isFetching ? 'Đang tải…' : 'Hiển thị thư gốc'}</button></div>
+                      ) : (
+                        <div className="raw-guard"><ShieldCheck size={22} aria-hidden="true" /><strong>Thư có việc ở dự án khác</strong><p>Chỉ CTO được mở toàn bộ thư gốc; các task thuộc dự án khác vẫn được ẩn.</p></div>
                       )}
                       {source.error && <ErrorNotice error={source.error} />}
                     </section>
@@ -6448,6 +6591,7 @@ function PartNote({ part, projects, onError, onUpdated }: { part: MeetingPart; p
 }
 
 function MeetingsPage() {
+  const { text } = useLocale()
   const aiMissing = useAiMissing()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -6619,15 +6763,15 @@ function MeetingsPage() {
           </ul>
         </ConfirmDialog>
       )}
-      <PageHeader title="Cuộc họp" helper="Bản ghi âm, bản chữ theo người nói và meeting note do AI tổng hợp. Mỗi lần mở bản chữ hoặc nghe lại được ghi audit." action={<Link className="button button-primary" to="/intakes/new?panel=record"><Mic size={16} /> Ghi âm cuộc họp</Link>} />
+      <PageHeader title={text('Cuộc họp', 'Meetings')} helper={text('Bản ghi âm, bản chữ theo người nói và meeting note do AI tổng hợp. Mỗi lần mở bản chữ hoặc nghe lại được ghi audit.', 'Recordings, speaker-attributed transcripts, and AI-generated meeting notes. Opening a transcript or replaying audio is audited.')} action={<Link className="button button-primary" to="/intakes/new?panel=record"><Mic size={16} /> {text('Ghi âm cuộc họp', 'Record meeting')}</Link>} />
       {meetings.error && <ErrorNotice error={meetings.error} onRetry={() => { void meetings.refetch() }} />}
       {error != null && <ErrorNotice error={error} />}
-      <div className="segmented meetings-filter" role="group" aria-label="Loại bản ghi">
-        <button type="button" aria-pressed={!withSpoken} className={withSpoken ? undefined : 'active'} onClick={() => setWithSpoken(false)}>Cuộc họp</button>
-        <button type="button" aria-pressed={withSpoken} className={withSpoken ? 'active' : undefined} title="Gồm cả các lần bấm micro để nói khi tạo Intake" onClick={() => setWithSpoken(true)}>Cả "Nói để nhập"</button>
+      <div className="segmented meetings-filter" role="group" aria-label={text('Loại bản ghi', 'Recording type')}>
+        <button type="button" aria-pressed={!withSpoken} className={withSpoken ? undefined : 'active'} onClick={() => setWithSpoken(false)}>{text('Cuộc họp', 'Meetings')}</button>
+        <button type="button" aria-pressed={withSpoken} className={withSpoken ? 'active' : undefined} title={text('Gồm cả các lần bấm micro để nói khi tạo Intake', 'Also include microphone dictation used while creating an Intake')} onClick={() => setWithSpoken(true)}>{text('Cả "Nói để nhập"', 'Include dictation')}</button>
       </div>
       {meetings.isLoading ? <LoadingBlock /> : (meetings.data || []).length === 0 && !searchParams.get('id') ? (
-        <section className="panel"><EmptyState icon={<Mic size={20} />} title="Chưa có cuộc họp nào" text="Bấm Ghi âm cuộc họp để bắt đầu; bản chữ và meeting note sẽ xuất hiện ở đây sau khi kết thúc." /></section>
+        <section className="panel"><EmptyState icon={<Mic size={20} />} title={text('Chưa có cuộc họp nào', 'No meetings yet')} text={text('Bấm Ghi âm cuộc họp để bắt đầu; bản chữ và meeting note sẽ xuất hiện ở đây sau khi kết thúc.', 'Choose Record meeting to begin; the transcript and meeting note will appear here after it ends.')} /></section>
       ) : (
         <div className="report-layout">
           <nav className="panel report-list" aria-label="Danh sách cuộc họp">
@@ -6758,6 +6902,7 @@ const projectKinds: { value: ProjectKind; label: string; hint: string; gitlab: b
   { value: 'SOFTWARE', label: 'Phần mềm', hint: 'Có code. Việc cần bàn trước nằm trên bảng Việc; giao việc trên GitLab của công ty hoặc GitHub của khách hàng; được lập kế hoạch trong Daily Planning.', gitlab: true },
 ]
 const projectKindLabels: Record<string, string> = { IDEA: 'Ý tưởng', NON_CODE: 'Marketing và nội dung', SOFTWARE: 'Phần mềm' }
+const projectKindLabelsEn: Record<string, string> = { IDEA: 'Idea', NON_CODE: 'Marketing and content', SOFTWARE: 'Software' }
 const probeErrors: Record<string, string> = {
   QUEUE_UNAVAILABLE: 'Hàng đợi đang không nhận việc. Thử lại sau ít phút.',
   GITLAB_NOT_CONFIGURED: 'GitLab chưa được nối. CTO nối ở Dự án > Kết nối GitLab.',
@@ -7329,6 +7474,7 @@ function ProjectReportCodesPanel({ project }: { project: Project }) {
 
 // Tokens for agents: made here, shown once, revoked here. With one, Codex or Claude files requests and reports as you.
 function AgentTokensSection() {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [issued, setIssued] = useState<ApiToken>()
@@ -7350,24 +7496,24 @@ function AgentTokensSection() {
   const claudeCommand = `claude mcp add --transport http intake ${url} --header "Authorization: Bearer <token>"`
   const list = tokens.data || []
   return (
-    <section className="panel account-section" aria-label="Token cho Codex và Claude">
+    <section className="panel account-section" aria-label={text('Token cho Codex và Claude', 'Tokens for Codex and Claude')}>
       {removing && (
-        <ConfirmDialog title={`Thu hồi token "${removing.name}"?`} confirmLabel="Thu hồi" busyLabel="Đang thu hồi…" busy={revoke.isPending} error={revoke.error ?? undefined} onConfirm={() => revoke.mutate(removing.id)} onCancel={() => setRemoving(undefined)}>
-          <ul><li>Agent đang dùng token này sẽ bị từ chối ngay.</li><li>Yêu cầu và báo cáo đã gửi không đổi.</li></ul>
+        <ConfirmDialog title={text(`Thu hồi token "${removing.name}"?`, `Revoke token "${removing.name}"?`)} confirmLabel={text('Thu hồi', 'Revoke')} busyLabel={text('Đang thu hồi…', 'Revoking…')} busy={revoke.isPending} error={revoke.error ?? undefined} onConfirm={() => revoke.mutate(removing.id)} onCancel={() => setRemoving(undefined)}>
+          <ul><li>{text('Agent đang dùng token này sẽ bị từ chối ngay.', 'Agents using this token will be rejected immediately.')}</li><li>{text('Yêu cầu và báo cáo đã gửi không đổi.', 'Previously submitted requests and reports are unchanged.')}</li></ul>
         </ConfirmDialog>
       )}
       <header>
-        <div><h3>Token cho Codex, Claude Code, Claude Desktop <Hint k="account.token" /></h3><p>Agent gọi Intake với đúng quyền của bạn: lấy việc của bạn trong ngày, báo việc đang làm hay xong, tạo yêu cầu, trả lời câu hỏi làm rõ, gửi báo cáo cuối ngày. Không duyệt, không chốt kế hoạch. Token hiện một lần; thu hồi được bất cứ lúc nào.</p></div>
+        <div><h3>{text('Token cho Codex, Claude Code, Claude Desktop', 'Tokens for Codex, Claude Code, and Claude Desktop')} <Hint k="account.token" /></h3><p>{text('Agent gọi Intake với đúng quyền của bạn: lấy việc của bạn trong ngày, báo việc đang làm hay xong, tạo yêu cầu, trả lời câu hỏi làm rõ, gửi báo cáo cuối ngày. Không duyệt, không chốt kế hoạch. Token hiện một lần; thu hồi được bất cứ lúc nào.', 'Agents call Intake with your permissions: retrieve your work for today, report progress or completion, create requests, answer clarification questions, and submit end-of-day reports. They cannot approve requests or finalize plans. A token is shown once and can be revoked at any time.')}</p></div>
       </header>
       {tokens.error != null && <ErrorNotice error={tokens.error} onRetry={() => { void tokens.refetch() }} />}
       {create.error != null && <ErrorNotice error={create.error} />}
       {issued?.token && (
         <div className="notice notice-success token-issued" role="status">
-          <strong>Token "{issued.name}": chép ngay, sẽ không hiện lại.</strong>
+          <strong>{text(`Token "${issued.name}": chép ngay, sẽ không hiện lại.`, `Token "${issued.name}": copy it now; it will not be shown again.`)}</strong>
           <code>{issued.token}</code>
           <div>
-            <button type="button" className="button button-secondary button-small" onClick={() => copy('token', issued.token || '')}>{copied === 'token' ? 'Đã chép' : 'Chép token'}</button>
-            <button type="button" className="text-button" onClick={() => setIssued(undefined)}>Đã lưu, ẩn đi</button>
+            <button type="button" className="button button-secondary button-small" onClick={() => copy('token', issued.token || '')}>{copied === 'token' ? text('Đã chép', 'Copied') : text('Chép token', 'Copy token')}</button>
+            <button type="button" className="text-button" onClick={() => setIssued(undefined)}>{text('Đã lưu, ẩn đi', 'Saved, hide it')}</button>
           </div>
           <div className="agent-connect">
             <p><strong>Claude Code</strong>: dán một lệnh vào terminal; rồi gõ <code>/mcp__intake__today</code> lần đầu, agent sẽ tự cài các lệnh ngắn <code>/in-today</code>, <code>/in-end-day</code>, <code>/in-week</code> cho những lần sau (hoặc cài bằng dòng trong "Lệnh cho agent" ở menu tài khoản).</p>
@@ -7383,18 +7529,18 @@ function AgentTokensSection() {
         <ul className="token-list">
           {list.map((row) => (
             <li key={row.id}>
-              <div><strong>{row.name}</strong><small>{row.prefix}… · tạo {formatDate(row.created_at)}{row.last_used_at ? ` · dùng gần nhất ${formatDate(row.last_used_at)}` : ' · chưa dùng'}{row.expires_at ? ` · hết hạn ${formatDay(row.expires_at)}/${row.expires_at.slice(0, 4)}` : ''}</small></div>
-              <button type="button" className="button button-secondary button-small" onClick={() => { revoke.reset(); setRemoving(row) }}>Thu hồi</button>
+              <div><strong>{row.name}</strong><small>{row.prefix}… · {text(`tạo ${formatDate(row.created_at)}`, `created ${formatDate(row.created_at)}`)}{row.last_used_at ? text(` · dùng gần nhất ${formatDate(row.last_used_at)}`, ` · last used ${formatDate(row.last_used_at)}`) : text(' · chưa dùng', ' · never used')}{row.expires_at ? text(` · hết hạn ${formatDay(row.expires_at)}/${row.expires_at.slice(0, 4)}`, ` · expires ${formatDay(row.expires_at)}/${row.expires_at.slice(0, 4)}`) : ''}</small></div>
+              <button type="button" className="button button-secondary button-small" onClick={() => { revoke.reset(); setRemoving(row) }}>{text('Thu hồi', 'Revoke')}</button>
             </li>
           ))}
         </ul>
       )}
       <form className="token-add" onSubmit={(event) => { event.preventDefault(); if (name.trim()) create.mutate() }}>
-        <input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} placeholder="Tên, ví dụ: Codex máy làm việc" aria-label="Tên token" />
-        <button className="button button-primary" disabled={!name.trim() || create.isPending || list.length >= 10}>{create.isPending ? 'Đang tạo…' : 'Tạo token'}</button>
+        <input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} placeholder={text('Tên, ví dụ: Codex máy làm việc', 'Name, for example: Work Codex')} aria-label={text('Tên token', 'Token name')} />
+        <button className="button button-primary" disabled={!name.trim() || create.isPending || list.length >= 10}>{create.isPending ? text('Đang tạo…', 'Creating…') : text('Tạo token', 'Create token')}</button>
       </form>
       <details className="token-howto">
-        <summary>Cách nối</summary>
+        <summary>{text('Cách nối', 'How to connect')}</summary>
         <p><strong>Codex</strong> — thêm vào <code>~/.codex/config.toml</code>, rồi đặt biến môi trường <code>INTAKE_MCP_TOKEN</code> bằng token:</p>
         <pre>{codexConfig}</pre>
         <button type="button" className="text-button" onClick={() => copy('codex', codexConfig)}>{copied === 'codex' ? 'Đã chép' : 'Chép đoạn cấu hình'}</button>
@@ -7409,6 +7555,7 @@ function AgentTokensSection() {
 }
 
 function PasswordForm({ onChanged }: { onChanged?: () => void }) {
+  const { text } = useLocale()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [repeat, setRepeat] = useState('')
@@ -7422,13 +7569,13 @@ function PasswordForm({ onChanged }: { onChanged?: () => void }) {
   const mismatch = repeat.length > 0 && next !== repeat
   return (
     <form className="password-form" onSubmit={(event) => { event.preventDefault(); change.mutate() }}>
-      <label><span className="req-label">Mật khẩu hiện tại<Req /></span><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required /></label>
-      <label><span className="req-label">Mật khẩu mới<Req /></span><input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} required /><small className="field-help">Ít nhất 8 ký tự.</small></label>
-      <label><span className="req-label">Nhập lại mật khẩu mới<Req /></span><input type="password" value={repeat} onChange={(e) => setRepeat(e.target.value)} autoComplete="new-password" required /></label>
-      {mismatch && <p className="notice notice-warn">Hai lần nhập mật khẩu mới chưa khớp.</p>}
+      <label><span className="req-label">{text('Mật khẩu hiện tại', 'Current password')}<Req /></span><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required /></label>
+      <label><span className="req-label">{text('Mật khẩu mới', 'New password')}<Req /></span><input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} required /><small className="field-help">{text('Ít nhất 8 ký tự.', 'At least 8 characters.')}</small></label>
+      <label><span className="req-label">{text('Nhập lại mật khẩu mới', 'Confirm new password')}<Req /></span><input type="password" value={repeat} onChange={(e) => setRepeat(e.target.value)} autoComplete="new-password" required /></label>
+      {mismatch && <p className="notice notice-warn">{text('Hai lần nhập mật khẩu mới chưa khớp.', 'The new passwords do not match.')}</p>}
       {error != null && <ErrorNotice error={error} />}
-      {done && <p className="notice notice-success" role="status">Đã đổi mật khẩu.</p>}
-      <button className="button button-primary" type="submit" disabled={change.isPending || !current || next.length < 8 || next !== repeat}>{change.isPending ? 'Đang đổi…' : 'Đổi mật khẩu'}</button>
+      {done && <p className="notice notice-success" role="status">{text('Đã đổi mật khẩu.', 'Password changed.')}</p>}
+      <button className="button button-primary" type="submit" disabled={change.isPending || !current || next.length < 8 || next !== repeat}>{change.isPending ? text('Đang đổi…', 'Changing…') : text('Đổi mật khẩu', 'Change password')}</button>
     </form>
   )
 }
@@ -8918,6 +9065,7 @@ function PrivateSpaceLine() {
 function WelcomePage() {
   const { refresh } = useAuth()
   const navigate = useNavigate()
+  const { locale, text } = useLocale()
   const status = useQuery({ queryKey: ['setup-status'], queryFn: () => api<{ needs_bootstrap: boolean }>('/setup/status'), retry: false })
   const [cto, setCto] = useState({ email: '', display_name: '', password: '', confirm: '' })
   const [withOwner, setWithOwner] = useState(true)
@@ -8931,12 +9079,12 @@ function WelcomePage() {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError(undefined)
-    if (cto.password.length < 8 || (withOwner && owner.password.length < 8)) { setError(new Error('Mật khẩu phải có ít nhất 8 ký tự.')); return }
-    if (cto.password !== cto.confirm || (withOwner && owner.password !== owner.confirm)) { setError(new Error('Hai lần nhập mật khẩu chưa khớp.')); return }
+    if (cto.password.length < 8 || (withOwner && owner.password.length < 8)) { setError(new Error(text('Mật khẩu phải có ít nhất 8 ký tự.', 'The password must contain at least 8 characters.'))); return }
+    if (cto.password !== cto.confirm || (withOwner && owner.password !== owner.confirm)) { setError(new Error(text('Hai lần nhập mật khẩu chưa khớp.', 'The passwords do not match.'))); return }
     setSubmitting(true)
     try {
       const account = ({ email, display_name, password }: typeof cto) => ({ email: email.trim(), display_name: display_name.trim(), password })
-      await api('/setup/bootstrap', { method: 'POST', body: JSON.stringify({ cto: account(cto), owner: withOwner ? account(owner) : null }) })
+      await api('/setup/bootstrap', { method: 'POST', body: JSON.stringify({ cto: account(cto), owner: withOwner ? account(owner) : null, locale }) })
       await refresh()
       navigate('/setup', { replace: true })
     } catch (requestError) {
@@ -8949,28 +9097,29 @@ function WelcomePage() {
   const fields = (value: typeof cto, set: (next: typeof cto) => void, prefix: string) => (
     <>
       <label>Email<input type="email" value={value.email} onChange={(event) => set({ ...value, email: event.target.value })} autoComplete={`${prefix} email`} required /></label>
-      <label>Tên hiển thị<input value={value.display_name} onChange={(event) => set({ ...value, display_name: event.target.value })} required /></label>
-      <label>Mật khẩu (ít nhất 8 ký tự)<input type="password" value={value.password} onChange={(event) => set({ ...value, password: event.target.value })} autoComplete="new-password" minLength={8} required /></label>
-      <label>Nhập lại mật khẩu<input type="password" value={value.confirm} onChange={(event) => set({ ...value, confirm: event.target.value })} autoComplete="new-password" minLength={8} required /></label>
+      <label>{text('Tên hiển thị', 'Display name')}<input value={value.display_name} onChange={(event) => set({ ...value, display_name: event.target.value })} required /></label>
+      <label>{text('Mật khẩu (ít nhất 8 ký tự)', 'Password (at least 8 characters)')}<input type="password" value={value.password} onChange={(event) => set({ ...value, password: event.target.value })} autoComplete="new-password" minLength={8} required /></label>
+      <label>{text('Nhập lại mật khẩu', 'Confirm password')}<input type="password" value={value.confirm} onChange={(event) => set({ ...value, confirm: event.target.value })} autoComplete="new-password" minLength={8} required /></label>
     </>
   )
 
   return (
     <main className="login-page">
+      <LocaleSwitch className="locale-switch-auth" />
       <section className="login-panel">
         <form className="login-form welcome-form" onSubmit={submit}>
-          <div className="brand login-brand"><img className="brand-mark" src="/icon.svg" alt="" /><span><strong>Private Intake</strong><small>Cài đặt lần đầu</small></span></div>
-          <h1>Chào mừng đến với Intake</h1>
-          <p>Tạo tài khoản đầu tiên. Người tạo trước sẽ là CTO của hệ thống này, nên hãy làm ngay trên máy của bạn.</p>
+          <div className="brand login-brand"><img className="brand-mark" src="/icon.svg" alt="" /><span><strong>Private Intake</strong><small>{text('Cài đặt lần đầu', 'First-time setup')}</small></span></div>
+          <h1>{text('Chào mừng đến với Intake', 'Welcome to Intake')}</h1>
+          <p>{text('Tạo tài khoản đầu tiên. Người tạo trước sẽ là CTO của hệ thống này, nên hãy làm ngay trên máy của bạn.', 'Create the first account. The first person to continue becomes this system\'s CTO, so complete this step on your own machine.')}</p>
           {error != null && <ErrorNotice error={error} />}
-          <h3>CTO (quản trị)</h3>
+          <h3>{text('CTO (quản trị)', 'CTO (administrator)')}</h3>
           {fields(cto, setCto, 'section-cto')}
           <div className="welcome-role-option">
-            <label className="checkbox-row"><input type="checkbox" checked={withOwner} aria-describedby="project-owner-role-help" onChange={(event) => setWithOwner(event.target.checked)} /> Tạo luôn tài khoản Project Owner</label>
-            <p className="welcome-role-help" id="project-owner-role-help">Project Owner phụ trách các dự án được giao: duyệt yêu cầu, sắp xếp và phân công công việc, theo dõi tiến độ. Họ chỉ thấy dữ liệu của dự án mình phụ trách và không có quyền quản trị toàn hệ thống như CTO. Nếu chưa có người phù hợp, bỏ chọn; bạn có thể tạo tài khoản sau khi gán Project Owner trong Cài đặt › Dự án.</p>
+            <label className="checkbox-row"><input type="checkbox" checked={withOwner} aria-describedby="project-owner-role-help" onChange={(event) => setWithOwner(event.target.checked)} /> {text('Tạo luôn tài khoản Project Owner', 'Create a Project Owner account now')}</label>
+            <p className="welcome-role-help" id="project-owner-role-help">{text('Project Owner phụ trách các dự án được giao: duyệt yêu cầu, sắp xếp và phân công công việc, theo dõi tiến độ. Họ chỉ thấy dữ liệu của dự án mình phụ trách và không có quyền quản trị toàn hệ thống như CTO. Nếu chưa có người phù hợp, bỏ chọn; bạn có thể tạo tài khoản sau khi gán Project Owner trong Cài đặt › Dự án.', 'Project Owners manage assigned projects: they review requests, schedule and assign work, and track progress. They only see their assigned project data and do not have system-wide administrator access. Clear this option if you do not have the right person yet; you can create the account later under Settings > Projects.')}</p>
           </div>
           {withOwner && (<><h3>Project Owner</h3>{fields(owner, setOwner, 'section-owner')}</>)}
-          <button className="button button-primary button-wide" disabled={submitting}>{submitting ? 'Đang tạo…' : 'Tạo tài khoản và tiếp tục'}</button>
+          <button className="button button-primary button-wide" disabled={submitting}>{submitting ? text('Đang tạo…', 'Creating…') : text('Tạo tài khoản và tiếp tục', 'Create accounts and continue')}</button>
         </form>
       </section>
     </main>
@@ -8979,9 +9128,10 @@ function WelcomePage() {
 
 // With the first-run flag on, setup is three steps with one decision each (FR-SETUP-13); with it off, the classic page.
 function SetupPage() {
+  const { text } = useLocale()
   const state = useQuery({ queryKey: ['setup'], queryFn: () => api<SetupState>('/setup') })
   // Wait for the flag: rendering the classic page while it loads makes it flash before the wizard.
-  if (state.isPending) return <section className="page" aria-busy="true"><p className="field-help">Đang tải…</p></section>
+  if (state.isPending) return <section className="page" aria-busy="true"><p className="field-help">{text('Đang tải…', 'Loading…')}</p></section>
   if (state.data?.wizard) return <SetupWizard state={state.data} />
   return <SetupPageClassic />
 }
@@ -8993,20 +9143,20 @@ function SetupWizard({ state }: { state: SetupState }) {
   const queryClient = useQueryClient()
   // Step 1 only offers the demo next to the key; with no demo to offer it would be a one-button screen, so it is skipped.
   const hasStart = state.demo_available
-  const { text } = useLocale()
+  const { locale, text } = useLocale()
   const [step, setStep] = useState<SetupStep>(state.ai_ready || state.has_demo ? 4 : hasStart ? 1 : 2)
   const [tracker, setTracker] = useState<LinkSystem>('GITLAB')
   const [error, setError] = useState<unknown>()
   const refresh = (next: SetupState) => { queryClient.setQueryData(['setup'], next); void queryClient.invalidateQueries({ queryKey: ['projects'] }) }
-  const demo = useMutation({ mutationFn: () => api<SetupState>('/setup/demo-project', { method: 'POST' }), onSuccess: (next) => { setError(undefined); refresh(next); setStep(4) }, onError: setError })
-  const finish = useMutation({ mutationFn: () => api<SetupState>('/setup/complete', { method: 'POST' }), onSuccess: (next) => { refresh(next); navigate('/') }, onError: setError })
+  const demo = useMutation({ mutationFn: () => api<SetupState>(`/setup/demo-project?locale=${locale}`, { method: 'POST' }), onSuccess: (next) => { setError(undefined); refresh(next); setStep(4) }, onError: setError })
+  const finish = useMutation({ mutationFn: () => api<SetupState>(`/setup/complete?locale=${locale}`, { method: 'POST' }), onSuccess: (next) => { refresh(next); navigate('/') }, onError: setError })
   const sample = useMutation({ mutationFn: () => api<SetupState>('/setup/private-sample', { method: 'POST' }), onSuccess: refresh, onError: setError })
-  const titles = ['Bắt đầu', 'Khóa AI', 'GitLab/GitHub', 'Xong']
+  const titles = [text('Bắt đầu', 'Start'), text('Khóa AI', 'AI key'), 'GitLab/GitHub', text('Xong', 'Done')]
   return (
     <>
-      <SectionHeader title="Thiết lập lần đầu" />
+      <SectionHeader title={text('Thiết lập lần đầu', 'First-time setup')} />
       <section className="panel wizard-panel">
-        <ol className="setup-steps" aria-label="Các bước thiết lập">
+        <ol className="setup-steps" aria-label={text('Các bước thiết lập', 'Setup steps')}>
           {titles.map((title, index) => !hasStart && index === 0 ? null : (
             <li key={title} className={step === index + 1 ? 'is-current' : step > index + 1 ? 'is-done' : undefined} aria-current={step === index + 1 ? 'step' : undefined}>
               <button type="button" className="setup-step-button" onClick={() => setStep((index + 1) as SetupStep)}>
@@ -9019,30 +9169,30 @@ function SetupWizard({ state }: { state: SetupState }) {
           {error != null && <ErrorNotice error={error} onRetry={() => setError(undefined)} />}
           {step === 1 && (
             <>
-              <h2>Bạn muốn bắt đầu thế nào?</h2>
+              <h2>{text('Bạn muốn bắt đầu thế nào?', 'How would you like to start?')}</h2>
               <div className="setup-choices">
                 {state.demo_available && (
                   <button type="button" className="setup-choice" disabled={demo.isPending} onClick={() => demo.mutate()}>
-                    <strong>{demo.isPending ? 'Đang nạp…' : state.has_demo ? 'Mở dự án mẫu' : 'Dùng thử với dự án mẫu'}</strong>
-                    <small>Bốn yêu cầu và một kế hoạch ngày hư cấu. Không cần khóa AI, không gửi gì ra ngoài.</small>
+                    <strong>{demo.isPending ? text('Đang nạp…', 'Loading…') : state.has_demo ? text('Mở dự án mẫu', 'Open sample project') : text('Dùng thử với dự án mẫu', 'Try the sample project')}</strong>
+                    <small>{text('Bốn yêu cầu và một kế hoạch ngày hư cấu. Không cần khóa AI, không gửi gì ra ngoài.', 'Four fictional requests and a daily plan. No AI key is required and nothing is sent outside Intake.')}</small>
                   </button>
                 )}
                 <button type="button" className="setup-choice" onClick={() => setStep(2)}>
-                  <strong>Nối khóa AI của tôi</strong>
-                  <small>Để Intake tự chuẩn hóa yêu cầu thật của bạn. Mất khoảng hai phút.</small>
+                  <strong>{text('Nối khóa AI của tôi', 'Connect my AI key')}</strong>
+                  <small>{text('Để Intake tự chuẩn hóa yêu cầu thật của bạn. Mất khoảng hai phút.', 'Let Intake normalize your real requests. This takes about two minutes.')}</small>
                 </button>
               </div>
             </>
           )}
           {step === 2 && (
             <>
-              <h2>Nối khóa AI {state.ai_ready && <Check size={15} aria-label="Đã xong" />}</h2>
-              <p>Chọn nhà cung cấp và nhập khóa API. Hệ thống tự kiểm tra kết nối, tải danh sách model và giúp bạn chọn model mặc định.</p>
+              <h2>{text('Nối khóa AI', 'Connect an AI key')} {state.ai_ready && <Check size={15} aria-label={text('Đã xong', 'Complete')} />}</h2>
+              <p>{text('Chọn nhà cung cấp và nhập khóa API. Hệ thống tự kiểm tra kết nối, tải danh sách model và giúp bạn chọn model mặc định.', 'Choose a provider and enter its API key. Intake checks the connection, loads the model list, and helps you choose the defaults.')}</p>
               <AiSettings setupMode />
               <div className="setup-actions">
-                {hasStart && <button type="button" className="button button-secondary" onClick={() => setStep(1)}>Quay lại</button>}
-                {state.demo_available && !state.ai_ready && <button type="button" className="button button-secondary" disabled={demo.isPending} onClick={() => demo.mutate()}>Để sau, dùng thử dự án mẫu</button>}
-                <button type="button" className="button button-primary" disabled={!state.ai_ready} onClick={() => setStep(3)}>Tiếp tục</button>
+                {hasStart && <button type="button" className="button button-secondary" onClick={() => setStep(1)}>{text('Quay lại', 'Back')}</button>}
+                {state.demo_available && !state.ai_ready && <button type="button" className="button button-secondary" disabled={demo.isPending} onClick={() => demo.mutate()}>{text('Để sau, dùng thử dự án mẫu', 'Do this later and try the sample project')}</button>}
+                <button type="button" className="button button-primary" disabled={!state.ai_ready} onClick={() => setStep(3)}>{text('Tiếp tục', 'Continue')}</button>
               </div>
             </>
           )}
@@ -9064,26 +9214,26 @@ function SetupWizard({ state }: { state: SetupState }) {
           )}
           {step === 4 && (
             <>
-              <h2>Xong, vào làm việc</h2>
+              <h2>{text('Xong, vào làm việc', 'All set')}</h2>
               <ul className="setup-summary">
-                <li>{state.ai_ready ? 'Đã nối khóa AI.' : 'Chưa nối khóa AI: thêm sau trong Cài đặt > AI để Intake tự chuẩn hóa yêu cầu thật.'}</li>
+                <li>{state.ai_ready ? text('Đã nối khóa AI.', 'AI key connected.') : text('Chưa nối khóa AI: thêm sau trong Cài đặt > AI để Intake tự chuẩn hóa yêu cầu thật.', 'No AI key yet. Add one later under Settings > AI so Intake can normalize real requests.')}</li>
                 <li>{text('GitLab/GitHub: nối hoặc kiểm quyền token ở Dự án > Kết nối GitLab và Token GitHub.', 'GitLab/GitHub: connect or check token permissions under Projects > GitLab connection and GitHub tokens.')}</li>
-                {state.has_demo && <li>Dự án mẫu đã sẵn sàng; dữ liệu hư cấu, không gửi gì ra ngoài.</li>}
+                {state.has_demo && <li>{text('Dự án mẫu đã sẵn sàng; dữ liệu hư cấu, không gửi gì ra ngoài.', 'The sample project is ready. It uses fictional data and sends nothing outside Intake.')}</li>}
               </ul>
               <div className="setup-actions">
-                <button type="button" className="button button-primary" disabled={finish.isPending} onClick={() => finish.mutate()}>{finish.isPending ? 'Đang lưu…' : 'Vào trang Hôm nay'}</button>
-                <button type="button" className="button button-secondary" onClick={() => setStep(2)}>Quay lại chỉnh khóa AI</button>
+                <button type="button" className="button button-primary" disabled={finish.isPending} onClick={() => finish.mutate()}>{finish.isPending ? text('Đang lưu…', 'Saving…') : text('Vào trang Hôm nay', 'Go to Today')}</button>
+                <button type="button" className="button button-secondary" onClick={() => setStep(2)}>{text('Quay lại chỉnh khóa AI', 'Back to AI settings')}</button>
                 <button type="button" className="button button-secondary" onClick={() => setStep(3)}>{text('Nối GitLab/GitHub', 'Connect GitLab/GitHub')}</button>
-                {state.has_demo && <Link className="button button-secondary" to="/intakes?project=demo">Mở dự án mẫu</Link>}
+                {state.has_demo && <Link className="button button-secondary" to="/intakes?project=demo">{text('Mở dự án mẫu', 'Open sample project')}</Link>}
               </div>
               <details className="setup-optional">
-                <summary>Tùy chọn: dự án mẫu và open source để thử</summary>
+                <summary>{text('Tùy chọn: dự án mẫu và open source để thử', 'Optional: sample and open-source projects')}</summary>
                 <ShowcaseList />
               </details>
               <details className="setup-optional">
-                <summary>Tùy chọn: nạp giọng viết mẫu</summary>
-                <p>Nạp một bộ DNA thương hiệu hư cấu (Nova Labs) vào Không gian riêng để thử viết bài (tính năng Beta). Thay bằng thương hiệu của bạn sau.</p>
-                <p><button type="button" className="button button-secondary" disabled={!state.sample_available || sample.isPending} onClick={() => sample.mutate()}>{sample.isPending ? 'Đang nạp…' : state.has_private_space ? 'Đã nạp' : 'Nạp giọng viết mẫu'}</button></p>
+                <summary>{text('Tùy chọn: nạp giọng viết mẫu', 'Optional: load a sample brand voice')}</summary>
+                <p>{text('Nạp một bộ DNA thương hiệu hư cấu (Nova Labs) vào Không gian riêng để thử viết bài (tính năng Beta). Thay bằng thương hiệu của bạn sau.', 'Load a fictional Nova Labs brand DNA into the private space to try writing posts (Beta). Replace it with your own brand later.')}</p>
+                <p><button type="button" className="button button-secondary" disabled={!state.sample_available || sample.isPending} onClick={() => sample.mutate()}>{sample.isPending ? text('Đang nạp…', 'Loading…') : state.has_private_space ? text('Đã nạp', 'Loaded') : text('Nạp giọng viết mẫu', 'Load sample brand voice')}</button></p>
               </details>
             </>
           )}
@@ -9162,11 +9312,12 @@ function SettingsIndex() {
 }
 
 function IssuedPassword({ issued, onClose }: { issued: { subject: string; password: string; name?: string }; onClose: () => void }) {
+  const { text } = useLocale()
   return (
     <div className="notice notice-success issued-password" role="status">
-      <span>Mật khẩu tạm của <strong>{issued.name ? `${issued.name} (${issued.subject})` : issued.subject}</strong>: <code>{issued.password}</code></span>
-      <small>Mật khẩu này chỉ hiện một lần. Hãy chuyển cho người dùng qua kênh an toàn; họ phải đặt mật khẩu riêng ở lần đăng nhập đầu.</small>
-      <button className="button button-secondary button-small" type="button" onClick={onClose}>Đã ghi lại</button>
+      <span>{text('Mật khẩu tạm của', 'Temporary password for')} <strong>{issued.name ? `${issued.name} (${issued.subject})` : issued.subject}</strong>: <code>{issued.password}</code></span>
+      <small>{text('Mật khẩu này chỉ hiện một lần. Hãy chuyển cho người dùng qua kênh an toàn; họ phải đặt mật khẩu riêng ở lần đăng nhập đầu.', 'This password is shown only once. Send it through a secure channel; the user must set a personal password on first sign-in.')}</small>
+      <button className="button button-secondary button-small" type="button" onClick={onClose}>{text('Đã ghi lại', 'I saved it')}</button>
     </div>
   )
 }
@@ -9249,10 +9400,11 @@ function ProjectTeamPanel({ project }: { project: Project }) {
 }
 
 function ManagedProjectsPage() {
+  const { text } = useLocale()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
   return (
     <>
-      <PageHeader title="Dự án" helper="Mở một dự án để xem đội ngũ và thêm nhân sự. Bạn chỉ thấy các dự án mình được phép quản lý." />
+      <PageHeader title={text('Dự án', 'Projects')} helper={text('Mở một dự án để xem đội ngũ và thêm nhân sự. Bạn chỉ thấy các dự án mình được phép quản lý.', 'Open a project to view its team and add members. Only projects you are allowed to manage are shown.')} />
       {projects.error != null && <ErrorNotice error={projects.error} onRetry={() => { void projects.refetch() }} />}
       {projects.isLoading ? <LoadingBlock /> : (projects.data || []).length === 0 ? (
         <section className="panel"><EmptyState icon={<UserRound size={20} />} title="Chưa có dự án" text="Tài khoản này chưa được giao quản lý dự án nào." /></section>
@@ -9367,6 +9519,7 @@ function ProjectDetailsPage() {
 }
 
 function AccountEditor({ account, accounts, onDone }: { account: Account; accounts: Account[]; onDone: () => void }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const [name, setName] = useState(account.display_name)
   const [active, setActive] = useState(account.is_active)
@@ -9384,19 +9537,19 @@ function AccountEditor({ account, accounts, onDone }: { account: Account; accoun
   return (
     <form className="member-editor" onSubmit={(event) => { event.preventDefault(); save.mutate() }}>
       <div className="wizard-row">
-        <label><span className="req-label">Họ tên<Req /></span><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></label>
-        {account.role === 'CTO' ? <span /> : <label>Trạng thái<select value={active ? 'ACTIVE' : 'INACTIVE'} onChange={(e) => setActive(e.target.value === 'ACTIVE')}><option value="ACTIVE">Đang hoạt động</option><option value="INACTIVE">Đã khóa</option></select></label>}
-        <label>Là nhân sự<select value={memberId} onChange={(e) => setMemberId(e.target.value)} disabled={account.role === 'DEVELOPER'}>
-          <option value="">Không gắn</option>
-          {choices.map((member) => <option key={member.id} value={member.id} disabled={holder.has(member.id)}>{member.display_name}{member.email_reference ? ` · ${member.email_reference}` : ''}{holder.has(member.id) ? ` · đã gắn tài khoản ${holder.get(member.id)}` : ''}</option>)}
+        <label><span className="req-label">{text('Họ tên', 'Full name')}<Req /></span><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></label>
+        {account.role === 'CTO' ? <span /> : <label>{text('Trạng thái', 'Status')}<select value={active ? 'ACTIVE' : 'INACTIVE'} onChange={(e) => setActive(e.target.value === 'ACTIVE')}><option value="ACTIVE">{text('Đang hoạt động', 'Active')}</option><option value="INACTIVE">{text('Đã khóa', 'Locked')}</option></select></label>}
+        <label>{text('Là nhân sự', 'Linked team member')}<select value={memberId} onChange={(e) => setMemberId(e.target.value)} disabled={account.role === 'DEVELOPER'}>
+          <option value="">{text('Không gắn', 'Not linked')}</option>
+          {choices.map((member) => <option key={member.id} value={member.id} disabled={holder.has(member.id)}>{member.display_name}{member.email_reference ? ` · ${member.email_reference}` : ''}{holder.has(member.id) ? text(` · đã gắn tài khoản ${holder.get(member.id)}`, ` · linked to account ${holder.get(member.id)}`) : ''}</option>)}
         </select></label>
       </div>
-      <p className="field-help">Gắn tài khoản với nhân sự để giờ việc riêng trừ vào giờ trống của người đó, bot Telegram nhắc đúng người, và agent lấy được việc của họ. Tài khoản CTO gắn với chính mình.</p>
-      <p className="field-help">Dự án của một tài khoản được quyết định ở trang từng dự án (Cài đặt &gt; Dự án &gt; Sửa &gt; Nhân sự của dự án), nơi mỗi dự án có đúng một Project Owner.</p>
+      <p className="field-help">{text('Gắn tài khoản với nhân sự để giờ việc riêng trừ vào giờ trống của người đó, bot Telegram nhắc đúng người, và agent lấy được việc của họ. Tài khoản CTO gắn với chính mình.', 'Link an account to a team member so personal work uses that person\'s capacity, Telegram reminders reach the right person, and agents can retrieve their work. Link the CTO account to the CTO\'s own profile.')}</p>
+      <p className="field-help">{text('Dự án của một tài khoản được quyết định ở trang từng dự án (Cài đặt > Dự án > Sửa > Nhân sự của dự án), nơi mỗi dự án có đúng một Project Owner.', 'An account\'s projects are managed on each project page (Settings > Projects > Edit > Project team), where every project has exactly one Project Owner.')}</p>
       {error != null && <ErrorNotice error={error} />}
       <div className="report-edit-actions">
-        <button className="button button-secondary button-small" type="button" onClick={onDone}>Hủy</button>
-        <button className="button button-primary button-small" type="submit" disabled={!name.trim() || save.isPending}>{save.isPending ? 'Đang lưu…' : 'Lưu tài khoản'}</button>
+        <button className="button button-secondary button-small" type="button" onClick={onDone}>{text('Hủy', 'Cancel')}</button>
+        <button className="button button-primary button-small" type="submit" disabled={!name.trim() || save.isPending}>{save.isPending ? text('Đang lưu…', 'Saving…') : text('Lưu tài khoản', 'Save account')}</button>
       </div>
     </form>
   )
@@ -9404,6 +9557,7 @@ function AccountEditor({ account, accounts, onDone }: { account: Account; accoun
 
 // A login for a staff member who works through an agent: it carries a personal token and nothing to decide (FR-MCP-05).
 function DeveloperAccountForm({ accounts, onIssued }: { accounts: Account[]; onIssued: (issued: { subject: string; password: string; name?: string }) => void }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const members = useQuery({ queryKey: ['settings-members'], queryFn: () => api<WorkforceMember[]>('/planning/members?include_inactive=true') })
   const taken = new Set(accounts.map((account) => account.member_id).filter(Boolean))
@@ -9419,21 +9573,22 @@ function DeveloperAccountForm({ accounts, onIssued }: { accounts: Account[]; onI
   const chosen = free.find((member) => member.id === memberId)
   return (
     <form className="settings-inline-form developer-form" onSubmit={(event) => { event.preventDefault(); if (memberId && subject.trim()) create.mutate() }}>
-      <label>Nhân sự
+      <label>{text('Nhân sự', 'Team member')}
         <select value={memberId} onChange={(event) => { setMemberId(event.target.value); const picked = free.find((member) => member.id === event.target.value); if (picked && !subject) setSubject((picked.email_reference || '').split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '')) }}>
-          <option value="">Chọn người chưa có tài khoản</option>
-          {free.map((member) => <option key={member.id} value={member.id} disabled={!member.email_reference}>{member.display_name}{member.email_reference ? '' : ' (chưa có email)'}</option>)}
+          <option value="">{text('Chọn người chưa có tài khoản', 'Choose a person without an account')}</option>
+          {free.map((member) => <option key={member.id} value={member.id} disabled={!member.email_reference}>{member.display_name}{member.email_reference ? '' : text(' (chưa có email)', ' (no email)')}</option>)}
         </select>
       </label>
-      <label>Tên đăng nhập<input value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="vd. minh.tuong" minLength={3} maxLength={64} /></label>
-      <button className="button button-primary" type="submit" disabled={!memberId || subject.trim().length < 3 || create.isPending || !chosen?.email_reference}>{create.isPending ? 'Đang tạo…' : 'Tạo tài khoản Developer'}</button>
+      <label>{text('Tên đăng nhập', 'Username')}<input value={subject} onChange={(event) => setSubject(event.target.value)} placeholder={text('vd. minh.tuong', 'e.g. alex.smith')} minLength={3} maxLength={64} /></label>
+      <button className="button button-primary" type="submit" disabled={!memberId || subject.trim().length < 3 || create.isPending || !chosen?.email_reference}>{create.isPending ? text('Đang tạo…', 'Creating…') : text('Tạo tài khoản Developer', 'Create Developer account')}</button>
       {error != null && <ErrorNotice error={error} />}
-      <p className="field-help">Developer đăng nhập web chỉ để đặt mật khẩu và tạo token cho Codex hay Claude Code; dự án của họ là các dự án họ có mặt ở Cài đặt &gt; Nhân sự. Agent của họ lấy việc trong ngày, báo đang làm hay xong, gửi báo cáo cuối ngày; không duyệt, không chốt.</p>
+      <p className="field-help">{text('Developer đăng nhập web chỉ để đặt mật khẩu và tạo token cho Codex hay Claude Code; dự án của họ là các dự án họ có mặt ở Cài đặt > Nhân sự. Agent của họ lấy việc trong ngày, báo đang làm hay xong, gửi báo cáo cuối ngày; không duyệt, không chốt.', 'Developers use the web app only to set a password and create a token for Codex or Claude Code. Their projects are the ones assigned under Settings > Team. Their agent can retrieve today\'s work, report work as in progress or done, and submit an end-of-day report; it cannot approve or finalize plans.')}</p>
     </form>
   )
 }
 
 function UsersSettings() {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: () => api<Account[]>('/users') })
   const [editing, setEditing] = useState<string>()
@@ -9446,24 +9601,24 @@ function UsersSettings() {
   })
   return (
     <>
-      <SectionHeader title="Người dùng" helper="Các tài khoản đăng nhập. Tài khoản Project Owner được tạo tự động khi bạn chọn một nhân sự làm Project Owner ở trang dự án, và bị khóa khi người đó không còn là Owner của dự án nào. Ở đây bạn khóa tài khoản hoặc cấp lại mật khẩu tạm." />
+      <SectionHeader title={text('Người dùng', 'Users')} helper={text('Các tài khoản đăng nhập. Tài khoản Project Owner được tạo tự động khi bạn chọn một nhân sự làm Project Owner ở trang dự án, và bị khóa khi người đó không còn là Owner của dự án nào. Ở đây bạn khóa tài khoản hoặc cấp lại mật khẩu tạm.', 'Sign-in accounts. A Project Owner account is created automatically when you assign a team member as a project owner, and locked when that person no longer owns any project. Use this page to lock accounts or issue a new temporary password.')} />
       {issued && <IssuedPassword issued={issued} onClose={() => setIssued(undefined)} />}
       {(accounts.error || error != null) && <ErrorNotice error={accounts.error || error} />}
-      {accounts.data && <section className="panel settings-panel developer-panel"><div className="panel-heading"><div><h2>Tài khoản Developer</h2></div></div><DeveloperAccountForm accounts={accounts.data} onIssued={setIssued} /></section>}
+      {accounts.data && <section className="panel settings-panel developer-panel"><div className="panel-heading"><div><h2>{text('Tài khoản Developer', 'Developer accounts')}</h2></div></div><DeveloperAccountForm accounts={accounts.data} onIssued={setIssued} /></section>}
       {accounts.isLoading ? <LoadingBlock /> : (
         <section className="panel settings-panel member-list">
           {(accounts.data || []).map((account) => editing === account.id ? <AccountEditor key={account.id} account={account} accounts={accounts.data || []} onDone={() => setEditing(undefined)} /> : (
             <div className="member-row" key={account.id}>
-              <div><strong>{account.display_name}</strong><small>{account.subject} · {account.email}{account.member_name ? ` · nhân sự: ${account.member_name}` : account.role === 'CTO' ? ' · chưa gắn nhân sự' : ''}{account.agent_last_used_at ? ` · agent dùng ${formatDate(account.agent_last_used_at)}` : ' · chưa dùng agent'}{!account.is_active ? ' · đã khóa' : ''}{account.must_change_password ? ' · chưa đổi mật khẩu tạm' : ''}{account.mfa_enabled ? ' · có MFA' : ' · chưa bật MFA'}</small></div>
+              <div><strong>{account.display_name}</strong><small>{account.subject} · {account.email}{account.member_name ? text(` · nhân sự: ${account.member_name}`, ` · team member: ${account.member_name}`) : account.role === 'CTO' ? text(' · chưa gắn nhân sự', ' · no team member linked') : ''}{account.agent_last_used_at ? text(` · agent dùng ${formatDate(account.agent_last_used_at)}`, ` · agent last used ${formatDate(account.agent_last_used_at)}`) : text(' · chưa dùng agent', ' · agent not used yet')}{!account.is_active ? text(' · đã khóa', ' · locked') : ''}{account.must_change_password ? text(' · chưa đổi mật khẩu tạm', ' · temporary password not changed') : ''}{account.mfa_enabled ? text(' · có MFA', ' · MFA enabled') : text(' · chưa bật MFA', ' · MFA disabled')}</small></div>
               <div className="report-tags">
-                {account.role === 'CTO' ? <span className="status report-valid">CTO · mọi dự án</span> : account.role === 'DEVELOPER' ? (account.projects.length === 0 ? <span className="status report-warning">Developer · chưa có dự án ở Nhân sự</span> : account.projects.map((project) => <span className="status" key={project.id}>Developer · {project.name}</span>)) : account.projects.length === 0 ? <span className="status report-warning">Không là Owner của dự án nào</span> : account.projects.map((project) => <span className="status" key={project.id}>Owner · {project.name}</span>)}
+                {account.role === 'CTO' ? <span className="status report-valid">{text('CTO · mọi dự án', 'CTO · all projects')}</span> : account.role === 'DEVELOPER' ? (account.projects.length === 0 ? <span className="status report-warning">{text('Developer · chưa có dự án ở Nhân sự', 'Developer · no project assigned in Team')}</span> : account.projects.map((project) => <span className="status" key={project.id}>Developer · {project.name}</span>)) : account.projects.length === 0 ? <span className="status report-warning">{text('Không là Owner của dự án nào', 'Not an owner of any project')}</span> : account.projects.map((project) => <span className="status" key={project.id}>Owner · {project.name}</span>)}
               </div>
               {account.role === 'CTO' ? (
-                <span className="project-actions"><button className="button button-secondary button-small" type="button" onClick={() => setEditing(account.id)}><Pencil size={15} /> Sửa</button></span>
+                <span className="project-actions"><button className="button button-secondary button-small" type="button" onClick={() => setEditing(account.id)}><Pencil size={15} /> {text('Sửa', 'Edit')}</button></span>
               ) : (
                 <span className="project-actions">
-                  <button className="button button-secondary button-small" type="button" disabled={reset.isPending} onClick={() => { if (window.confirm(`Cấp mật khẩu tạm mới cho ${account.subject}? Mật khẩu hiện tại sẽ hết hiệu lực.`)) reset.mutate(account) }}>Cấp lại mật khẩu</button>{' '}
-                  <button className="button button-secondary button-small" type="button" onClick={() => setEditing(account.id)}><Pencil size={15} /> Sửa</button>
+                  <button className="button button-secondary button-small" type="button" disabled={reset.isPending} onClick={() => { if (window.confirm(text(`Cấp mật khẩu tạm mới cho ${account.subject}? Mật khẩu hiện tại sẽ hết hiệu lực.`, `Issue a new temporary password for ${account.subject}? The current password will stop working.`))) reset.mutate(account) }}>{text('Cấp lại mật khẩu', 'Reset password')}</button>{' '}
+                  <button className="button button-secondary button-small" type="button" onClick={() => setEditing(account.id)}><Pencil size={15} /> {text('Sửa', 'Edit')}</button>
                 </span>
               )}
             </div>
@@ -9487,11 +9642,16 @@ const settingsTabs = [
 function SettingsLayout() {
   const { pathname } = useLocation()
   const { user } = useAuth()
+  const { text } = useLocale()
+  const tabLabels: Record<string, string> = {
+    '/settings/projects': text('Dự án', 'Projects'), '/settings/members': text('Nhân sự', 'Team'), '/settings/users': text('Người dùng', 'Users'),
+    '/settings/glossary': text('Thuật ngữ', 'Glossary'), '/settings/ai': 'AI', '/settings/system': text('Hệ thống', 'System'), '/settings/account': text('Tài khoản & bảo mật', 'Account & security'),
+  }
   return (
     <>
-      <PageHeader title="Cài đặt" />
-      <nav className="settings-tabs" aria-label="Các mục cài đặt">
-        {settingsTabs.filter((tab) => (!tab.ctoOnly || user?.role === 'CTO') && (user?.role !== 'DEVELOPER' || tab.to === '/settings/account')).map((tab) => <Link key={tab.to} to={tab.to} className={pathname.startsWith(tab.to) ? 'active' : undefined} aria-current={pathname.startsWith(tab.to) ? 'page' : undefined}>{tab.label}</Link>)}
+      <PageHeader title={text('Cài đặt', 'Settings')} />
+      <nav className="settings-tabs" aria-label={text('Các mục cài đặt', 'Settings sections')}>
+        {settingsTabs.filter((tab) => (!tab.ctoOnly || user?.role === 'CTO') && (user?.role !== 'DEVELOPER' || tab.to === '/settings/account')).map((tab) => <Link key={tab.to} to={tab.to} className={pathname.startsWith(tab.to) ? 'active' : undefined} aria-current={pathname.startsWith(tab.to) ? 'page' : undefined}>{tabLabels[tab.to] || tab.label}</Link>)}
       </nav>
       <Outlet context={useOutletContext<ShellContext>()} />
     </>
@@ -9527,16 +9687,25 @@ const backupErrors: Record<string, string> = {
   VERIFY_INCOMPLETE: 'file sao lưu thiếu nội dung',
   ARCHIVE_FAILED: 'không ghi được file sao lưu',
 }
+const backupErrorsEn: Record<string, string> = {
+  PASSPHRASE_MISSING: 'BACKUP_PASSPHRASE (at least 16 characters) is missing from .env',
+  TARGET_FOLDER_MISSING: 'BACKUP_DIR does not exist',
+  VERIFY_FAILED: 'the backup file could not be read back',
+  VERIFY_INCOMPLETE: 'the backup file is incomplete',
+  ARCHIVE_FAILED: 'the backup file could not be written',
+}
 
-function backupSummary(detail: BackupDetail) {
-  const failed = detail.last_error_code ? ` · lần gần nhất lỗi: ${backupErrors[detail.last_error_code] || detail.last_error_code}` : ''
-  if (!detail.last_ok_at) return `Chưa có bản sao lưu nào${failed}`
+function backupSummary(detail: BackupDetail, locale: 'en' | 'vi' = 'vi') {
+  const error = (locale === 'en' ? backupErrorsEn : backupErrors)[detail.last_error_code || ''] || detail.last_error_code
+  const failed = detail.last_error_code ? (locale === 'en' ? ` · last error: ${error}` : ` · lần gần nhất lỗi: ${error}`) : ''
+  if (!detail.last_ok_at) return `${locale === 'en' ? 'No backups yet' : 'Chưa có bản sao lưu nào'}${failed}`
   const size = detail.last_ok_size_bytes == null ? '' : ` · ${(detail.last_ok_size_bytes / 1_000_000).toFixed(1)} MB`
-  return `${detail.state === 'overdue' ? 'Quá hạn · bản' : 'Bản'} gần nhất ${formatDate(detail.last_ok_at)}${size}${failed}`
+  return locale === 'en' ? `${detail.state === 'overdue' ? 'Overdue · latest backup' : 'Latest backup'} ${formatDate(detail.last_ok_at)}${size}${failed}` : `${detail.state === 'overdue' ? 'Quá hạn · bản' : 'Bản'} gần nhất ${formatDate(detail.last_ok_at)}${size}${failed}`
 }
 
 // Reminders over Telegram: the bot, who is linked, the holidays, what went out (FR-NTF-01..05).
 function TelegramPanel() {
+  const { text: i18n } = useLocale()
   const queryClient = useQueryClient()
   const status = useQuery({ queryKey: ['telegram-status'], queryFn: () => api<TelegramStatus>('/notify/telegram') })
   const log = useQuery({ queryKey: ['telegram-messages'], queryFn: () => api<TelegramMessageRow[]>('/notify/telegram/messages?days=7') })
@@ -9547,29 +9716,29 @@ function TelegramPanel() {
     onMutate: () => setError(undefined), onSuccess: () => { setHolidayText(undefined); void queryClient.invalidateQueries({ queryKey: ['telegram-status'] }) }, onError: setError,
   })
   const data = status.data
-  const text = holidayText ?? (data?.holidays || []).map((row) => `${row.day}${row.note ? ` ${row.note}` : ''}`).join('\n')
+  const holidayValue = holidayText ?? (data?.holidays || []).map((row) => `${row.day}${row.note ? ` ${row.note}` : ''}`).join('\n')
   const parse = (value: string) => value.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => { const [day, ...rest] = line.split(/\s+/); return { day, note: rest.join(' ') || null } }).filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.day))
   const sent = (log.data || []).filter((row) => row.status === 'SENT').length
   const failed = (log.data || []).filter((row) => row.status === 'FAILED')
   return (
     <section className="panel system-panel">
-      <div className="panel-heading"><div><h2>Nhắc việc qua Telegram</h2></div><span className={`health-dot ${data?.bot_seen_at ? 'healthy' : ''}`} /></div>
+      <div className="panel-heading"><div><h2>{i18n('Nhắc việc qua Telegram', 'Telegram reminders')}</h2></div><span className={`health-dot ${data?.bot_seen_at ? 'healthy' : ''}`} /></div>
       {status.error != null && <ErrorNotice error={status.error} onRetry={() => { void status.refetch() }} />}
       {error != null && <ErrorNotice error={error} />}
       {status.isLoading || !data ? <LoadingBlock /> : (
         <div className="telegram-panel">
           <div className="health-list">
-            <HealthLine label="Bot" value={data.bot_username ? (data.bot_seen_at ? 'ok' : 'chưa thấy chạy') : 'chưa cấu hình'} />
-            <div className="health-line"><span>Nhóm dự án đã gắn</span><strong>{data.projects.filter((row) => row.linked).length}/{data.projects.length}</strong></div>
-            <div className="health-line"><span>Người đã gắn</span><strong>{data.members.filter((row) => row.linked).length}/{data.members.length}</strong></div>
-            <div className="health-line"><span>Bảy ngày qua</span><strong className={failed.length > 0 ? 'text-warn' : 'text-good'}>{sent} tin đã gửi{failed.length > 0 ? ` · ${failed.length} lỗi` : ''}</strong></div>
+            <HealthLine label="Bot" value={data.bot_username ? (data.bot_seen_at ? 'ok' : i18n('chưa thấy chạy', 'not seen running')) : i18n('chưa cấu hình', 'not configured')} />
+            <div className="health-line"><span>{i18n('Nhóm dự án đã gắn', 'Linked project groups')}</span><strong>{data.projects.filter((row) => row.linked).length}/{data.projects.length}</strong></div>
+            <div className="health-line"><span>{i18n('Người đã gắn', 'Linked people')}</span><strong>{data.members.filter((row) => row.linked).length}/{data.members.length}</strong></div>
+            <div className="health-line"><span>{i18n('Bảy ngày qua', 'Last seven days')}</span><strong className={failed.length > 0 ? 'text-warn' : 'text-good'}>{i18n(`${sent} tin đã gửi`, `${sent} messages sent`)}{failed.length > 0 ? i18n(` · ${failed.length} lỗi`, ` · ${failed.length} failed`) : ''}</strong></div>
           </div>
-          <p className="field-help">{data.bot_username ? <>Bot <strong>@{data.bot_username}</strong>. Thêm bot vào nhóm Telegram của dự án, hoặc vào nhóm chung đã bật Chủ đề, rồi gõ <code>/lien-ket &lt;mã dự án&gt;</code> trong nhóm hay trong chủ đề của dự án; mỗi người bấm link mời ở Cài đặt &gt; Nhân sự. Nhắc kế hoạch ngày mai 17:30, nhắc lại 08:30 và 09:30; nhắc báo cáo 17:30 và 08:00; kế hoạch từng người 08:00; việc quá hạn tới CTO 09:30. Chỉ thứ Hai đến thứ Sáu, trừ ngày nghỉ bên dưới.</> : <>Đặt <code>TELEGRAM_BOT_TOKEN</code> và <code>TELEGRAM_BOT_USERNAME</code> trong <code>.env</code> trên server rồi khởi động dịch vụ <code>telegram-bot</code>.</>}</p>
-          <label className="telegram-holidays">Ngày nghỉ (mỗi dòng một ngày, dạng 2026-01-01, ghi chú tùy ý phía sau)
-            <textarea rows={4} value={text} onChange={(event) => setHolidayText(event.target.value)} placeholder="2026-12-25 Giáng sinh" />
+          <p className="field-help">{data.bot_username ? i18n(`Bot @${data.bot_username}. Thêm bot vào nhóm Telegram của dự án, hoặc vào nhóm chung đã bật Chủ đề, rồi gõ /lien-ket <mã dự án> trong nhóm hay trong chủ đề của dự án; mỗi người bấm link mời ở Cài đặt > Nhân sự. Nhắc kế hoạch ngày mai 17:30, nhắc lại 08:30 và 09:30; nhắc báo cáo 17:30 và 08:00; kế hoạch từng người 08:00; việc quá hạn tới CTO 09:30. Chỉ thứ Hai đến thứ Sáu, trừ ngày nghỉ bên dưới.`, `Bot @${data.bot_username}. Add the bot to a project's Telegram group, or to a shared group with Topics enabled, then enter /lien-ket <project code> in the group or project topic. Each person opens their invite link under Settings > Team. Reminders run on weekdays except the holidays below.`) : i18n('Đặt TELEGRAM_BOT_TOKEN và TELEGRAM_BOT_USERNAME trong .env trên server rồi khởi động dịch vụ telegram-bot.', 'Set TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME in the server .env file, then start the telegram-bot service.')}</p>
+          <label className="telegram-holidays">{i18n('Ngày nghỉ (mỗi dòng một ngày, dạng 2026-01-01, ghi chú tùy ý phía sau)', 'Holidays (one date per line in 2026-01-01 format, with an optional note)')}
+            <textarea rows={4} value={holidayValue} onChange={(event) => setHolidayText(event.target.value)} placeholder={i18n('2026-12-25 Giáng sinh', '2026-12-25 Christmas')} />
           </label>
           <div className="report-edit-actions">
-            <button type="button" className="button button-primary button-small" disabled={save.isPending || holidayText === undefined} onClick={() => save.mutate(parse(text))}>{save.isPending ? 'Đang lưu…' : 'Lưu ngày nghỉ'}</button>
+            <button type="button" className="button button-primary button-small" disabled={save.isPending || holidayText === undefined} onClick={() => save.mutate(parse(holidayValue))}>{save.isPending ? i18n('Đang lưu…', 'Saving…') : i18n('Lưu ngày nghỉ', 'Save holidays')}</button>
           </div>
           {failed.length > 0 && <ul className="telegram-failed">{failed.slice(0, 5).map((row) => <li key={row.id}>{row.for_date} {row.slot} · {row.project_name || row.member_name || row.kind}: {row.error}</li>)}</ul>}
         </div>
@@ -9618,6 +9787,9 @@ const aiTaskLabels: Record<string, string> = {
   content: 'Bài viết và nội dung',
   stt: 'Chuyển giọng thành chữ',
 }
+const aiTaskLabelsEn: Record<string, string> = {
+  default: 'Default model', normalize: 'Normalize requests', report: 'End-of-day reports', meeting: 'Meeting notes', vision: 'Read attachments', content: 'Posts and content', stt: 'Speech to text',
+}
 
 const aiTaskHelp: Record<string, string> = {
   default: 'Dùng cho mọi tác vụ chưa chọn model riêng. Đây là lựa chọn duy nhất cần thiết để bắt đầu.',
@@ -9627,6 +9799,15 @@ const aiTaskHelp: Record<string, string> = {
   vision: 'Đọc chữ và nội dung trong ảnh đính kèm.',
   content: 'Soạn bài viết và nội dung theo giọng thương hiệu.',
   stt: 'Nghe ghi âm cuộc họp và chuyển thành chữ. Cần nhà cung cấp có model nghe giọng nói (OpenAI, Groq, ElevenLabs); model chat thường không dùng được. Chỉ ElevenLabs hiện chữ ngay khi đang họp, các nhà khác ra chữ sau khi họp kết thúc.',
+}
+const aiTaskHelpEn: Record<string, string> = {
+  default: 'Used for every task without its own model. This is the only model required to get started.',
+  normalize: 'Understand and normalize new requests into structured content.',
+  report: 'Read end-of-day reports and summarize work progress.',
+  meeting: 'Create notes, decisions, and action items from a meeting.',
+  vision: 'Read text and content from image attachments.',
+  content: 'Draft posts and content in the brand voice.',
+  stt: 'Transcribe meeting audio. This requires a provider with a speech model. Only ElevenLabs streams text during a meeting; other providers return text after the meeting ends.',
 }
 
 const aiSourceLabels: Record<string, string> = { route: 'đặt riêng', default: 'theo Mặc định', env: 'theo .env', none: 'chưa cấu hình' }
@@ -9639,6 +9820,7 @@ const aiTestErrors: Record<string, string> = {
 }
 
 const aiCapLabels: Record<AiCap, string> = { text: 'Chữ', vision: 'Ảnh', stt: 'Giọng nói' }
+const aiCapLabelsEn: Record<AiCap, string> = { text: 'Text', vision: 'Vision', stt: 'Speech' }
 
 // The three groups are a view over the existing routes: default = Chữ, vision = Ảnh, stt = Giọng nói (ADR-0077).
 interface AiGroup { key: AiCap; task: string; title: string; use: string; flows: string[]; skip: string; required?: boolean }
@@ -9662,6 +9844,11 @@ const aiGroups: AiGroup[] = [
     skip: 'không ghi âm họp được; vẫn dán ghi chú họp bằng tay để nhóm Chữ viết biên bản.',
   },
 ]
+const aiGroupsEn: AiGroup[] = [
+  { key: 'text', task: 'default', title: 'Text: understand and write', required: true, use: 'The model reads text and rewrites it clearly. Every Intake flow ends in this group.', flows: ['Zalo messages, email, and forms → clear requests for CTO approval', 'End-of-day reports → progress for each task', 'Meeting transcripts → notes, decisions, and action items', 'Ideas and trending topics → marketing posts'], skip: 'Required. Without this group Intake cannot normalize requests.' },
+  { key: 'vision', task: 'vision', title: 'Vision: read images and PDFs', use: 'Customers often send screenshots or PDFs. The model converts their content to text, then the Text group turns it into a request.', flows: ['Bug screenshots from Zalo, Telegram, or web → text → request', 'Attached specifications and quotations → text → request'], skip: 'Images and PDFs remain attached, but AI cannot understand their contents.' },
+  { key: 'stt', task: 'stt', title: 'Speech: transcribe audio', use: 'Meeting audio must first be transcribed, then the Text group can create notes. Regular chat models usually cannot process audio.', flows: ['Meeting recording → transcript → notes, decisions, and action items'], skip: 'Meeting recording is unavailable; you can still paste notes manually for the Text group.' },
+]
 
 const aiFeatures: { label: string; needs: AiCap[] }[] = [
   { label: 'Chuẩn hóa yêu cầu từ tin nhắn, email, form', needs: ['text'] },
@@ -9669,6 +9856,13 @@ const aiFeatures: { label: string; needs: AiCap[] }[] = [
   { label: 'Ghi âm họp và viết biên bản', needs: ['stt', 'text'] },
   { label: 'Tổng hợp báo cáo cuối ngày', needs: ['text'] },
   { label: 'Soạn bài viết marketing', needs: ['text'] },
+]
+const aiFeaturesEn: { label: string; needs: AiCap[] }[] = [
+  { label: 'Normalize requests from messages, email, and forms', needs: ['text'] },
+  { label: 'Read customer screenshots and PDFs', needs: ['vision', 'text'] },
+  { label: 'Record meetings and create notes', needs: ['stt', 'text'] },
+  { label: 'Summarize end-of-day reports', needs: ['text'] },
+  { label: 'Draft marketing posts', needs: ['text'] },
 ]
 
 const aiProbeErrors: Record<string, string> = {
@@ -9710,6 +9904,7 @@ function AiModelField({ value, options, disabled, ariaLabel, placeholder, kind, 
   kind?: 'vision' | 'stt'
   onChange: (model: string) => void
 }) {
+  const { text } = useLocale()
   const [typing, setTyping] = useState(false)
   const known = value === '' || options.includes(value)
   if (disabled || options.length === 0 || typing || !known) {
@@ -9717,7 +9912,7 @@ function AiModelField({ value, options, disabled, ariaLabel, placeholder, kind, 
       <span className="ai-model-field">
         <input aria-label={ariaLabel} value={value} maxLength={128} placeholder={placeholder} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
         {!disabled && options.length > 0 && (
-          <button type="button" className="text-button ai-model-back" onClick={() => { setTyping(false); if (!options.includes(value)) onChange('') }}>Danh sách ({options.length})</button>
+          <button type="button" className="text-button ai-model-back" onClick={() => { setTyping(false); if (!options.includes(value)) onChange('') }}>{text('Danh sách', 'List')} ({options.length})</button>
         )}
       </span>
     )
@@ -9728,9 +9923,9 @@ function AiModelField({ value, options, disabled, ariaLabel, placeholder, kind, 
       if (event.target.value === AI_CUSTOM_MODEL) { setTyping(true); return }
       onChange(event.target.value)
     }}>
-      <option value="">Chọn model</option>
+      <option value="">{text('Chọn model', 'Choose a model')}</option>
       {body}
-      <option value={AI_CUSTOM_MODEL}>Nhập mã model khác...</option>
+      <option value={AI_CUSTOM_MODEL}>{text('Nhập mã model khác...', 'Enter another model ID...')}</option>
     </select>
   )
   if (!kind) return select(options.map(item))
@@ -9740,9 +9935,9 @@ function AiModelField({ value, options, disabled, ariaLabel, placeholder, kind, 
   const other = options.filter((name) => !good.includes(name) && aiOtherJob.test(name))
   const unsure = options.filter((name) => !good.includes(name) && !other.includes(name))
   const groups: [string, string[]][] = [
-    [kind === 'vision' ? 'Thường đọc được ảnh' : 'Thường nghe được âm thanh', good],
-    ['Chưa rõ: lưu rồi bấm thử mẫu', unsure],
-    ['Làm việc khác (tạo ảnh, đọc thành tiếng, embedding)', other],
+    [kind === 'vision' ? text('Thường đọc được ảnh', 'Usually supports images') : text('Thường nghe được âm thanh', 'Usually supports audio'), good],
+    [text('Chưa rõ: lưu rồi bấm thử mẫu', 'Unknown: save, then run the sample test'), unsure],
+    [text('Làm việc khác (tạo ảnh, đọc thành tiếng, embedding)', 'Other tasks (image generation, text to speech, embeddings)'), other],
   ]
   return select(groups.filter(([, names]) => names.length > 0).map(([label, names]) => <optgroup key={label} label={label}>{names.map(item)}</optgroup>))
 }
@@ -9762,8 +9957,10 @@ const aiCapsFor = (url: string): AiCap[] => aiPresetFor(url)?.caps || (aiHost(ur
 type AiGroupState = 'ok' | 'warn' | 'off'
 
 function AiCaps({ caps }: { caps: AiCap[] }) {
+  const { locale, text } = useLocale()
   if (caps.length === 0) return null
-  return <span className="ai-caps" aria-label={`Dùng được cho: ${caps.map((cap) => aiCapLabels[cap]).join(', ')}`}>{caps.map((cap) => <em key={cap} className={`ai-cap ai-cap-${cap}`}>{aiCapLabels[cap]}</em>)}</span>
+  const label = (cap: AiCap) => locale === 'en' ? ({ text: 'Text', vision: 'Vision', stt: 'Speech' } as const)[cap] : aiCapLabels[cap]
+  return <span className="ai-caps" aria-label={`${text('Dùng được cho', 'Works for')}: ${caps.map(label).join(', ')}`}>{caps.map((cap) => <em key={cap} className={`ai-cap ai-cap-${cap}`}>{label(cap)}</em>)}</span>
 }
 
 const aiLaterKey = 'intake.ai.later'
@@ -9771,6 +9968,21 @@ const readAiLater = (): Record<string, boolean> => { try { return JSON.parse(win
 
 function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
   const queryClient = useQueryClient()
+  const { locale, text } = useLocale()
+  const taskLabel = (task: string) => (locale === 'en' ? aiTaskLabelsEn : aiTaskLabels)[task] || task
+  const taskHelp = (task: string) => (locale === 'en' ? aiTaskHelpEn : aiTaskHelp)[task]
+  const capLabel = (cap: AiCap) => (locale === 'en' ? aiCapLabelsEn : aiCapLabels)[cap]
+  const groupsForLocale = locale === 'en' ? aiGroupsEn : aiGroups
+  const featuresForLocale = locale === 'en' ? aiFeaturesEn : aiFeatures
+  const presetLabel = (item: AiPreset) => locale === 'vi' ? item.label : ({
+    'openrouter-free': 'OpenRouter (testing only)', openrouter: 'OpenRouter (zero data retention)', elevenlabs: 'ElevenLabs (speech to text)', ollama: 'Ollama on the server', '': 'Custom',
+  } as Record<string, string>)[item.name] || item.label
+  const presetBlurb = (item: AiPreset) => locale === 'vi' ? item.card?.blurb || '' : ({
+    gemini: 'Google AI Studio, with a free tier.', groq: 'Fast inference, with a free tier.', 'openrouter-free': 'One key for many free models. Providers may retain submitted data; never use customer data.', openai: 'Usage-based pricing.', anthropic: 'Usage-based pricing through Anthropic\'s OpenAI compatibility layer.',
+  } as Record<string, string>)[item.name] || item.card?.blurb || ''
+  const keyNote = (item: AiPreset, note: string) => locale === 'vi' ? note : ({
+    gemini: 'Google AI Studio, with a free tier.', groq: 'Fast inference, with a free tier.', 'openrouter-free': 'One key for many free models. Providers may retain submitted data; never use customer data.', openai: 'Usage-based pricing.', anthropic: 'Usage-based pricing through Anthropic\'s OpenAI compatibility layer.', elevenlabs: 'A free tier includes a monthly speech allowance; limits may change.', openrouter: 'Usage-based pricing. For a free trial, choose OpenRouter (testing only).', deepseek: 'Usage-based pricing with a small prepaid balance.',
+  } as Record<string, string>)[item.name] || note
   const [error, setError] = useState<unknown>()
   const [preset, setPreset] = useState(0)
   const [form, setForm] = useState({ name: aiPresets[0].name, base_url: aiPresets[0].base_url, api_key: '' })
@@ -9948,22 +10160,22 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
     return (
       <div className={`ai-route ${isDefault ? 'ai-route-default' : ''}${folded ? ' ai-route-folded' : ''}`} key={route.task}>
         <div className="ai-route-summary">
-          <strong>{aiTaskLabels[route.task] || route.task}{aiTaskHelp[route.task] && <> <InfoTip label={`Giải thích: ${aiTaskLabels[route.task]}`} text={aiTaskHelp[route.task]} /></>}</strong>
+          <strong>{taskLabel(route.task)}{taskHelp(route.task) && <> <InfoTip label={text(`Giải thích: ${taskLabel(route.task)}`, `About ${taskLabel(route.task)}`)} text={taskHelp(route.task)} /></>}</strong>
           {route.effective_provider
-            ? <span className={`status-pill ${route.source === 'default' ? 'status-pill-muted' : 'status-pill-ok'}`}>{route.source === 'default' ? 'Theo mặc định' : <><Check size={12} aria-hidden="true" /> {aiSourceLabels[route.source] === 'đặt riêng' ? 'Đặt riêng' : 'Đang chạy'}</>} · {route.effective_provider} · {(route.effective_model || '').replace(/^models\//, '')}</span>
-            : <span className="status-pill status-pill-error">{isStt ? 'Chưa chọn nhà cung cấp giọng nói' : 'Chưa có model'}</span>}
+            ? <span className={`status-pill ${route.source === 'default' ? 'status-pill-muted' : 'status-pill-ok'}`}>{route.source === 'default' ? text('Theo mặc định', 'Using default') : <><Check size={12} aria-hidden="true" /> {route.source === 'route' ? text('Đặt riêng', 'Custom') : text('Đang chạy', 'Active')}</>} · {route.effective_provider} · {(route.effective_model || '').replace(/^models\//, '')}</span>
+            : <span className="status-pill status-pill-error">{isStt ? text('Chưa chọn nhà cung cấp giọng nói', 'No speech provider selected') : text('Chưa có model', 'No model selected')}</span>}
         </div>
-        {folded ? <button type="button" className="button button-secondary" onClick={() => setEditingTask({ ...editingTask, [route.task]: true })}>Đổi riêng</button> : <div className="ai-route-controls">
-          <label><span className="ai-label-text">Nhà cung cấp {value.provider_id && <InfoTip label="Cách nhập model" text={modelSuggestions.length > 0 ? 'Gõ để tìm trong danh sách model đã tải, hoặc nhập đúng mã model khác.' : 'Chưa tải được danh sách. Bạn có thể nhập đúng mã model, hoặc bấm “Kiểm tra và tải model” ở nhà cung cấp.'} />}</span>
-            <select aria-label={`Nhà cung cấp cho ${aiTaskLabels[route.task]}`} value={value.provider_id} onChange={(event) => { loadModels(event.target.value); setDraft({ ...draft, [route.task]: { provider_id: event.target.value, model: '' } }) }}>
-              <option value="">{isDefault || isStt ? 'Chọn nhà cung cấp' : 'Dùng model mặc định'}</option>
+        {folded ? <button type="button" className="button button-secondary" onClick={() => setEditingTask({ ...editingTask, [route.task]: true })}>{text('Đổi riêng', 'Customize')}</button> : <div className="ai-route-controls">
+          <label><span className="ai-label-text">{text('Nhà cung cấp', 'Provider')} {value.provider_id && <InfoTip label={text('Cách nhập model', 'How to enter a model')} text={modelSuggestions.length > 0 ? text('Gõ để tìm trong danh sách model đã tải, hoặc nhập đúng mã model khác.', 'Type to search the loaded model list, or enter another exact model ID.') : text('Chưa tải được danh sách. Bạn có thể nhập đúng mã model, hoặc bấm “Kiểm tra và tải model” ở nhà cung cấp.', 'The list is not loaded. Enter an exact model ID, or use “Test and load models” on the provider.')} />}</span>
+            <select aria-label={text(`Nhà cung cấp cho ${taskLabel(route.task)}`, `Provider for ${taskLabel(route.task)}`)} value={value.provider_id} onChange={(event) => { loadModels(event.target.value); setDraft({ ...draft, [route.task]: { provider_id: event.target.value, model: '' } }) }}>
+              <option value="">{isDefault || isStt ? text('Chọn nhà cung cấp', 'Choose a provider') : text('Dùng model mặc định', 'Use the default model')}</option>
               {rows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
             </select>
           </label>
           <label>Model
-            <AiModelField key={`${route.task}-${value.provider_id}`} ariaLabel={`Model cho ${aiTaskLabels[route.task]}`} value={value.model} options={modelSuggestions} placeholder={value.provider_id ? 'Nhập mã model' : 'Chọn nhà cung cấp trước'} disabled={!value.provider_id} onChange={(model) => setDraft({ ...draft, [route.task]: { ...value, model } })} />
+            <AiModelField key={`${route.task}-${value.provider_id}`} ariaLabel={text(`Model cho ${taskLabel(route.task)}`, `Model for ${taskLabel(route.task)}`)} value={value.model} options={modelSuggestions} placeholder={value.provider_id ? text('Nhập mã model', 'Enter model ID') : text('Chọn nhà cung cấp trước', 'Choose a provider first')} disabled={!value.provider_id} onChange={(model) => setDraft({ ...draft, [route.task]: { ...value, model } })} />
           </label>
-          <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !value.model.trim())} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? value.model.trim() : null })}>Lưu</button>
+          <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !value.model.trim())} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? value.model.trim() : null })}>{text('Lưu', 'Save')}</button>
         </div>}
       </div>
     )
@@ -9996,18 +10208,18 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
     const route = routeOf(group.task)
     const state = states[group.key]
     const using = route?.effective_provider ? `${route.effective_provider} · ${shortModel(route.effective_model)}` : ''
-    if (state === 'off') return later[group.key] && !group.required ? 'Để sau' : 'Chưa có model'
-    if (state === 'warn') return route?.check_ok === false ? `Chưa đạt thử mẫu · ${using}` : `Chưa thử với ảnh mẫu · ${using}`
-    if (group.key === 'vision' && route?.source === 'default') return `Dùng model nhóm Chữ · ${using}`
-    return `Đang dùng ${using}`
+    if (state === 'off') return later[group.key] && !group.required ? text('Để sau', 'Set up later') : text('Chưa có model', 'No model selected')
+    if (state === 'warn') return route?.check_ok === false ? text(`Chưa đạt thử mẫu · ${using}`, `Sample test failed · ${using}`) : text(`Chưa thử với ảnh mẫu · ${using}`, `Image sample not tested · ${using}`)
+    if (group.key === 'vision' && route?.source === 'default') return text(`Dùng model nhóm Chữ · ${using}`, `Uses the Text model · ${using}`)
+    return text(`Đang dùng ${using}`, `Using ${using}`)
   }
   const rowCaps = (row: AiProvider) => aiCapsFor(row.base_url)
   // "gemini (Chữ, Ảnh, Giọng nói)" so the list itself says which provider can do the group's job.
   const providerOption = (row: AiProvider, key: AiCap) => {
-    if (!aiPresetFor(row.base_url) && !aiHost(row.base_url).endsWith('elevenlabs.io')) return key === 'text' ? row.name : `${row.name} (chưa rõ, bấm thử mẫu)`
+    if (!aiPresetFor(row.base_url) && !aiHost(row.base_url).endsWith('elevenlabs.io')) return key === 'text' ? row.name : text(`${row.name} (chưa rõ, bấm thử mẫu)`, `${row.name} (unknown, run the sample test)`)
     const caps = rowCaps(row)
-    const can = `${row.name} (${caps.map((cap) => aiCapLabels[cap]).join(', ')})`
-    return caps.includes(key) || key === 'text' ? can : `${can} - không ${key === 'vision' ? 'đọc ảnh' : 'nghe âm thanh'}`
+    const can = `${row.name} (${caps.map(capLabel).join(', ')})`
+    return caps.includes(key) || key === 'text' ? can : text(`${can} - không ${key === 'vision' ? 'đọc ảnh' : 'nghe âm thanh'}`, `${can} - cannot ${key === 'vision' ? 'read images' : 'process audio'}`)
   }
   const renderGroupPicker = (group: AiGroup, route: AiRoute) => {
     const value = draft[route.task] || { provider_id: route.provider_id || '', model: route.model || '' }
@@ -10023,7 +10235,7 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
     const otherJob = Boolean(likely && model && aiOtherJob.test(model) && !checkedOk)
     const unlikely = Boolean(likely && model && !otherJob && !likely.test(model) && !checkedOk)
     const kind = group.key === 'text' ? undefined : group.key
-    const doing = group.key === 'vision' ? 'đọc ảnh' : 'nghe âm thanh'
+    const doing = group.key === 'vision' ? text('đọc ảnh', 'read images') : text('nghe âm thanh', 'process audio')
     const picked = rows.find((row) => row.id === value.provider_id)
     const pickedCan = picked ? rowCaps(picked).includes(group.key) : false
     const pickedKnown = picked ? Boolean(aiPresetFor(picked.base_url)) : false
@@ -10034,28 +10246,28 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
     const capHint = !kind ? null
       : !picked
         ? (group.key === 'vision'
-          ? <p className="ai-cap-hint">Đang dùng model của nhóm Chữ. Nhà cung cấp đọc được ảnh: {capable}.</p>
-          : <p className="ai-cap-hint">Nhà cung cấp nghe được âm thanh: {capable}. Model chat thường không nghe được.</p>)
+          ? <p className="ai-cap-hint">{text(`Đang dùng model của nhóm Chữ. Nhà cung cấp đọc được ảnh: ${capable}.`, `Using the Text model. Providers that support images: ${capable}.`)}</p>
+          : <p className="ai-cap-hint">{text(`Nhà cung cấp nghe được âm thanh: ${capable}. Model chat thường không nghe được.`, `Providers that support audio: ${capable}. Regular chat models usually cannot process audio.`)}</p>)
         : pickedKnown && !pickedCan
-          ? <p className="ai-model-warn">{picked.name} không {doing}. Chọn một trong: {capable}.</p>
+          ? <p className="ai-model-warn">{text(`${picked.name} không ${doing}. Chọn một trong: ${capable}.`, `${picked.name} cannot ${doing}. Choose one of: ${capable}.`)}</p>
           : recommended && model !== recommended
-            ? <p className="ai-cap-hint">Gợi ý cho {picked.name}: <strong>{recommended.replace(/^models\//, '')}</strong> <button type="button" className="text-button" onClick={() => setDraft({ ...draft, [route.task]: { ...value, model: recommended } })}>Dùng model này</button></p>
+            ? <p className="ai-cap-hint">{text(`Gợi ý cho ${picked.name}:`, `Recommended for ${picked.name}:`)} <strong>{recommended.replace(/^models\//, '')}</strong> <button type="button" className="text-button" onClick={() => setDraft({ ...draft, [route.task]: { ...value, model: recommended } })}>{text('Dùng model này', 'Use this model')}</button></p>
             : null
     return (
       <div className="ai-group-picker">
-        <label>Nhà cung cấp
-          <select aria-label={`Nhà cung cấp cho nhóm ${aiCapLabels[group.key]}`} value={value.provider_id} onChange={(event) => { loadModels(event.target.value); setDraft({ ...draft, [route.task]: { provider_id: event.target.value, model: '' } }) }}>
-            <option value="">{group.key === 'vision' ? 'Dùng model của nhóm Chữ' : 'Chọn nhà cung cấp'}</option>
+        <label>{text('Nhà cung cấp', 'Provider')}
+          <select aria-label={text(`Nhà cung cấp cho nhóm ${capLabel(group.key)}`, `Provider for ${capLabel(group.key)}`)} value={value.provider_id} onChange={(event) => { loadModels(event.target.value); setDraft({ ...draft, [route.task]: { provider_id: event.target.value, model: '' } }) }}>
+            <option value="">{group.key === 'vision' ? text('Dùng model của nhóm Chữ', 'Use the Text model') : text('Chọn nhà cung cấp', 'Choose a provider')}</option>
             {ordered.map((row) => <option key={row.id} value={row.id}>{providerOption(row, group.key)}</option>)}
           </select>
         </label>
         <label>Model
-          <AiModelField key={`${group.key}-${value.provider_id}`} ariaLabel={`Model cho nhóm ${aiCapLabels[group.key]}`} value={value.model} options={listed} kind={kind} placeholder={value.provider_id ? 'Nhập mã model' : group.key === 'vision' ? 'Theo nhóm Chữ' : 'Chọn nhà cung cấp trước'} disabled={!value.provider_id} onChange={(model) => setDraft({ ...draft, [route.task]: { ...value, model } })} />
+          <AiModelField key={`${group.key}-${value.provider_id}`} ariaLabel={text(`Model cho nhóm ${capLabel(group.key)}`, `Model for ${capLabel(group.key)}`)} value={value.model} options={listed} kind={kind} placeholder={value.provider_id ? text('Nhập mã model', 'Enter model ID') : group.key === 'vision' ? text('Theo nhóm Chữ', 'Uses Text') : text('Chọn nhà cung cấp trước', 'Choose a provider first')} disabled={!value.provider_id} onChange={(model) => setDraft({ ...draft, [route.task]: { ...value, model } })} />
         </label>
-        <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !model)} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? model : null })}>Lưu</button>
+        <button className="button button-primary" disabled={!dirty || save.isPending || (Boolean(value.provider_id) && !model)} onClick={() => save.mutate({ task: route.task, provider_id: value.provider_id || null, model: value.provider_id ? model : null })}>{text('Lưu', 'Save')}</button>
         {capHint}
-        {otherJob && <p className="ai-model-warn">Model này làm việc khác (tạo ảnh, đọc thành tiếng hoặc embedding), không {group.key === 'vision' ? 'đọc ảnh' : 'nghe âm thanh'}. Nên chọn model chat thường của cùng nhà cung cấp{recommended ? `, ví dụ ${recommended.replace(/^models\//, '')}` : ''}.</p>}
-        {unlikely && <p className="ai-model-warn">Tên model này thường không {group.key === 'vision' ? 'đọc được ảnh' : 'nghe được âm thanh'}. Vẫn chọn được; bấm “{group.key === 'vision' ? 'Thử với ảnh mẫu' : 'Thử với âm thanh mẫu'}” sau khi lưu để chắc chắn.</p>}
+        {otherJob && <p className="ai-model-warn">{text(`Model này làm việc khác (tạo ảnh, đọc thành tiếng hoặc embedding), không ${group.key === 'vision' ? 'đọc ảnh' : 'nghe âm thanh'}. Nên chọn model chat thường của cùng nhà cung cấp${recommended ? `, ví dụ ${recommended.replace(/^models\//, '')}` : ''}.`, `This model performs another task, such as image generation, text to speech, or embeddings, and cannot ${group.key === 'vision' ? 'read images' : 'process audio'}. Choose a regular chat model from the same provider${recommended ? `, for example ${recommended.replace(/^models\//, '')}` : ''}.`)}</p>}
+        {unlikely && <p className="ai-model-warn">{text(`Tên model này thường không ${group.key === 'vision' ? 'đọc được ảnh' : 'nghe được âm thanh'}. Vẫn chọn được; hãy chạy thử mẫu sau khi lưu để chắc chắn.`, `This model name usually does not indicate ${group.key === 'vision' ? 'image support' : 'audio support'}. You can still select it; run the sample test after saving.`)}</p>}
       </div>
     )
   }
@@ -10067,14 +10279,14 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
     const note = probeNotes[kind]
     const running = probe.isPending && probe.variables?.kind === kind
     const lastCheck = route.checked_at && route.check_ok !== null
-      ? `Lần thử gần nhất ${new Date(route.checked_at).toLocaleString('vi-VN')}: ${route.check_ok ? 'đạt' : `chưa đạt (${aiProbeErrors[route.check_error || ''] || route.check_error})`}.`
+      ? text(`Lần thử gần nhất ${new Date(route.checked_at).toLocaleString('vi-VN')}: ${route.check_ok ? 'đạt' : `chưa đạt (${aiProbeErrors[route.check_error || ''] || route.check_error})`}.`, `Last tested ${new Date(route.checked_at).toLocaleString('en-US')}: ${route.check_ok ? 'passed' : `failed (${route.check_error || 'unknown error'})`}.`)
       : ''
     return (
       <div className="ai-group-probe">
-        <button type="button" className="button button-secondary" disabled={!served || dirty || running} title={!served ? (route.source === 'env' ? 'Khóa trong .env chưa thử được ở đây' : 'Chọn nhà cung cấp và model trước') : dirty ? 'Bấm Lưu trước rồi thử' : undefined} onClick={() => served && probe.mutate({ providerId: served.id, kind, model: served.model })}>
-          {running ? 'Đang thử…' : kind === 'vision' ? 'Thử với ảnh mẫu' : 'Thử với âm thanh mẫu'}
+        <button type="button" className="button button-secondary" disabled={!served || dirty || running} title={!served ? (route.source === 'env' ? text('Khóa trong .env chưa thử được ở đây', 'A key from .env cannot be tested here') : text('Chọn nhà cung cấp và model trước', 'Choose a provider and model first')) : dirty ? text('Bấm Lưu trước rồi thử', 'Save before running the test') : undefined} onClick={() => served && probe.mutate({ providerId: served.id, kind, model: served.model })}>
+          {running ? text('Đang thử…', 'Testing…') : kind === 'vision' ? text('Thử với ảnh mẫu', 'Test with a sample image') : text('Thử với âm thanh mẫu', 'Test with sample audio')}
         </button>
-        <span className="field-help">{kind === 'vision' ? 'Gửi một ảnh mẫu có số 482; đạt khi model đọc đúng số.' : 'Gửi 1,5 giây âm thanh mẫu; đạt khi nhà cung cấp nhận và trả về chữ.'}</span>
+        <span className="field-help">{kind === 'vision' ? text('Gửi một ảnh mẫu có số 482; đạt khi model đọc đúng số.', 'Sends a sample image containing 482; the test passes when the model reads it correctly.') : text('Gửi 1,5 giây âm thanh mẫu; đạt khi nhà cung cấp nhận và trả về chữ.', 'Sends 1.5 seconds of sample audio; the test passes when the provider returns text.')}</span>
         {note ? <p className={`status-note ${note.ok === false ? 'status-note-error' : 'status-note-ok'}`} role="status">{note.text}</p> : lastCheck && <p className="field-help">{lastCheck}</p>}
       </div>
     )
@@ -10088,30 +10300,30 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
     return (
       <article className={`ai-group ai-group-${group.key} ai-group-${state}${parked ? ' ai-group-parked' : ''}`} key={group.key} aria-labelledby={`ai-group-${group.key}`}>
         <header className="ai-group-head">
-          <h3 id={`ai-group-${group.key}`}><em className={`ai-cap ai-cap-${group.key}`}>{aiCapLabels[group.key]}</em> {group.title}</h3>
+          <h3 id={`ai-group-${group.key}`}><em className={`ai-cap ai-cap-${group.key}`}>{capLabel(group.key)}</em> {group.title}</h3>
           <span className={`status-pill ${pill}`}>{state === 'ok' && <Check size={12} aria-hidden="true" />} {stateLabel(group)}</span>
         </header>
         {parked ? (
           <div className="ai-group-later">
-            <p className="field-help">Nếu bỏ qua: {group.skip}</p>
-            <button type="button" className="button button-secondary" onClick={() => setLaterFor(group.key, false)}>Thiết lập ngay</button>
+            <p className="field-help">{text('Nếu bỏ qua:', 'If skipped:')} {group.skip}</p>
+            <button type="button" className="button button-secondary" onClick={() => setLaterFor(group.key, false)}>{text('Thiết lập ngay', 'Set up now')}</button>
           </div>
         ) : (
           <>
             <p className="ai-group-use">{group.use}</p>
             <ul className="ai-group-flows">{group.flows.map((flow) => <li key={flow}>{flow}</li>)}</ul>
-            <p className="field-help">{group.required ? group.skip : `Nếu bỏ qua: ${group.skip}`}</p>
-            {visionBlocked && <p className="status-note status-note-error" role="status">Model nhóm Chữ ({shortModel(defaultRoute?.effective_model)}) không đọc được ảnh mẫu. Chọn nhà cung cấp và model khác cho nhóm Ảnh.</p>}
-            {group.key === 'stt' && state !== 'off' && !aiHost(rows.find((row) => row.name === route?.effective_provider)?.base_url || '').endsWith('elevenlabs.io') && <p className="field-help">Nhà cung cấp này ra chữ sau khi họp xong. Chỉ ElevenLabs hiện chữ ngay trong lúc họp.</p>}
+            <p className="field-help">{group.required ? group.skip : <>{text('Nếu bỏ qua:', 'If skipped:')} {group.skip}</>}</p>
+            {visionBlocked && <p className="status-note status-note-error" role="status">{text(`Model nhóm Chữ (${shortModel(defaultRoute?.effective_model)}) không đọc được ảnh mẫu. Chọn nhà cung cấp và model khác cho nhóm Ảnh.`, `The Text model (${shortModel(defaultRoute?.effective_model)}) could not read the sample image. Choose a different provider and model for Vision.`)}</p>}
+            {group.key === 'stt' && state !== 'off' && !aiHost(rows.find((row) => row.name === route?.effective_provider)?.base_url || '').endsWith('elevenlabs.io') && <p className="field-help">{text('Nhà cung cấp này ra chữ sau khi họp xong. Chỉ ElevenLabs hiện chữ ngay trong lúc họp.', 'This provider returns text after the meeting ends. Only ElevenLabs streams text during the meeting.')}</p>}
             {route ? renderGroupPicker(group, route) : <LoadingBlock />}
             {route && renderProbe(group, route)}
             {group.key === 'text' && textTaskRoutes.length > 0 && (
               <details className="ai-group-advanced" open={textTaskRoutes.some((item) => item.source === 'route')}>
-                <summary>Nâng cao: model riêng cho từng việc <InfoTip label="Khi nào cần" text="Không bắt buộc. Việc chưa đặt riêng dùng model của nhóm Chữ. Việc đã đặt riêng chỉ gọi một model, không tự chuyển sang model khác khi lỗi." /></summary>
+                <summary>{text('Nâng cao: model riêng cho từng việc', 'Advanced: a separate model for each task')} <InfoTip label={text('Khi nào cần', 'When to use this')} text={text('Không bắt buộc. Việc chưa đặt riêng dùng model của nhóm Chữ. Việc đã đặt riêng chỉ gọi một model, không tự chuyển sang model khác khi lỗi.', 'Optional. Tasks without an override use the Text model. A task with an override calls only that model and does not fail over automatically.')} /></summary>
                 <div className="ai-list">{textTaskRoutes.map(renderRoute)}</div>
               </details>
             )}
-            {!group.required && state === 'off' && <p><button type="button" className="button button-secondary" onClick={() => setLaterFor(group.key, true)}>Để sau</button></p>}
+            {!group.required && state === 'off' && <p><button type="button" className="button button-secondary" onClick={() => setLaterFor(group.key, true)}>{text('Để sau', 'Set up later')}</button></p>}
           </>
         )}
       </article>
@@ -10119,92 +10331,92 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
   }
   const featureState = (needs: AiCap[]): { mark: string; tone: AiGroupState; text: string } => {
     const off = needs.filter((key) => states[key] === 'off')
-    if (off.length > 0) return { mark: '✗', tone: 'off', text: `Thiếu nhóm ${off.map((key) => aiCapLabels[key]).join(', ')}` }
+    if (off.length > 0) return { mark: '✗', tone: 'off', text: text(`Thiếu nhóm ${off.map(capLabel).join(', ')}`, `Missing ${off.map(capLabel).join(', ')}`) }
     const warn = needs.filter((key) => states[key] === 'warn')
-    if (warn.length > 0) return { mark: '⚠', tone: 'warn', text: `Nên thử lại nhóm ${warn.map((key) => aiCapLabels[key]).join(', ')}` }
-    return { mark: '✓', tone: 'ok', text: 'Sẵn sàng' }
+    if (warn.length > 0) return { mark: '⚠', tone: 'warn', text: text(`Nên thử lại nhóm ${warn.map(capLabel).join(', ')}`, `Retest ${warn.map(capLabel).join(', ')}`) }
+    return { mark: '✓', tone: 'ok', text: text('Sẵn sàng', 'Ready') }
   }
   return (
     <>
-      {!setupMode && <SectionHeader title="AI" helper="Nối nhà cung cấp rồi chọn model cho ba nhóm: Chữ, Ảnh, Giọng nói. Chỉ nhận API tương thích OpenAI. Khóa được mã hóa và không hiển thị lại." />}
+      {!setupMode && <SectionHeader title="AI" helper={text('Nối nhà cung cấp rồi chọn model cho ba nhóm: Chữ, Ảnh, Giọng nói. Chỉ nhận API tương thích OpenAI. Khóa được mã hóa và không hiển thị lại.', 'Connect a provider, then choose models for Text, Vision, and Speech. Intake accepts OpenAI-compatible APIs. Keys are encrypted and never displayed again.')} />}
       {error != null && <ErrorNotice error={error} onRetry={() => setError(undefined)} />}
       <section className="panel ai-panel">
-        <div className="panel-heading"><div><h2>AI làm gì trong Intake</h2></div></div>
-        <div className="ai-flow" role="img" aria-label="Ảnh và PDF qua nhóm Ảnh, ghi âm họp qua nhóm Giọng nói, tin nhắn và email đi thẳng; tất cả về nhóm Chữ để thành yêu cầu, báo cáo, biên bản, bài viết.">
+        <div className="panel-heading"><div><h2>{text('AI làm gì trong Intake', 'How AI works in Intake')}</h2></div></div>
+        <div className="ai-flow" role="img" aria-label={text('Ảnh và PDF qua nhóm Ảnh, ghi âm họp qua nhóm Giọng nói, tin nhắn và email đi thẳng; tất cả về nhóm Chữ để thành yêu cầu, báo cáo, biên bản, bài viết.', 'Images and PDFs go through Vision, meeting recordings go through Speech, and messages and email go directly to Text. Everything ends as requests, reports, meeting notes, or posts.')}>
           <div className="ai-flow-inputs">
-            <div className="ai-flow-row"><span className="ai-flow-src">Ảnh chụp, PDF</span><span className="ai-flow-arrow" aria-hidden="true">→</span><span className={`ai-flow-step ai-flow-${states.vision}`}>Ảnh</span></div>
-            <div className="ai-flow-row"><span className="ai-flow-src">Ghi âm họp</span><span className="ai-flow-arrow" aria-hidden="true">→</span><span className={`ai-flow-step ai-flow-${states.stt}`}>Giọng nói</span></div>
-            <div className="ai-flow-row"><span className="ai-flow-src">Tin nhắn, email, báo cáo</span><span className="ai-flow-arrow" aria-hidden="true">→</span><span className="ai-flow-direct">đi thẳng</span></div>
+            <div className="ai-flow-row"><span className="ai-flow-src">{text('Ảnh chụp, PDF', 'Images, PDFs')}</span><span className="ai-flow-arrow" aria-hidden="true">→</span><span className={`ai-flow-step ai-flow-${states.vision}`}>{text('Ảnh', 'Vision')}</span></div>
+            <div className="ai-flow-row"><span className="ai-flow-src">{text('Ghi âm họp', 'Meeting audio')}</span><span className="ai-flow-arrow" aria-hidden="true">→</span><span className={`ai-flow-step ai-flow-${states.stt}`}>{text('Giọng nói', 'Speech')}</span></div>
+            <div className="ai-flow-row"><span className="ai-flow-src">{text('Tin nhắn, email, báo cáo', 'Messages, email, reports')}</span><span className="ai-flow-arrow" aria-hidden="true">→</span><span className="ai-flow-direct">{text('đi thẳng', 'direct')}</span></div>
           </div>
           <span className="ai-flow-arrow ai-flow-join" aria-hidden="true">→</span>
-          <span className={`ai-flow-step ai-flow-main ai-flow-${states.text}`}>Chữ</span>
+          <span className={`ai-flow-step ai-flow-main ai-flow-${states.text}`}>{text('Chữ', 'Text')}</span>
           <span className="ai-flow-arrow ai-flow-join" aria-hidden="true">→</span>
-          <ul className="ai-flow-out"><li>Yêu cầu chuẩn hóa</li><li>Báo cáo ngày</li><li>Biên bản họp</li><li>Bài viết</li></ul>
+          <ul className="ai-flow-out"><li>{text('Yêu cầu chuẩn hóa', 'Normalized requests')}</li><li>{text('Báo cáo ngày', 'Daily reports')}</li><li>{text('Biên bản họp', 'Meeting notes')}</li><li>{text('Bài viết', 'Posts')}</li></ul>
         </div>
-        <p className="field-help">Mọi thứ khách gửi đều về nhóm Chữ. Nhóm Ảnh và nhóm Giọng nói chỉ đổi ảnh và âm thanh thành chữ trước. Chỉ nhóm Chữ là bắt buộc; một nhà cung cấp như Gemini hay OpenAI lo được cả ba nhóm.</p>
+        <p className="field-help">{text('Mọi thứ khách gửi đều về nhóm Chữ. Nhóm Ảnh và nhóm Giọng nói chỉ đổi ảnh và âm thanh thành chữ trước. Chỉ nhóm Chữ là bắt buộc; một nhà cung cấp như Gemini hay OpenAI lo được cả ba nhóm.', 'Everything a customer sends eventually reaches Text. Vision and Speech only convert images and audio first. Text is the only required group; one provider such as Gemini or OpenAI can cover all three.')}</p>
       </section>
       <section className="panel ai-panel">
-        <div className="panel-heading"><div><h2>Nhà cung cấp</h2></div></div>
+        <div className="panel-heading"><div><h2>{text('Nhà cung cấp', 'Providers')}</h2></div></div>
         {providers.isLoading ? <LoadingBlock /> : providers.error ? <ErrorNotice error={providers.error} onRetry={() => { void providers.refetch() }} /> : (
           <div className="ai-list">
-            {rows.length === 0 && <p className="field-help">Chưa có nhà cung cấp nào. Nếu máy chủ còn khóa trong .env thì hệ thống vẫn dùng khóa đó.</p>}
+            {rows.length === 0 && <p className="field-help">{text('Chưa có nhà cung cấp nào. Nếu máy chủ còn khóa trong .env thì hệ thống vẫn dùng khóa đó.', 'No providers have been added. If the server still has a key in .env, Intake continues to use it.')}</p>}
             {rows.map((row) => (
               <div className="ai-provider" key={row.id}>
                 <div>
-                  <strong>{row.name}</strong> <AiCaps caps={rowCaps(row)} /> {row.enabled && row.last_test_ok && <span className="status-pill status-pill-ok"><Check size={12} aria-hidden="true" /> Đã kết nối</span>} {defaultRoute?.provider_id === row.id && defaultRoute.source !== 'none' && <span className="status-pill status-pill-ok">Đang dùng mặc định{defaultRoute.effective_model ? ` · ${defaultRoute.effective_model}` : ''}</span>} <span className="field-help">{row.base_url}</span>
+                  <strong>{row.name}</strong> <AiCaps caps={rowCaps(row)} /> {row.enabled && row.last_test_ok && <span className="status-pill status-pill-ok"><Check size={12} aria-hidden="true" /> {text('Đã kết nối', 'Connected')}</span>} {defaultRoute?.provider_id === row.id && defaultRoute.source !== 'none' && <span className="status-pill status-pill-ok">{text('Đang dùng mặc định', 'Default provider')}{defaultRoute.effective_model ? ` · ${defaultRoute.effective_model}` : ''}</span>} <span className="field-help">{row.base_url}</span>
                   <div className="field-help">
-                    {row.key_ok ? `Khóa …${row.key_hint}` : 'Không đọc được khóa đã lưu, hãy nhập lại'}
-                    {row.last_test_at && ` · lần thử gần nhất: ${row.last_test_ok ? 'đạt' : aiTestErrors[row.last_test_error || ''] || row.last_test_error}`}
-                    {!row.enabled && ' · đang tắt'}
+                    {row.key_ok ? text(`Khóa …${row.key_hint}`, `Key …${row.key_hint}`) : text('Không đọc được khóa đã lưu, hãy nhập lại', 'The saved key cannot be read; enter it again')}
+                    {row.last_test_at && text(` · lần thử gần nhất: ${row.last_test_ok ? 'đạt' : aiTestErrors[row.last_test_error || ''] || row.last_test_error}`, ` · last test: ${row.last_test_ok ? 'passed' : row.last_test_error || 'failed'}`)}
+                    {!row.enabled && text(' · đang tắt', ' · disabled')}
                   </div>
                   {notes[row.id] && <div className={`status-note ${notes[row.id].startsWith('Không') ? 'status-note-error' : 'status-note-ok'}`} role="status">{notes[row.id]}</div>}
                 </div>
                 <div className="ai-actions">
-                  {setupMode && ready && row.enabled && row.last_test_ok && defaultRoute?.provider_id !== row.id && <button className="button button-primary" disabled={makeDefault.isPending} onClick={() => makeDefault.mutate(row)}>Dùng làm mặc định</button>}
-                  <button className="button button-secondary" disabled={test.isPending} onClick={() => test.mutate(row.id)}>Kiểm tra và tải model</button>
-                  <button className="button button-secondary" onClick={() => patch.mutate({ id: row.id, body: { enabled: !row.enabled } })}>{row.enabled ? 'Tắt' : 'Bật'}</button>
-                  <button className="button button-secondary" onClick={() => { const key = window.prompt('Nhập khóa mới'); if (key) patch.mutate({ id: row.id, body: { api_key: key } }) }}>Đổi khóa</button>
-                  <button className="button button-secondary" onClick={() => { if (window.confirm(`Xóa nhà cung cấp ${row.name}?`)) remove.mutate(row.id) }}>Xóa</button>
+                  {setupMode && ready && row.enabled && row.last_test_ok && defaultRoute?.provider_id !== row.id && <button className="button button-primary" disabled={makeDefault.isPending} onClick={() => makeDefault.mutate(row)}>{text('Dùng làm mặc định', 'Make default')}</button>}
+                  <button className="button button-secondary" disabled={test.isPending} onClick={() => test.mutate(row.id)}>{text('Kiểm tra và tải model', 'Test and load models')}</button>
+                  <button className="button button-secondary" onClick={() => patch.mutate({ id: row.id, body: { enabled: !row.enabled } })}>{row.enabled ? text('Tắt', 'Disable') : text('Bật', 'Enable')}</button>
+                  <button className="button button-secondary" onClick={() => { const key = window.prompt(text('Nhập khóa mới', 'Enter the new key')); if (key) patch.mutate({ id: row.id, body: { api_key: key } }) }}>{text('Đổi khóa', 'Change key')}</button>
+                  <button className="button button-secondary" onClick={() => { if (window.confirm(text(`Xóa nhà cung cấp ${row.name}?`, `Delete provider ${row.name}?`))) remove.mutate(row.id) }}>{text('Xóa', 'Delete')}</button>
                 </div>
               </div>
             ))}
           </div>
         )}
-        <h3>Thêm nhà cung cấp</h3>
-        {setupMode && !showCards && <p><button type="button" className="button button-secondary" onClick={() => setAddingMore(true)}>Thêm nhà cung cấp khác</button></p>}
+        <h3>{text('Thêm nhà cung cấp', 'Add a provider')}</h3>
+        {setupMode && !showCards && <p><button type="button" className="button button-secondary" onClick={() => setAddingMore(true)}>{text('Thêm nhà cung cấp khác', 'Add another provider')}</button></p>}
         {setupMode && showCards && (
           <>
-            <div className="ai-cards" role="radiogroup" aria-label="Chọn nhà cung cấp AI">
+            <div className="ai-cards" role="radiogroup" aria-label={text('Chọn nhà cung cấp AI', 'Choose an AI provider')}>
               {cards.map(({ item, index }) => {
                 const existing = connectedRow(item.base_url)
                 return (
                 <button type="button" role="radio" aria-checked={!advanced && preset === index} key={item.name} className={`ai-card ${!advanced && preset === index ? 'selected' : ''}`} onClick={() => {
-                  if (existing) { const key = window.prompt(`${item.label} đã được nối. Nhập khóa mới để thay khóa cũ`); if (key) patch.mutate({ id: existing.id, body: { api_key: key } }); return }
+                  if (existing) { const key = window.prompt(text(`${item.label} đã được nối. Nhập khóa mới để thay khóa cũ`, `${presetLabel(item)} is connected. Enter a new key to replace the old one.`)); if (key) patch.mutate({ id: existing.id, body: { api_key: key } }); return }
                   setAdvanced(false); choose(index); setConnectNote('')
                 }}>
-                  <strong>{item.label}{existing && <span className="status-pill status-pill-ok"><Check size={12} aria-hidden="true" /> Đã nối · bấm để đổi khóa</span>}</strong>
-                  <span>{item.card?.blurb}</span>
+                  <strong>{presetLabel(item)}{existing && <span className="status-pill status-pill-ok"><Check size={12} aria-hidden="true" /> {text('Đã nối · bấm để đổi khóa', 'Connected · click to change key')}</span>}</strong>
+                  <span>{presetBlurb(item)}</span>
                   <AiCaps caps={item.caps} />
-                  {item.card?.free && <em>Có gói miễn phí</em>}
+                  {item.card?.free && <em>{text('Có gói miễn phí', 'Free tier available')}</em>}
                 </button>
                 )
               })}
               <button type="button" role="radio" aria-checked={advanced} className={`ai-card ${advanced ? 'selected' : ''}`} onClick={() => { setAdvanced(true); choose(aiPresets.findIndex((item) => !item.card)); setConnectNote('') }}>
-                <strong>Khác</strong>
-                <span>UModelVerse, DeepSeek, Ollama hoặc địa chỉ tự nhập.</span>
+                <strong>{text('Khác', 'Other')}</strong>
+                <span>{text('UModelVerse, DeepSeek, Ollama hoặc địa chỉ tự nhập.', 'UModelVerse, DeepSeek, Ollama, or a custom endpoint.')}</span>
               </button>
             </div>
             {selectedCard?.card && !advanced && (
               <div className="ai-card-form">
-                <label>Khóa API {selectedCard.label}
+                <label>{text('Khóa API', 'API key')} {presetLabel(selectedCard)}
                   <input type="password" autoComplete="off" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} />
                 </label>
                 <div className="ai-card-actions">
-                  <a className="button button-secondary" href={selectedCard.card.key_url} target="_blank" rel="noreferrer">{selectedCard.card.free ? 'Lấy khóa miễn phí' : 'Lấy khóa API'}</a>
-                  <button className="button button-primary" disabled={connect.isPending || !form.api_key.trim()} onClick={() => connect.mutate()}>{connect.isPending ? 'Đang kết nối…' : 'Kết nối'}</button>
+                  <a className="button button-secondary" href={selectedCard.card.key_url} target="_blank" rel="noreferrer">{selectedCard.card.free ? text('Lấy khóa miễn phí', 'Get a free key') : text('Lấy khóa API', 'Get an API key')}</a>
+                  <button className="button button-primary" disabled={connect.isPending || !form.api_key.trim()} onClick={() => connect.mutate()}>{connect.isPending ? text('Đang kết nối…', 'Connecting…') : text('Kết nối', 'Connect')}</button>
                 </div>
-                {selectedCard.card.free && <p className="field-help">{aiFreeWarning} Xem hạn mức tại trang nhà cung cấp.</p>}
-                {selectedCard.card.note && <p className="field-help">{selectedCard.card.note}</p>}
+                {selectedCard.card.free && <p className="field-help">{text(`${aiFreeWarning} Xem hạn mức tại trang nhà cung cấp.`, 'Some providers may use free-tier content to improve their products. Test only with sample data. Check current limits on the provider site.')}</p>}
+                {selectedCard.card.note && <p className="field-help">{keyNote(selectedCard, selectedCard.card.note)}</p>}
               </div>
             )}
             {connectNote && <p className={`status-note ${connectNote.startsWith('Đã kết nối') ? 'status-note-ok' : 'status-note-error'}`} role="status">{connectNote}</p>}
@@ -10213,50 +10425,50 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
         {(!setupMode || advanced) && (
           <>
             <div className="form-grid two-col">
-              <label>Loại
+              <label>{text('Loại', 'Type')}
                 <select value={preset} onChange={(event) => choose(Number(event.target.value))}>
                   {/* In the first-run page the cards already cover the presets that have one. */}
-                  {aiPresets.map((item, index) => ({ item, index })).filter(({ item }) => !setupMode || !item.card).map(({ item, index }) => <option key={item.label} value={index}>{item.label}{aiKeyInfo(item)?.free ? ' · có gói miễn phí' : ''}</option>)}
+                  {aiPresets.map((item, index) => ({ item, index })).filter(({ item }) => !setupMode || !item.card).map(({ item, index }) => <option key={item.label} value={index}>{presetLabel(item)}{aiKeyInfo(item)?.free ? text(' · có gói miễn phí', ' · free tier') : ''}</option>)}
                 </select>
               </label>
-              <label>Tên (tối đa 32 ký tự)
+              <label>{text('Tên (tối đa 32 ký tự)', 'Name (up to 32 characters)')}
                 <input value={form.name} maxLength={32} onChange={(event) => setForm({ ...form, name: event.target.value })} />
               </label>
-              <label>Địa chỉ API (base URL)
+              <label>{text('Địa chỉ API (base URL)', 'API address (base URL)')}
                 <input value={form.base_url} placeholder="https://…/v1" onChange={(event) => setForm({ ...form, base_url: event.target.value })} />
               </label>
-              <label>Khóa API
+              <label>{text('Khóa API', 'API key')}
                 <input type="password" autoComplete="off" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} />
                 {(() => {
                   const info = aiKeyInfo(aiPresets[preset])
-                  if (!info) return <small className="field-help">Lấy khóa ở trang quản lý của nhà cung cấp bạn chọn.</small>
+                  if (!info) return <small className="field-help">{text('Lấy khóa ở trang quản lý của nhà cung cấp bạn chọn.', 'Get a key from the selected provider\'s management page.')}</small>
                   return (
                     <span className="key-link-row">
-                      <a className="button button-secondary" href={info.url} target="_blank" rel="noreferrer">{info.free ? 'Lấy khóa miễn phí' : 'Lấy khóa API'} {aiPresets[preset].label.split(' (')[0]} ↗</a>
-                      <small className="field-help">{info.note}{info.free && ` ${aiFreeWarning}`}</small>
+                      <a className="button button-secondary" href={info.url} target="_blank" rel="noreferrer">{info.free ? text('Lấy khóa miễn phí', 'Get a free key') : text('Lấy khóa API', 'Get an API key')} {presetLabel(aiPresets[preset]).split(' (')[0]} ↗</a>
+                      <small className="field-help">{keyNote(aiPresets[preset], info.note)}{info.free && text(` ${aiFreeWarning}`, ' Some free-tier providers may use submitted content to improve their products. Test only with sample data.')}</small>
                     </span>
                   )
                 })()}
               </label>
             </div>
-            <p><button className="button button-primary" disabled={add.isPending || !form.name.trim() || !form.base_url.trim() || !form.api_key.trim()} onClick={() => add.mutate()}>{add.isPending ? 'Đang thêm…' : 'Thêm và tải model'}</button></p>
+            <p><button className="button button-primary" disabled={add.isPending || !form.name.trim() || !form.base_url.trim() || !form.api_key.trim()} onClick={() => add.mutate()}>{add.isPending ? text('Đang thêm…', 'Adding…') : text('Thêm và tải model', 'Add and load models')}</button></p>
           </>
         )}
       </section>
       <section className="panel ai-panel">
-        <div className="panel-heading"><div><h2>Cấu hình 3 nhóm model xử lý công việc</h2></div></div>
+        <div className="panel-heading"><div><h2>{text('Cấu hình 3 nhóm model xử lý công việc', 'Configure the three model groups')}</h2></div></div>
         {routes.isLoading ? <LoadingBlock /> : routes.error ? <ErrorNotice error={routes.error} onRetry={() => { void routes.refetch() }} /> : (
           <>
-            <div className="ai-groups">{aiGroups.map(renderGroup)}</div>
-            <h3>Tính năng sẵn sàng</h3>
-            <ul className="ai-ready" aria-label="Tính năng sẵn sàng">
-              {aiFeatures.map((feature) => {
+            <div className="ai-groups">{groupsForLocale.map(renderGroup)}</div>
+            <h3>{text('Tính năng sẵn sàng', 'Feature readiness')}</h3>
+            <ul className="ai-ready" aria-label={text('Tính năng sẵn sàng', 'Feature readiness')}>
+              {featuresForLocale.map((feature) => {
                 const status = featureState(feature.needs)
                 return (
                   <li key={feature.label} className={`ai-ready-${status.tone}`}>
                     <span className="ai-ready-mark" aria-hidden="true">{status.mark}</span>
                     <span className="ai-ready-label">{feature.label}</span>
-                    <span className="ai-ready-needs">{feature.needs.map((key) => aiCapLabels[key]).join(' + ')}</span>
+                    <span className="ai-ready-needs">{feature.needs.map(capLabel).join(' + ')}</span>
                     <span className="ai-ready-status">{status.text}</span>
                   </li>
                 )
@@ -10270,29 +10482,31 @@ function AiSettings({ setupMode = false }: { setupMode?: boolean }) {
 }
 
 function SystemSettings() {
+  const { locale, text } = useLocale()
   const operationsQuery = useQuery({ queryKey: ['operations'], queryFn: () => api<OperationsStatus>('/operations/status') })
   return (
     <>
-      <SectionHeader title="Hệ thống" helper="Tình trạng các thành phần mà ứng dụng phụ thuộc." />
+      <SectionHeader title={text('Hệ thống', 'System')} helper={text('Tình trạng các thành phần mà ứng dụng phụ thuộc.', 'Health of the components the application depends on.')} />
       <TelegramPanel />
       <section className="panel system-panel">
-        <div className="panel-heading"><div><h2>Trạng thái</h2></div><span className={`health-dot ${operationsQuery.data?.status === 'ok' ? 'healthy' : ''}`} /></div>
+        <div className="panel-heading"><div><h2>{text('Trạng thái', 'Status')}</h2></div><span className={`health-dot ${operationsQuery.data?.status === 'ok' ? 'healthy' : ''}`} /></div>
         {operationsQuery.isLoading ? <LoadingBlock /> : operationsQuery.error ? <ErrorNotice error={operationsQuery.error} onRetry={() => { void operationsQuery.refetch() }} /> : (
           <div className="health-list">
-            <HealthLine label="API & giao diện" value={operationsQuery.data?.web} />
+            <HealthLine label={text('API & giao diện', 'API & interface')} value={operationsQuery.data?.web} />
             <HealthLine label="AI processing" value={operationsQuery.data?.worker_ai} />
-            <HealthLine label="AI" value={operationsQuery.data ? (operationsQuery.data.ai_configured ? `sẵn sàng (${({ route: 'đặt trên màn hình AI', default: 'theo dòng Mặc định', env: 'theo .env' } as Record<string, string>)[operationsQuery.data.ai_source] || operationsQuery.data.ai_source})` : 'chưa có API key') : undefined} />
+            <HealthLine label="AI" value={operationsQuery.data ? (operationsQuery.data.ai_configured ? text(`sẵn sàng (${({ route: 'đặt trên màn hình AI', default: 'theo dòng Mặc định', env: 'theo .env' } as Record<string, string>)[operationsQuery.data.ai_source] || operationsQuery.data.ai_source})`, `ready (${({ route: 'configured on the AI page', default: 'using Default', env: 'from .env' } as Record<string, string>)[operationsQuery.data.ai_source] || operationsQuery.data.ai_source})`) : text('chưa có API key', 'no API key')) : undefined} />
             <HealthLine label="SeaweedFS" value={operationsQuery.data?.storage} />
-            <div className="health-line"><span>Sao lưu hằng ngày</span><strong className={operationsQuery.data?.backup === 'healthy' ? 'text-good' : 'text-warn'}>{operationsQuery.data ? backupSummary(operationsQuery.data.backup_detail) : 'Chưa rõ'}</strong></div>
+            <div className="health-line"><span>{text('Sao lưu hằng ngày', 'Daily backup')}</span><strong className={operationsQuery.data?.backup === 'healthy' ? 'text-good' : 'text-warn'}>{operationsQuery.data ? backupSummary(operationsQuery.data.backup_detail, locale) : text('Chưa rõ', 'Unknown')}</strong></div>
           </div>
         )}
-        <div className="privacy-card"><ShieldCheck size={20} aria-hidden="true" /><div><strong>Ranh giới riêng tư</strong><p>Raw chat chỉ được tải ở trang chi tiết và chỉ CTO có quyền truy cập.</p></div></div>
+        <div className="privacy-card"><ShieldCheck size={20} aria-hidden="true" /><div><strong>{text('Ranh giới riêng tư', 'Privacy boundary')}</strong><p>{text('Raw chat chỉ được tải ở trang chi tiết và chỉ CTO có quyền truy cập.', 'Raw chat is loaded only on the detail page and is accessible only to the CTO.')}</p></div></div>
       </section>
     </>
   )
 }
 
 function GlossarySettings() {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
   const [scope, setScope] = useState('')
@@ -10310,16 +10524,16 @@ function GlossarySettings() {
   const sharedLocked = user?.role !== 'CTO'
   const scopeName = projects.data?.find((project) => project.code === scope)?.name
   const groups = [
-    { title: 'Thuật ngữ chung', hint: 'Dùng cho mọi cuộc họp.', items: (glossary.data || []).filter((item) => !item.project_code) },
-    ...(scope ? [{ title: `Thuật ngữ của ${scopeName || scope}`, hint: 'Chỉ nạp khi cuộc họp thuộc dự án này.', items: (glossary.data || []).filter((item) => item.project_code) }] : []),
+    { title: text('Thuật ngữ chung', 'Shared glossary'), hint: text('Dùng cho mọi cuộc họp.', 'Used for every meeting.'), items: (glossary.data || []).filter((item) => !item.project_code) },
+    ...(scope ? [{ title: text(`Thuật ngữ của ${scopeName || scope}`, `${scopeName || scope} glossary`), hint: text('Chỉ nạp khi cuộc họp thuộc dự án này.', 'Loaded only for meetings in this project.'), items: (glossary.data || []).filter((item) => item.project_code) }] : []),
   ]
   return (
     <>
-      <SectionHeader title="Thuật ngữ" helper="Tên riêng và từ chuyên ngành được nạp cho bước chuyển chữ để nhận đúng, ví dụ tên sản phẩm. Thuật ngữ dài hơn 20 ký tự chỉ dùng cho bản chữ sau cuộc họp." />
+      <SectionHeader title={text('Thuật ngữ', 'Glossary')} helper={text('Tên riêng và từ chuyên ngành được nạp cho bước chuyển chữ để nhận đúng, ví dụ tên sản phẩm. Thuật ngữ dài hơn 20 ký tự chỉ dùng cho bản chữ sau cuộc họp.', 'Names and specialist terms are supplied to speech recognition so they are transcribed correctly, such as product names. Terms longer than 20 characters are used only for the transcript created after a meeting.')} />
       <section className="panel settings-panel">
-        <label className="settings-scope">Phạm vi
+        <label className="settings-scope">{text('Phạm vi', 'Scope')}
           <select value={scope} onChange={(e) => setScope(e.target.value)}>
-            <option value="">Chỉ thuật ngữ chung</option>
+            <option value="">{text('Chỉ thuật ngữ chung', 'Shared glossary only')}</option>
             {projects.data?.filter((project) => project.status === 'ACTIVE').map((project) => <option key={project.id} value={project.code}>{project.name}</option>)}
           </select>
         </label>
@@ -10328,15 +10542,15 @@ function GlossarySettings() {
             <h3>{group.title} <small>{group.items.length}</small></h3>
             <p className="field-help">{group.hint}</p>
             <div className="glossary-terms">
-              {group.items.length === 0 && <small className="muted">Chưa có thuật ngữ nào.</small>}
-              {group.items.map((item) => <span className="chip" key={item.id} title={item.usable_in_realtime ? undefined : 'Dài hơn 20 ký tự: chỉ dùng cho bản chữ sau cuộc họp'}>{item.term}{!(sharedLocked && !item.project_code) && <button type="button" aria-label={`Xóa thuật ngữ ${item.term}`} onClick={() => remove.mutate(item.id)}><X size={12} /></button>}</span>)}
+              {group.items.length === 0 && <small className="muted">{text('Chưa có thuật ngữ nào.', 'No terms yet.')}</small>}
+              {group.items.map((item) => <span className="chip" key={item.id} title={item.usable_in_realtime ? undefined : text('Dài hơn 20 ký tự: chỉ dùng cho bản chữ sau cuộc họp', 'Longer than 20 characters: used only in the post-meeting transcript')}>{item.term}{!(sharedLocked && !item.project_code) && <button type="button" aria-label={text(`Xóa thuật ngữ ${item.term}`, `Delete term ${item.term}`)} onClick={() => remove.mutate(item.id)}><X size={12} /></button>}</span>)}
             </div>
           </div>
         ))}
-        {sharedLocked && !scope && <p className="field-help">Thuật ngữ chung do CTO quản lý. Chọn một dự án của bạn để thêm thuật ngữ riêng.</p>}
+        {sharedLocked && !scope && <p className="field-help">{text('Thuật ngữ chung do CTO quản lý. Chọn một dự án của bạn để thêm thuật ngữ riêng.', 'The shared glossary is managed by the CTO. Choose one of your projects to add project-specific terms.')}</p>}
         <form className="settings-inline-form" onSubmit={(event) => { event.preventDefault(); if (term.trim()) add.mutate() }}>
-          <label>Thêm vào {scope ? `dự án ${scopeName || scope}` : 'thuật ngữ chung'}<input value={term} onChange={(e) => setTerm(e.target.value)} maxLength={50} placeholder="Ví dụ: Orbit" /></label>
-          <button className="button button-primary" type="submit" disabled={!term.trim() || add.isPending || (sharedLocked && !scope)}>Thêm</button>
+          <label>{text('Thêm vào', 'Add to')} {scope ? text(`dự án ${scopeName || scope}`, `${scopeName || scope} project`) : text('thuật ngữ chung', 'shared glossary')}<input value={term} onChange={(e) => setTerm(e.target.value)} maxLength={50} placeholder={text('Ví dụ: Orbit', 'For example: Orbit')} /></label>
+          <button className="button button-primary" type="submit" disabled={!term.trim() || add.isPending || (sharedLocked && !scope)}>{text('Thêm', 'Add')}</button>
         </form>
         {error != null && <ErrorNotice error={error} />}
       </section>
@@ -10347,6 +10561,7 @@ function GlossarySettings() {
 interface MembershipDraft { enabled: boolean; gitlabUser: string }
 
 function MemberEditor({ member, projects, onDone }: { member?: WorkforceMember; projects: Project[]; onDone: () => void }) {
+  const { locale, text } = useLocale()
   const queryClient = useQueryClient()
   const [name, setName] = useState(member?.display_name || '')
   const [email, setEmail] = useState(member?.email_reference || '')
@@ -10387,33 +10602,33 @@ function MemberEditor({ member, projects, onDone }: { member?: WorkforceMember; 
   return (
     <form className="member-editor" onSubmit={(event) => { event.preventDefault(); save.mutate() }}>
       <div className="wizard-row">
-        <label><span className="req-label">Họ tên<Req /></span><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></label>
-        <label>Email gửi báo cáo ngày<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ten@example.com" /><small className="field-help">Dùng để nhận ra thư Daily Report của người này.</small></label>
+        <label><span className="req-label">{text('Họ tên', 'Full name')}<Req /></span><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></label>
+        <label>{text('Email gửi báo cáo ngày', 'Daily report email')}<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" /><small className="field-help">{text('Dùng để nhận ra thư Daily Report của người này.', 'Used to identify this person\'s Daily Report email.')}</small></label>
       </div>
       <div className="wizard-row">
-        <label>Số giờ mỗi ngày thường<input type="number" min={0} max={24} step={0.5} value={hours} onChange={(e) => setHours(e.target.value)} /></label>
-        <label>Trạng thái<select value={status} onChange={(e) => setStatus(e.target.value)}><option value="ACTIVE">Đang làm việc</option><option value="INACTIVE">Ngừng</option></select></label>
+        <label>{text('Số giờ mỗi ngày thường', 'Default hours per day')}<input type="number" min={0} max={24} step={0.5} value={hours} onChange={(e) => setHours(e.target.value)} /></label>
+        <label>{text('Trạng thái', 'Status')}<select value={status} onChange={(e) => setStatus(e.target.value)}><option value="ACTIVE">{text('Đang làm việc', 'Active')}</option><option value="INACTIVE">{text('Ngừng', 'Inactive')}</option></select></label>
       </div>
       <fieldset className="member-projects">
-        <legend>Dự án tham gia</legend>
+        <legend>{text('Dự án tham gia', 'Project assignments')}</legend>
         {projects.map((project) => {
           const row = draft[project.id]
           const needsUser = project.kind === 'SOFTWARE'
           const deliveryName = project.delivery_system === 'GITHUB' ? 'GitHub' : 'GitLab'
           return (
             <div className="member-project" key={project.id}>
-              <label className="member-project-toggle"><input type="checkbox" checked={row.enabled} onChange={(e) => update(project.id, { enabled: e.target.checked })} /><span><strong>{project.name}</strong><small>{projectKindLabels[project.kind]}</small></span></label>
+              <label className="member-project-toggle"><input type="checkbox" checked={row.enabled} onChange={(e) => update(project.id, { enabled: e.target.checked })} /><span><strong>{project.name}</strong><small>{locale === 'en' ? projectKindLabelsEn[project.kind] : projectKindLabels[project.kind]}</small></span></label>
               {row.enabled && needsUser && (
                 <div className="member-gitlab">
                   {users[project.id] ? (
                     <select aria-label={`Người dùng ${deliveryName} ở ${project.name}`} value={row.gitlabUser} onChange={(e) => update(project.id, { gitlabUser: e.target.value })}>
-                      <option value="">Chưa chọn</option>
+                      <option value="">{text('Chưa chọn', 'Not selected')}</option>
                       {row.gitlabUser && !users[project.id].some((user) => user.id === row.gitlabUser) && <option value={row.gitlabUser}>ID {row.gitlabUser}</option>}
                       {users[project.id].map((user) => <option key={user.id} value={user.id}>{user.name}{user.username ? ` (@${user.username})` : ''}</option>)}
                     </select>
                   ) : <input aria-label={`ID người dùng ${deliveryName} ở ${project.name}`} value={row.gitlabUser} onChange={(e) => update(project.id, { gitlabUser: e.target.value })} placeholder={`ID người dùng ${deliveryName}`} />}
-                  {project.delivery_system && !users[project.id] && <button className="button button-secondary button-small" type="button" disabled={loadUsers.isPending} onClick={() => loadUsers.mutate(project)}>{loadUsers.isPending && loadUsers.variables?.id === project.id ? 'Đang lấy…' : `Chọn từ ${deliveryName}`}</button>}
-                  {!row.gitlabUser && <small className="report-gate">Chưa có người dùng {deliveryName}: chưa phân công được trong Daily Planning.</small>}
+                  {project.delivery_system && !users[project.id] && <button className="button button-secondary button-small" type="button" disabled={loadUsers.isPending} onClick={() => loadUsers.mutate(project)}>{loadUsers.isPending && loadUsers.variables?.id === project.id ? text('Đang lấy…', 'Loading…') : text(`Chọn từ ${deliveryName}`, `Choose from ${deliveryName}`)}</button>}
+                  {!row.gitlabUser && <small className="report-gate">{text(`Chưa có người dùng ${deliveryName}: chưa phân công được trong Daily Planning.`, `No ${deliveryName} user: this person cannot be assigned in Daily Planning.`)}</small>}
                 </div>
               )}
             </div>
@@ -10422,8 +10637,8 @@ function MemberEditor({ member, projects, onDone }: { member?: WorkforceMember; 
       </fieldset>
       {error != null && <ErrorNotice error={error} />}
       <div className="report-edit-actions">
-        <button className="button button-secondary button-small" type="button" onClick={onDone}>Hủy</button>
-        <button className="button button-primary button-small" type="submit" disabled={!name.trim() || save.isPending}>{save.isPending ? 'Đang lưu…' : member ? 'Lưu nhân sự' : 'Thêm nhân sự'}</button>
+        <button className="button button-secondary button-small" type="button" onClick={onDone}>{text('Hủy', 'Cancel')}</button>
+        <button className="button button-primary button-small" type="submit" disabled={!name.trim() || save.isPending}>{save.isPending ? text('Đang lưu…', 'Saving…') : member ? text('Lưu nhân sự', 'Save team member') : text('Thêm nhân sự', 'Add team member')}</button>
       </div>
     </form>
   )
@@ -10431,6 +10646,7 @@ function MemberEditor({ member, projects, onDone }: { member?: WorkforceMember; 
 
 // The person's Telegram: linked, or an invite link to copy and send them (FR-NTF-03).
 function TelegramInvite({ member }: { member: WorkforceMember }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const [link, setLink] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -10443,14 +10659,14 @@ function TelegramInvite({ member }: { member: WorkforceMember }) {
     onSuccess: () => { setLink(null); void queryClient.invalidateQueries({ queryKey: ['settings-members'] }) },
   })
   if (member.telegram_linked) {
-    return <span className="status status-approved" title="Nhận kế hoạch và nhắc báo cáo qua Telegram">Telegram{member.telegram_username ? ` @${member.telegram_username}` : ''} <button type="button" className="text-button" disabled={unlink.isPending} onClick={() => { if (window.confirm(`Bỏ gắn Telegram của ${member.display_name}?`)) unlink.mutate() }}>bỏ</button></span>
+    return <span className="status status-approved" title={text('Nhận kế hoạch và nhắc báo cáo qua Telegram', 'Receives plans and report reminders through Telegram')}>Telegram{member.telegram_username ? ` @${member.telegram_username}` : ''} <button type="button" className="text-button" disabled={unlink.isPending} onClick={() => { if (window.confirm(text(`Bỏ gắn Telegram của ${member.display_name}?`, `Unlink Telegram for ${member.display_name}?`))) unlink.mutate() }}>{text('bỏ', 'unlink')}</button></span>
   }
   return (
     <span className="telegram-invite">
       {link ? (
-        <button type="button" className="button button-secondary button-small" onClick={() => { void navigator.clipboard.writeText(link).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000) }) }}><Copy size={13} aria-hidden="true" /> {copied ? 'Đã chép link mời' : 'Chép link mời'}</button>
+        <button type="button" className="button button-secondary button-small" onClick={() => { void navigator.clipboard.writeText(link).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000) }) }}><Copy size={13} aria-hidden="true" /> {copied ? text('Đã chép link mời', 'Invite link copied') : text('Chép link mời', 'Copy invite link')}</button>
       ) : (
-        <button type="button" className="text-button" disabled={invite.isPending} title="Tạo link mời; người đó bấm link là bot biết họ" onClick={() => invite.mutate()}>{member.telegram_invite_pending ? 'Tạo lại link mời Telegram' : 'Link mời Telegram'}</button>
+        <button type="button" className="text-button" disabled={invite.isPending} title={text('Tạo link mời; người đó bấm link là bot biết họ', 'Create an invite link; when the person opens it the bot links their account')} onClick={() => invite.mutate()}>{member.telegram_invite_pending ? text('Tạo lại link mời Telegram', 'Recreate Telegram invite') : text('Link mời Telegram', 'Telegram invite link')}</button>
       )}
       {invite.error != null && <small className="text-warn">{formatError(invite.error)}</small>}
     </span>
@@ -10460,6 +10676,7 @@ function TelegramInvite({ member }: { member: WorkforceMember }) {
 // One member's tracker user for one project, chosen where the warning is shown (FR-PLAN-32): the list is read through
 // a probe, a name match is pre-chosen, and a person missing from it needs the CTO to add them on the tracker first.
 function MemberTrackerPicker({ member, project, onDone }: { member: Pick<WorkforceMember, 'id' | 'display_name'>; project: Project; onDone: () => void }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const trackerName = project.delivery_system === 'GITHUB' ? 'GitHub' : 'GitLab'
   const [probeId, setProbeId] = useState<string>()
@@ -10492,28 +10709,29 @@ function MemberTrackerPicker({ member, project, onDone }: { member: Pick<Workfor
   const failed = users.data?.status === 'FAILED' ? (probeErrors[users.data.error_code || ''] || `Không đọc được danh sách người dùng ${trackerName} (${users.data.error_code || 'lỗi'}).`) : null
   return (
     <div className="member-picker" role="group" aria-label={`Chọn người dùng ${trackerName} của ${member.display_name} ở ${project.name}`}>
-      <strong>{member.display_name} ở {project.name}: chọn người dùng {trackerName}</strong>
-      {!data && !failed && users.error == null && error == null && <small>Đang đọc danh sách từ {trackerName}…</small>}
+      <strong>{text(`${member.display_name} ở ${project.name}: chọn người dùng ${trackerName}`, `${member.display_name} in ${project.name}: choose a ${trackerName} user`)}</strong>
+      {!data && !failed && users.error == null && error == null && <small>{text(`Đang đọc danh sách từ ${trackerName}…`, `Loading users from ${trackerName}…`)}</small>}
       {error != null && <ErrorNotice error={error} onRetry={() => setProbeId(undefined)} />}
       {users.error != null && <ErrorNotice error={users.error} onRetry={() => { void users.refetch() }} />}
-      {failed && <small className="text-warn">{failed} <button type="button" className="text-button" onClick={() => setProbeId(undefined)}>Thử lại</button></small>}
+      {failed && <small className="text-warn">{failed} <button type="button" className="text-button" onClick={() => setProbeId(undefined)}>{text('Thử lại', 'Retry')}</button></small>}
       {data && (
         <div className="member-picker-row">
           <select aria-label={`Người dùng ${trackerName} của ${member.display_name}`} value={picked} onChange={(event) => setChoice(event.target.value)}>
-            <option value="">Chọn người dùng {trackerName}…</option>
-            {free.map((user) => <option key={user.id} value={user.id}>{user.name}{user.username ? ` (${user.username})` : ''}{user.id === suggested ? ' · khớp tên' : ''}</option>)}
+            <option value="">{text(`Chọn người dùng ${trackerName}…`, `Choose a ${trackerName} user…`)}</option>
+            {free.map((user) => <option key={user.id} value={user.id}>{user.name}{user.username ? ` (${user.username})` : ''}{user.id === suggested ? text(' · khớp tên', ' · name match') : ''}</option>)}
           </select>
-          <button type="button" className="button button-primary button-small" disabled={!picked || save.isPending} onClick={() => save.mutate(picked)}>{save.isPending ? 'Đang gắn…' : 'Gắn'}</button>
-          <button type="button" className="button button-secondary button-small" onClick={onDone}>Đóng</button>
+          <button type="button" className="button button-primary button-small" disabled={!picked || save.isPending} onClick={() => save.mutate(picked)}>{save.isPending ? text('Đang gắn…', 'Linking…') : text('Gắn', 'Link')}</button>
+          <button type="button" className="button button-secondary button-small" onClick={onDone}>{text('Đóng', 'Close')}</button>
         </div>
       )}
-      <small className="field-help">Không thấy người này trong danh sách? Hãy nhờ CTO thêm họ vào {trackerName} của dự án, rồi quay lại đây.</small>
+      <small className="field-help">{text(`Không thấy người này trong danh sách? Hãy nhờ CTO thêm họ vào ${trackerName} của dự án, rồi quay lại đây.`, `Can’t find this person? Ask the CTO to add them to the project in ${trackerName}, then return here.`)}</small>
     </div>
   )
 }
 
 // Several people onto one project in a single step (FR-PRJ-12): one POST per person, the same call the project page uses.
 function AddPeopleDialog({ project, onClose }: { project: Project; onClose: (added: number) => void }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const candidates = useQuery({ queryKey: ['project-member-candidates', project.code], queryFn: () => api<ProjectMemberCandidate[]>(`/projects/${project.code}/team/candidates`) })
   const [search, setSearch] = useState('')
@@ -10536,15 +10754,15 @@ function AddPeopleDialog({ project, onClose }: { project: Project; onClose: (add
   }
   const nameOf = (id: string) => (candidates.data || []).find((row) => row.member_id === id)?.display_name || id
   return (
-    <ConfirmDialog plain title={`Thêm người vào ${project.name}`} confirmLabel={chosen.length > 1 ? `Thêm ${chosen.length} người` : 'Thêm vào dự án'} busyLabel="Đang thêm…" busy={busy} confirmDisabled={chosen.length === 0} onConfirm={() => { void submit() }} onCancel={() => { if (!busy) onClose(0) }}>
-      {candidates.isLoading ? <LoadingBlock /> : candidates.error != null ? <ErrorNotice error={candidates.error} onRetry={() => { void candidates.refetch() }} /> : (candidates.data || []).length === 0 ? <p>Mọi nhân sự đang hoạt động đã ở trong dự án này. Người mới do CTO tạo ở nút "Thêm nhân sự".</p> : (
+    <ConfirmDialog plain title={text(`Thêm người vào ${project.name}`, `Add people to ${project.name}`)} confirmLabel={chosen.length > 1 ? text(`Thêm ${chosen.length} người`, `Add ${chosen.length} people`) : text('Thêm vào dự án', 'Add to project')} busyLabel={text('Đang thêm…', 'Adding…')} busy={busy} confirmDisabled={chosen.length === 0} onConfirm={() => { void submit() }} onCancel={() => { if (!busy) onClose(0) }}>
+      {candidates.isLoading ? <LoadingBlock /> : candidates.error != null ? <ErrorNotice error={candidates.error} onRetry={() => { void candidates.refetch() }} /> : (candidates.data || []).length === 0 ? <p>{text('Mọi nhân sự đang hoạt động đã ở trong dự án này. Người mới do CTO tạo ở nút "Thêm nhân sự".', 'Every active team member is already in this project. The CTO can create a new person with “Add team member”.')}</p> : (
         <div className="member-picker">
-          <label>Tìm nhân sự<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nhập tên hoặc email" autoFocus /></label>
-          <div className="people-checklist" role="group" aria-label="Chọn nhân sự">
+          <label>{text('Tìm nhân sự', 'Find a team member')}<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={text('Nhập tên hoặc email', 'Enter a name or email')} autoFocus /></label>
+          <div className="people-checklist" role="group" aria-label={text('Chọn nhân sự', 'Choose team members')}>
             {shown.map((member) => <label key={member.member_id} className="people-check"><input type="checkbox" checked={chosen.includes(member.member_id)} onChange={() => toggle(member.member_id)} /> <span>{member.display_name}{member.email ? <small> · {member.email}</small> : null}</span></label>)}
-            {shown.length === 0 && <p className="field-help">Không tìm thấy nhân sự phù hợp.</p>}
+            {shown.length === 0 && <p className="field-help">{text('Không tìm thấy nhân sự phù hợp.', 'No matching team members found.')}</p>}
           </div>
-          {failed.length > 0 && <p className="field-help text-warn">Chưa thêm được: {failed.map(nameOf).join(', ')}. Bấm lại để thử tiếp, hoặc đóng.</p>}
+          {failed.length > 0 && <p className="field-help text-warn">{text(`Chưa thêm được: ${failed.map(nameOf).join(', ')}. Bấm lại để thử tiếp, hoặc đóng.`, `Could not add: ${failed.map(nameOf).join(', ')}. Try again or close this dialog.`)}</p>}
         </div>
       )}
     </ConfirmDialog>
@@ -10553,6 +10771,7 @@ function AddPeopleDialog({ project, onClose }: { project: Project; onClose: (add
 
 // One project and the people on it (FR-PRJ-12): tracker status, take-off and add, in the place a Project Owner thinks in.
 function ProjectPeopleSection({ project }: { project: Project }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const teamKey = ['project-team', project.code]
   const team = useQuery({ queryKey: teamKey, queryFn: () => api<ProjectTeam>(`/projects/${project.code}/team`) })
@@ -10565,28 +10784,28 @@ function ProjectPeopleSection({ project }: { project: Project }) {
     onSuccess: (result) => {
       queryClient.setQueryData(teamKey, result.team)
       for (const key of ['project-member-candidates', 'planning-members', 'settings-members']) void queryClient.invalidateQueries({ queryKey: [key] })
-      setNotice(result.removed ? 'Đã gỡ khỏi dự án. Hồ sơ, tài khoản và lịch sử vẫn được giữ.' : 'Người này không còn thuộc dự án.')
+      setNotice(result.removed ? text('Đã gỡ khỏi dự án. Hồ sơ, tài khoản và lịch sử vẫn được giữ.', 'Removed from the project. The profile, account, and history are preserved.') : text('Người này không còn thuộc dự án.', 'This person is no longer in the project.'))
     },
   })
   const members = team.data?.members || []
   const missing = project.kind === 'SOFTWARE' ? members.filter((row) => !row.delivery_user_id).length : 0
   return (
     <section className="panel settings-panel member-list project-people">
-      {adding && <AddPeopleDialog project={project} onClose={(added) => { setAdding(false); if (added > 0) setNotice(added === 1 ? 'Đã thêm 1 người vào dự án.' : `Đã thêm ${added} người vào dự án.`) }} />}
+      {adding && <AddPeopleDialog project={project} onClose={(added) => { setAdding(false); if (added > 0) setNotice(added === 1 ? text('Đã thêm 1 người vào dự án.', 'Added 1 person to the project.') : text(`Đã thêm ${added} người vào dự án.`, `Added ${added} people to the project.`)) }} />}
       <div className="panel-heading">
-        <div><h2>{project.name}</h2><p>{project.owner_name ? `Project Owner: ${project.owner_name}` : 'Chưa có Project Owner'} · {team.isLoading ? 'đang tải' : `${members.length} người`}{missing > 0 ? ` · ${missing} người chưa có tài khoản ${trackerName}` : ''}</p></div>
-        <button type="button" className="button button-secondary button-small" onClick={() => { setNotice(''); setAdding(true) }}><Plus size={15} /> Thêm người</button>
+        <div><h2>{project.name}</h2><p>{project.owner_name ? `Project Owner: ${project.owner_name}` : text('Chưa có Project Owner', 'No Project Owner')} · {team.isLoading ? text('đang tải', 'loading') : text(`${members.length} người`, `${members.length} people`)}{missing > 0 ? text(` · ${missing} người chưa có tài khoản ${trackerName}`, ` · ${missing} without a ${trackerName} account`) : ''}</p></div>
+        <button type="button" className="button button-secondary button-small" onClick={() => { setNotice(''); setAdding(true) }}><Plus size={15} /> {text('Thêm người', 'Add people')}</button>
       </div>
       {notice && <p className="notice notice-success" role="status">{notice}</p>}
       {(team.error != null || remove.error != null) && <ErrorNotice error={team.error || remove.error} onRetry={team.error ? () => { void team.refetch() } : undefined} />}
-      {team.isLoading ? <LoadingBlock /> : members.length === 0 ? <p className="field-help project-people-empty">Chưa có ai trong dự án này.</p> : members.map((member) => (
+      {team.isLoading ? <LoadingBlock /> : members.length === 0 ? <p className="field-help project-people-empty">{text('Chưa có ai trong dự án này.', 'No one is in this project yet.')}</p> : members.map((member) => (
         <Fragment key={member.member_id}>
           <div className="member-row">
-            <div><strong>{member.display_name}{member.is_owner && <span className="capacity-owner">Project Owner</span>}</strong><small>{member.email || 'Chưa có email'}</small></div>
+            <div><strong>{member.display_name}{member.is_owner && <span className="capacity-owner">Project Owner</span>}</strong><small>{member.email || text('Chưa có email', 'No email')}</small></div>
             <div className="report-tags">
-              {project.kind !== 'SOFTWARE' ? <span className="status">Thành viên</span> : member.delivery_user_id ? <span className="status">Đã nối {trackerName}</span> : project.delivery_system ? (
-                <button type="button" className="status report-warning chip-button" title={`Chưa có người dùng ${trackerName}, nên chưa phân công được. Bấm để chọn.`} onClick={() => setPicking(member.member_id)}>Chọn {trackerName}</button>
-              ) : <span className="status report-warning" title="Dự án chưa nối nơi giao việc">Chưa nối nơi giao việc</span>}
+              {project.kind !== 'SOFTWARE' ? <span className="status">{text('Thành viên', 'Member')}</span> : member.delivery_user_id ? <span className="status">{text(`Đã nối ${trackerName}`, `${trackerName} linked`)}</span> : project.delivery_system ? (
+                <button type="button" className="status report-warning chip-button" title={text(`Chưa có người dùng ${trackerName}, nên chưa phân công được. Bấm để chọn.`, `No ${trackerName} user, so work cannot be assigned. Click to choose one.`)} onClick={() => setPicking(member.member_id)}>{text(`Chọn ${trackerName}`, `Choose ${trackerName}`)}</button>
+              ) : <span className="status report-warning" title={text('Dự án chưa nối nơi giao việc', 'The project is not connected to a delivery system')}>{text('Chưa nối nơi giao việc', 'No delivery system')}</span>}
             </div>
             <button className="icon-button" type="button" aria-label={`Gỡ ${member.display_name} khỏi ${project.name}`} title={member.is_owner ? 'Đổi Project Owner trước khi gỡ người này' : 'Gỡ khỏi dự án, không xóa hồ sơ hay tài khoản'} disabled={member.is_owner || remove.isPending} onClick={() => { if (window.confirm(`Gỡ ${member.display_name} khỏi dự án ${project.name}?\n\nHồ sơ nhân sự, tài khoản, lịch sử và các dự án khác vẫn được giữ.\n\nViệc đang giao cho người này không tự đổi: hãy kiểm lại trước khi gỡ.`)) { setNotice(''); remove.mutate(member.member_id) } }}><Trash2 size={15} /></button>
           </div>
@@ -10598,11 +10817,13 @@ function ProjectPeopleSection({ project }: { project: Project }) {
 }
 
 function MembersByProject({ projects }: { projects: Project[] }) {
-  if (projects.length === 0) return <section className="panel"><EmptyState icon={<UserRound size={20} />} title="Chưa có dự án" text="Tài khoản này chưa được giao quản lý dự án nào." /></section>
+  const { text } = useLocale()
+  if (projects.length === 0) return <section className="panel"><EmptyState icon={<UserRound size={20} />} title={text('Chưa có dự án', 'No projects')} text={text('Tài khoản này chưa được giao quản lý dự án nào.', 'This account has not been assigned to manage any projects.')} /></section>
   return <>{projects.map((project) => <ProjectPeopleSection key={project.id} project={project} />)}</>
 }
 
 function MembersSettings() {
+  const { text } = useLocale()
   const { user, refresh } = useAuth()
   const queryClient = useQueryClient()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
@@ -10622,40 +10843,40 @@ function MembersSettings() {
   const projectById = new Map((projects.data || []).map((project) => [project.id, project]))
   return (
     <>
-      <SectionHeader title="Nhân sự" helper="Gán nhân sự vào dự án. Dự án phần mềm cần thêm người dùng tương ứng ở nơi giao việc (GitLab hoặc GitHub) thì mới phân công được trong Daily Planning." action={editing === 'new' ? undefined : <span className="settings-actions">{user?.role === 'CTO' && !user.member_id && <button className="button button-secondary" type="button" disabled={addMe.isPending} title="Tạo hồ sơ nhân sự cho chính anh: 0 giờ mặc định, không đòi báo cáo ngày. Gán vào dự án kèm người dùng GitLab hoặc GitHub để nhận việc trong Daily Planning." onClick={() => addMe.mutate()}><UserRound size={16} /> {addMe.isPending ? 'Đang thêm…' : 'Thêm tôi vào nhân sự'}</button>}<button className="button button-primary" type="button" onClick={() => setEditing('new')}><Plus size={16} /> Thêm nhân sự</button></span>} />
+      <SectionHeader title={text('Nhân sự', 'Team')} helper={text('Gán nhân sự vào dự án. Dự án phần mềm cần thêm người dùng tương ứng ở nơi giao việc (GitLab hoặc GitHub) thì mới phân công được trong Daily Planning.', 'Assign people to projects. Software projects also require the matching GitLab or GitHub user before work can be assigned in Daily Planning.')} action={editing === 'new' ? undefined : <span className="settings-actions">{user?.role === 'CTO' && !user.member_id && <button className="button button-secondary" type="button" disabled={addMe.isPending} title={text('Tạo hồ sơ nhân sự cho chính anh: 0 giờ mặc định, không đòi báo cáo ngày. Gán vào dự án kèm người dùng GitLab hoặc GitHub để nhận việc trong Daily Planning.', 'Create your own team profile with 0 default hours and no daily report requirement. Assign it to a project with a GitLab or GitHub user to receive work in Daily Planning.')} onClick={() => addMe.mutate()}><UserRound size={16} /> {addMe.isPending ? text('Đang thêm…', 'Adding…') : text('Thêm tôi vào nhân sự', 'Add me to the team')}</button>}<button className="button button-primary" type="button" onClick={() => setEditing('new')}><Plus size={16} /> {text('Thêm nhân sự', 'Add team member')}</button></span>} />
       {addMe.error != null && <p className="field-help text-warn">{formatError(addMe.error)}</p>}
-      <div className="segmented" role="group" aria-label="Cách xem nhân sự">
-        <button type="button" className={view === 'project' ? 'active' : undefined} aria-pressed={view === 'project'} onClick={() => setView('project')}>Theo dự án</button>
-        <button type="button" className={view === 'person' ? 'active' : undefined} aria-pressed={view === 'person'} onClick={() => setView('person')}>Theo người</button>
+      <div className="segmented" role="group" aria-label={text('Cách xem nhân sự', 'Team view')}>
+        <button type="button" className={view === 'project' ? 'active' : undefined} aria-pressed={view === 'project'} onClick={() => setView('project')}>{text('Theo dự án', 'By project')}</button>
+        <button type="button" className={view === 'person' ? 'active' : undefined} aria-pressed={view === 'person'} onClick={() => setView('person')}>{text('Theo người', 'By person')}</button>
       </div>
       {(members.error || projects.error) && <ErrorNotice error={members.error || projects.error} onRetry={() => { void members.refetch(); void projects.refetch() }} />}
       {view === 'project' ? (projects.isLoading ? <LoadingBlock /> : <MembersByProject projects={activeProjects} />) : members.isLoading || projects.isLoading ? <LoadingBlock /> : (
         <section className="panel settings-panel member-list">
           {editing === 'new' && <MemberEditor projects={activeProjects} onDone={() => setEditing(undefined)} />}
-          {(members.data || []).length === 0 && editing !== 'new' && <EmptyState icon={<UserRound size={20} />} title="Chưa có nhân sự" text="Thêm nhân sự để nhận báo cáo ngày và lập kế hoạch." />}
+          {(members.data || []).length === 0 && editing !== 'new' && <EmptyState icon={<UserRound size={20} />} title={text('Chưa có nhân sự', 'No team members')} text={text('Thêm nhân sự để nhận báo cáo ngày và lập kế hoạch.', 'Add team members to receive daily reports and plan work.')} />}
           {(members.data || []).map((member) => editing === member.id ? <MemberEditor key={member.id} member={member} projects={activeProjects} onDone={() => setEditing(undefined)} /> : (
             <Fragment key={member.id}>
               <div className="member-row">
-                <div><strong>{member.display_name}{member.is_cto && <span className="capacity-owner" title="Hồ sơ nhân sự của chính CTO: không đòi báo cáo ngày; đặt giờ theo ngày ở Daily Planning khi nhận việc">CTO</span>}</strong><small>{member.email_reference || 'Chưa có email báo cáo'} · {member.default_weekday_hours} giờ/ngày{member.is_cto ? ' · không cần báo cáo ngày' : ''}{member.status !== 'ACTIVE' ? ' · đã ngừng' : ''}</small></div>
+                <div><strong>{member.display_name}{member.is_cto && <span className="capacity-owner" title={text('Hồ sơ nhân sự của chính CTO: không đòi báo cáo ngày; đặt giờ theo ngày ở Daily Planning khi nhận việc', 'The CTO\'s own team profile: no daily report is required; set daily hours in Daily Planning when assigning work')}>CTO</span>}</strong><small>{member.email_reference || text('Chưa có email báo cáo', 'No report email')} · {text(`${member.default_weekday_hours} giờ/ngày`, `${member.default_weekday_hours} hours/day`)}{member.is_cto ? text(' · không cần báo cáo ngày', ' · no daily report required') : ''}{member.status !== 'ACTIVE' ? text(' · đã ngừng', ' · inactive') : ''}</small></div>
                 <div className="report-tags">
-                  {member.project_mappings.filter((mapping) => mapping.active).length === 0 && <span className="status report-warning">Chưa gán dự án</span>}
+                  {member.project_mappings.filter((mapping) => mapping.active).length === 0 && <span className="status report-warning">{text('Chưa gán dự án', 'No project assigned')}</span>}
                   {member.project_mappings.filter((mapping) => mapping.active).map((mapping) => {
                     const project = projectById.get(mapping.project_id)
                     const missingUser = project?.kind === 'SOFTWARE' && !mapping.gitlab_user_external_id
                     const trackerName = project?.delivery_system === 'GITHUB' ? 'GitHub' : 'GitLab'
                     if (missingUser && project?.delivery_system) {
-                      return <button type="button" key={mapping.project_id} className="status report-warning chip-button" title={`Chưa có người dùng ${trackerName}, nên chưa phân công được. Bấm để chọn.`} onClick={() => setPicking({ memberId: member.id, projectId: mapping.project_id })}>{project.name} · chọn {trackerName}</button>
+                      return <button type="button" key={mapping.project_id} className="status report-warning chip-button" title={text(`Chưa có người dùng ${trackerName}, nên chưa phân công được. Bấm để chọn.`, `No ${trackerName} user, so work cannot be assigned. Click to choose one.`)} onClick={() => setPicking({ memberId: member.id, projectId: mapping.project_id })}>{project.name} · {text(`chọn ${trackerName}`, `choose ${trackerName}`)}</button>
                     }
-                    return <span key={mapping.project_id} className={missingUser ? 'status report-warning' : 'status'} title={missingUser ? 'Dự án chưa nối nơi giao việc' : undefined}>{project?.name || 'Dự án'}{missingUser ? ' · chưa nối nơi giao việc' : ''}</span>
+                    return <span key={mapping.project_id} className={missingUser ? 'status report-warning' : 'status'} title={missingUser ? text('Dự án chưa nối nơi giao việc', 'The project is not connected to a delivery system') : undefined}>{project?.name || text('Dự án', 'Project')}{missingUser ? text(' · chưa nối nơi giao việc', ' · no delivery system') : ''}</span>
                   })}
                 </div>
-                <button className="button button-secondary button-small" type="button" aria-expanded={detail === member.id} onClick={() => setDetail(detail === member.id ? undefined : member.id)}>{detail === member.id ? 'Đóng' : 'Chi tiết'}</button>
+                <button className="button button-secondary button-small" type="button" aria-expanded={detail === member.id} onClick={() => setDetail(detail === member.id ? undefined : member.id)}>{detail === member.id ? text('Đóng', 'Close') : text('Chi tiết', 'Details')}</button>
               </div>
               {detail === member.id && (
                 <div className="member-detail" role="region" aria-label={`Chi tiết ${member.display_name}`}>
-                  <div><strong>Telegram</strong><small>{member.status === 'ACTIVE' ? 'Nhận kế hoạch và nhắc báo cáo qua Telegram.' : 'Nhân sự đã ngừng hoạt động, không nhắc qua Telegram.'}</small></div>
+                  <div><strong>Telegram</strong><small>{member.status === 'ACTIVE' ? text('Nhận kế hoạch và nhắc báo cáo qua Telegram.', 'Receives plans and report reminders through Telegram.') : text('Nhân sự đã ngừng hoạt động, không nhắc qua Telegram.', 'This person is inactive and receives no Telegram reminders.')}</small></div>
                   {member.status === 'ACTIVE' && <TelegramInvite member={member} />}
-                  <button className="button button-secondary button-small" type="button" onClick={() => { setDetail(undefined); setEditing(member.id) }}><Pencil size={15} /> Sửa hồ sơ</button>
+                  <button className="button button-secondary button-small" type="button" onClick={() => { setDetail(undefined); setEditing(member.id) }}><Pencil size={15} /> {text('Sửa hồ sơ', 'Edit profile')}</button>
                 </div>
               )}
               {picking?.memberId === member.id && projectById.get(picking.projectId) && <MemberTrackerPicker key={picking.projectId} member={member} project={projectById.get(picking.projectId)!} onDone={() => setPicking(undefined)} />}
@@ -10669,10 +10890,11 @@ function MembersSettings() {
 
 function ShowcaseList() {
   const queryClient = useQueryClient()
+  const { locale, text } = useLocale()
   const [error, setError] = useState<unknown>()
-  const catalog = useQuery({ queryKey: ['showcase'], queryFn: () => api<ShowcaseCatalog>('/showcase') })
-  const refresh = (next: ShowcaseCatalog) => { queryClient.setQueryData(['showcase'], next); void queryClient.invalidateQueries({ queryKey: ['projects'] }); void queryClient.invalidateQueries({ queryKey: ['setup'] }) }
-  const toggle = useMutation({ mutationFn: (vars: { key: string; enabled: boolean }) => api<ShowcaseCatalog>(`/showcase/${vars.key}`, { method: 'PUT', body: JSON.stringify({ enabled: vars.enabled }) }), onSuccess: (next) => { setError(undefined); refresh(next) }, onError: setError })
+  const catalog = useQuery({ queryKey: ['showcase', locale], queryFn: () => api<ShowcaseCatalog>(`/showcase?locale=${locale}`) })
+  const refresh = (next: ShowcaseCatalog) => { queryClient.setQueryData(['showcase', locale], next); void queryClient.invalidateQueries({ queryKey: ['projects'] }); void queryClient.invalidateQueries({ queryKey: ['setup'] }) }
+  const toggle = useMutation({ mutationFn: (vars: { key: string; enabled: boolean }) => api<ShowcaseCatalog>(`/showcase/${vars.key}?locale=${locale}`, { method: 'PUT', body: JSON.stringify({ enabled: vars.enabled }) }), onSuccess: (next) => { setError(undefined); refresh(next) }, onError: setError })
   const removeSamples = useMutation({ mutationFn: (key: string) => api<{ removed: number }>(`/showcase/${key}/samples`, { method: 'DELETE' }), onSuccess: () => { setError(undefined); void catalog.refetch() }, onError: setError })
   if (catalog.isLoading) return <LoadingBlock />
   const data = catalog.data
@@ -10682,19 +10904,19 @@ function ShowcaseList() {
   const card = (item: ShowcaseItem) => (
     <article key={item.key} className="showcase-card">
       <div>
-        <h3>{item.name} <span className="status-pill">{item.kind === 'demo' ? 'Mẫu' : 'Open source của tác giả'}</span>{item.state === 'archived' && <span className="status-pill">Đã lưu trữ</span>}{!item.in_catalog && <span className="status-pill">Không còn trong danh mục</span>}</h3>
+        <h3>{item.name} <span className="status-pill">{item.kind === 'demo' ? text('Mẫu', 'Sample') : text('Open source của tác giả', "Author's open source")}</span>{item.state === 'archived' && <span className="status-pill">{text('Đã lưu trữ', 'Archived')}</span>}{!item.in_catalog && <span className="status-pill">{text('Không còn trong danh mục', 'No longer in the catalog')}</span>}</h3>
         {item.summary && <p>{item.summary}</p>}
         <div className="showcase-meta">
-          {item.repo_url && <a href={item.repo_url} target="_blank" rel="noreferrer">Xem repo <ArrowUpRight size={12} /></a>}
+          {item.repo_url && <a href={item.repo_url} target="_blank" rel="noreferrer">{text('Xem repo', 'View repository')} <ArrowUpRight size={12} /></a>}
           {item.languages.length > 0 && <span>{item.languages.join(', ')}</span>}
           {item.license && <span>{item.license}</span>}
         </div>
-        {item.kind === 'demo' && <p className="field-help">Dữ liệu hư cấu, không gửi gì ra ngoài.</p>}
+        {item.kind === 'demo' && <p className="field-help">{text('Dữ liệu hư cấu, không gửi gì ra ngoài.', 'Fictional data; nothing is sent outside Intake.')}</p>}
       </div>
       <div className="showcase-actions">
-        <label className="check-row"><input type="checkbox" checked={item.state === 'on'} disabled={toggle.isPending} onChange={(event) => toggle.mutate({ key: item.key, enabled: event.target.checked })} /> {item.state === 'on' ? 'Đang bật' : 'Bật'}</label>
-        {item.sample_requests > 0 && <button type="button" className="button button-secondary" disabled={removeSamples.isPending} onClick={() => removeSamples.mutate(item.key)}>Xóa {item.sample_requests} yêu cầu thử</button>}
-        {item.state === 'on' && item.kind === 'real' && item.project_code && <Link to={`/intakes?project=${item.project_code}`}>Mở dự án</Link>}
+        <label className="check-row"><input type="checkbox" checked={item.state === 'on'} disabled={toggle.isPending} onChange={(event) => toggle.mutate({ key: item.key, enabled: event.target.checked })} /> {item.state === 'on' ? text('Đang bật', 'Enabled') : text('Bật', 'Enable')}</label>
+        {item.sample_requests > 0 && <button type="button" className="button button-secondary" disabled={removeSamples.isPending} onClick={() => removeSamples.mutate(item.key)}>{text(`Xóa ${item.sample_requests} yêu cầu thử`, `Delete ${item.sample_requests} sample requests`)}</button>}
+        {item.state === 'on' && item.kind === 'real' && item.project_code && <Link to={`/intakes?project=${item.project_code}`}>{text('Mở dự án', 'Open project')}</Link>}
       </div>
     </article>
   )
@@ -10702,13 +10924,14 @@ function ShowcaseList() {
     <div className="showcase-list">
       {error != null && <ErrorNotice error={error} onRetry={() => setError(undefined)} />}
       {groups.map((group) => <section key={group}><h3 className="showcase-group">{data.groups[group]}</h3>{data.items.filter((item) => item.group === group).map(card)}</section>)}
-      {orphans.length > 0 && <section><h3 className="showcase-group">Không còn trong danh mục</h3>{orphans.map(card)}</section>}
-      <p className="field-help">Tắt chỉ lưu trữ dự án và giữ nguyên dữ liệu; bật lại là khôi phục đúng dự án đó.</p>
+      {orphans.length > 0 && <section><h3 className="showcase-group">{text('Không còn trong danh mục', 'No longer in the catalog')}</h3>{orphans.map(card)}</section>}
+      <p className="field-help">{text('Tắt chỉ lưu trữ dự án và giữ nguyên dữ liệu; bật lại là khôi phục đúng dự án đó.', 'Disabling only archives the project and preserves its data; enabling it again restores the same project.')}</p>
     </div>
   )
 }
 
 function GithubTokenPanel() {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const [label, setLabel] = useState('')
   const [value, setValue] = useState('')
@@ -10723,18 +10946,18 @@ function GithubTokenPanel() {
       {rows.isLoading ? <LoadingBlock /> : (
         <ul className="github-token-list">
           {(rows.data || []).map((row) => (
-            <li key={row.name}><code>{row.name}</code> <small>kết thúc …{row.key_hint}{row.used_by_projects > 0 ? `, ${row.used_by_projects} dự án đang dùng` : ''}</small>
-              <button type="button" className="button button-secondary button-small" disabled={remove.isPending} onClick={() => remove.mutate(row.name)}><Trash2 size={13} /> Xóa</button></li>
+            <li key={row.name}><code>{row.name}</code> <small>{text('kết thúc', 'ends in')} …{row.key_hint}{row.used_by_projects > 0 ? text(`, ${row.used_by_projects} dự án đang dùng`, `, used by ${row.used_by_projects} projects`) : ''}</small>
+              <button type="button" className="button button-secondary button-small" disabled={remove.isPending} onClick={() => remove.mutate(row.name)}><Trash2 size={13} /> {text('Xóa', 'Delete')}</button></li>
           ))}
-          {(rows.data || []).length === 0 && <li><small>Chưa có token nào lưu ở đây. Token đặt trong .env.github trên máy chủ vẫn dùng được.</small></li>}
+          {(rows.data || []).length === 0 && <li><small>{text('Chưa có token nào lưu ở đây. Token đặt trong .env.github trên máy chủ vẫn dùng được.', 'No tokens are saved here. Tokens configured in the server .env.github file can still be used.')}</small></li>}
         </ul>
       )}
       <form className="github-token-form" onSubmit={(event) => { event.preventDefault(); if (label.trim() && value.trim()) save.mutate() }}>
-        <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Tên gợi nhớ, ví dụ Khách A" aria-label="Tên token" />
-        <input type="password" autoComplete="off" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Dán token GitHub" aria-label="Token GitHub" />
-        <button type="submit" className="button button-primary" disabled={save.isPending || !label.trim() || !value.trim()}>{save.isPending ? 'Đang lưu…' : 'Lưu token'}</button>
+        <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder={text('Tên gợi nhớ, ví dụ Khách A', 'Memorable name, for example Customer A')} aria-label={text('Tên token', 'Token name')} />
+        <input type="password" autoComplete="off" value={value} onChange={(event) => setValue(event.target.value)} placeholder={text('Dán token GitHub', 'Paste GitHub token')} aria-label="GitHub token" />
+        <button type="submit" className="button button-primary" disabled={save.isPending || !label.trim() || !value.trim()}>{save.isPending ? text('Đang lưu…', 'Saving…') : text('Lưu token', 'Save token')}</button>
       </form>
-      <p className="field-help">Token được mã hóa khi lưu và chỉ hiện 4 ký tự cuối; không đọc lại được. Cùng tên với token trong .env.github thì token lưu ở đây được dùng trước.</p>
+      <p className="field-help">{text('Token được mã hóa khi lưu và chỉ hiện 4 ký tự cuối; không đọc lại được. Cùng tên với token trong .env.github thì token lưu ở đây được dùng trước.', 'Tokens are encrypted at rest and only the last four characters are shown. If a saved token has the same name as one in .env.github, the saved token takes priority.')}</p>
       <GithubTokenCheck names={(rows.data || []).map((row) => row.name)} />
       <TokenHelp system="GITHUB" />
     </div>
@@ -10820,29 +11043,29 @@ function GitlabConnectionPanel({ onSaved }: { onSaved?: () => void }) {
 }
 
 function ProjectsPage() {
-  const { text } = useLocale()
+  const { locale, text } = useLocale()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
   const link = (label: string, id: string | null, url: string | null, enabled: boolean) => (
-    id ? <span className="project-link">{url ? <a href={url} target="_blank" rel="noreferrer">{label} <ArrowUpRight size={12} /></a> : label}{!enabled && <small>chưa bật đồng bộ</small>}</span> : <span className="muted">Không liên kết</span>
+    id ? <span className="project-link">{url ? <a href={url} target="_blank" rel="noreferrer">{label} <ArrowUpRight size={12} /></a> : label}{!enabled && <small>{text('chưa bật đồng bộ', 'sync disabled')}</small>}</span> : <span className="muted">{text('Không liên kết', 'Not linked')}</span>
   )
   return (
     <>
-      <SectionHeader title="Dự án" helper="Loại dự án quyết định liên kết: Ý tưởng và Không code chỉ dùng Intake (việc trên bảng Việc), Phần mềm dùng thêm một nơi giao việc (GitLab của công ty hoặc GitHub của khách hàng) và được lập kế hoạch hằng ngày." action={<Link className="button button-primary" to="/settings/projects/new"><Plus size={16} /> Tạo dự án</Link>} />
+      <SectionHeader title={text('Dự án', 'Projects')} helper={text('Loại dự án quyết định liên kết: Ý tưởng và Không code chỉ dùng Intake (việc trên bảng Việc), Phần mềm dùng thêm một nơi giao việc (GitLab của công ty hoặc GitHub của khách hàng) và được lập kế hoạch hằng ngày.', 'Project type determines integrations: Idea and non-code projects use Intake only, while software projects also use one delivery tracker and participate in Daily Planning.')} action={<Link className="button button-primary" to="/settings/projects/new"><Plus size={16} /> {text('Tạo dự án', 'Create project')}</Link>} />
       {projects.error && <ErrorNotice error={projects.error} onRetry={() => { void projects.refetch() }} />}
       {projects.isLoading ? <LoadingBlock /> : (
         <section className="panel projects-page-panel">
           <table className="project-table">
-            <thead><tr><th>Dự án</th><th>Loại</th><th>Project Owner</th><th>Nơi giao việc</th><th>Nhóm Telegram</th><th>Daily Planning</th><th><span className="sr-only">Thao tác</span></th></tr></thead>
+            <thead><tr><th>{text('Dự án', 'Project')}</th><th>{text('Loại', 'Type')}</th><th>Project Owner</th><th>{text('Nơi giao việc', 'Delivery tracker')}</th><th>{text('Nhóm Telegram', 'Telegram group')}</th><th>Daily Planning</th><th><span className="sr-only">{text('Thao tác', 'Actions')}</span></th></tr></thead>
             <tbody>
               {(projects.data || []).map((project) => (
                 <tr key={project.id}>
-                  <td><strong>{project.name}</strong><small>{project.code} · {project.intake_key}{project.status !== 'ACTIVE' ? ' · ngừng hoạt động' : ''}</small></td>
-                  <td><span className="status">{projectKindLabels[project.kind] || project.kind}</span></td>
-                  <td>{project.owner_name || <span className="muted">Chưa có</span>}</td>
-                  <td>{project.delivery_system === 'GITHUB' ? link('GitHub của khách', project.github_repository, project.github_project_url, project.github_enabled) : link('GitLab', project.gitlab_project_id, project.gitlab_project_url, project.gitlab_enabled)}</td>
-                  <td>{project.kind !== 'SOFTWARE' ? <span className="muted">Không nhắc</span> : project.telegram_linked ? <span className="status status-approved" title="Nhóm nhận nhắc kế hoạch và báo cáo">{project.telegram_chat_title || 'Đã gắn'}</span> : <span className="muted" title={`Thêm bot vào nhóm Telegram của dự án (hoặc mở chủ đề của dự án trong nhóm chung) rồi gõ /lien-ket ${project.code}`}>Chưa gắn · /lien-ket {project.code}</span>}</td>
-                  <td>{project.kind === 'SOFTWARE' ? 'Có' : <span className="muted">Không</span>}</td>
-                  <td className="project-actions"><Link className="button button-secondary button-small" to={`/settings/projects/${project.code}`}><Pencil size={15} /> Sửa</Link></td>
+                  <td><strong>{project.name}</strong><small>{project.code} · {project.intake_key}{project.status !== 'ACTIVE' ? text(' · ngừng hoạt động', ' · inactive') : ''}</small></td>
+                  <td><span className="status">{(locale === 'vi' ? projectKindLabels : projectKindLabelsEn)[project.kind] || project.kind}</span></td>
+                  <td>{project.owner_name || <span className="muted">{text('Chưa có', 'Not assigned')}</span>}</td>
+                  <td>{project.delivery_system === 'GITHUB' ? link(text('GitHub của khách', 'Customer GitHub'), project.github_repository, project.github_project_url, project.github_enabled) : link('GitLab', project.gitlab_project_id, project.gitlab_project_url, project.gitlab_enabled)}</td>
+                  <td>{project.kind !== 'SOFTWARE' ? <span className="muted">{text('Không nhắc', 'No reminders')}</span> : project.telegram_linked ? <span className="status status-approved" title={text('Nhóm nhận nhắc kế hoạch và báo cáo', 'Group receives plan and report reminders')}>{project.telegram_chat_title || text('Đã gắn', 'Linked')}</span> : <span className="muted" title={text(`Thêm bot vào nhóm Telegram của dự án (hoặc mở chủ đề của dự án trong nhóm chung) rồi gõ /lien-ket ${project.code}`, `Add the bot to the project Telegram group or its topic, then enter /lien-ket ${project.code}`)}>{text('Chưa gắn', 'Not linked')} · /lien-ket {project.code}</span>}</td>
+                  <td>{project.kind === 'SOFTWARE' ? text('Có', 'Yes') : <span className="muted">{text('Không', 'No')}</span>}</td>
+                  <td className="project-actions"><Link className="button button-secondary button-small" to={`/settings/projects/${project.code}`}><Pencil size={15} /> {text('Sửa', 'Edit')}</Link></td>
                 </tr>
               ))}
             </tbody>
@@ -10857,12 +11080,12 @@ function ProjectsPage() {
       )}
       {useAuth().user?.role === 'CTO' && (
         <section className="panel projects-page-panel padded">
-          <SectionHeader title="Token GitHub" helper="Mỗi khách một token riêng để Intake tạo Issue vào repo của khách. Thêm ở đây thay vì sửa file trên máy chủ." />
+          <SectionHeader title="GitHub tokens" helper={text('Mỗi khách một token riêng để Intake tạo Issue vào repo của khách. Thêm ở đây thay vì sửa file trên máy chủ.', 'Use a separate token for each customer so Intake can create Issues in their repository. Add tokens here instead of editing server files.')} />
           <GithubTokenPanel />
         </section>
       )}
       <section className="panel projects-page-panel padded">
-        <SectionHeader title="Dự án mẫu và open source" helper="Bật để thêm vào Intake một dự án mẫu hoặc dự án open source của tác giả. Tắt chỉ lưu trữ, dữ liệu được giữ." />
+        <SectionHeader title={text('Dự án mẫu và open source', 'Sample and open-source projects')} helper={text('Bật để thêm vào Intake một dự án mẫu hoặc dự án open source của tác giả. Tắt chỉ lưu trữ, dữ liệu được giữ.', 'Enable a sample project or one of the author\'s open-source projects. Disabling archives it while preserving its data.')} />
         <ShowcaseList />
       </section>
     </>
@@ -10871,6 +11094,7 @@ function ProjectsPage() {
 
 function AccountPage() {
   const { user, refresh } = useAuth()
+  const { text } = useLocale()
   const [open, setOpen] = useState<'password' | 'mfa' | null>(null)
   const [passwordChanged, setPasswordChanged] = useState(false)
   const [secret, setSecret] = useState('')
@@ -10934,19 +11158,19 @@ function AccountPage() {
       <section className="panel account-identity">
         <div className="account-avatar" aria-hidden="true">{initials}</div>
         <div><strong>{name}</strong><small>{user?.display_name ? `${user.email} · ` : ''}{user?.role === 'CTO' ? 'CTO' : user?.role === 'DEVELOPER' ? 'Developer' : 'Project Owner'}</small></div>
-        <span className={`status ${mfaOn ? 'report-valid' : 'report-warning'}`}>{mfaOn ? 'Xác thực hai lớp đang bật' : 'Chưa bật xác thực hai lớp'}</span>
+        <span className={`status ${mfaOn ? 'report-valid' : 'report-warning'}`}>{mfaOn ? text('Xác thực hai lớp đang bật', 'Two-factor authentication is enabled') : text('Chưa bật xác thực hai lớp', 'Two-factor authentication is disabled')}</span>
       </section>
 
       <section className="panel account-section">
         <header>
-          <div><h3>Mật khẩu</h3><p>Dùng để đăng nhập. Tối thiểu 8 ký tự.</p></div>
-          {open !== 'password' && <button className="button button-secondary" type="button" onClick={() => { setOpen('password'); setPasswordChanged(false) }}>Đổi mật khẩu</button>}
+          <div><h3>{text('Mật khẩu', 'Password')}</h3><p>{text('Dùng để đăng nhập. Tối thiểu 8 ký tự.', 'Used to sign in. At least 8 characters.')}</p></div>
+          {open !== 'password' && <button className="button button-secondary" type="button" onClick={() => { setOpen('password'); setPasswordChanged(false) }}>{text('Đổi mật khẩu', 'Change password')}</button>}
         </header>
-        {passwordChanged && open !== 'password' && <p className="notice notice-success" role="status">Đã đổi mật khẩu.</p>}
+        {passwordChanged && open !== 'password' && <p className="notice notice-success" role="status">{text('Đã đổi mật khẩu.', 'Password changed.')}</p>}
         {open === 'password' && (
           <div className="account-body">
             <PasswordForm onChanged={() => { setPasswordChanged(true); setOpen(null) }} />
-            <button className="text-button" type="button" onClick={() => setOpen(null)}>Hủy</button>
+            <button className="text-button" type="button" onClick={() => setOpen(null)}>{text('Hủy', 'Cancel')}</button>
           </div>
         )}
       </section>
@@ -10956,32 +11180,32 @@ function AccountPage() {
 
       <section className="panel account-section">
         <header>
-          <div><h3>Xác thực hai lớp</h3><p>Khi đăng nhập, ngoài mật khẩu bạn nhập thêm mã 6 số từ ứng dụng xác thực trên điện thoại (Google Authenticator, Microsoft Authenticator, 1Password…).</p></div>
-          {!secret && open !== 'mfa' && <button className={mfaOn ? 'button button-secondary' : 'button button-primary'} type="button" disabled={busy} onClick={() => { setOpen('mfa'); setError(undefined) }}>{mfaOn ? 'Thiết lập lại' : 'Bật xác thực hai lớp'}</button>}
+          <div><h3>{text('Xác thực hai lớp', 'Two-factor authentication')}</h3><p>{text('Khi đăng nhập, ngoài mật khẩu bạn nhập thêm mã 6 số từ ứng dụng xác thực trên điện thoại (Google Authenticator, Microsoft Authenticator, 1Password…).', 'When you sign in, enter a 6-digit code from an authenticator app in addition to your password, such as Google Authenticator, Microsoft Authenticator, or 1Password.')}</p></div>
+          {!secret && open !== 'mfa' && <button className={mfaOn ? 'button button-secondary' : 'button button-primary'} type="button" disabled={busy} onClick={() => { setOpen('mfa'); setError(undefined) }}>{mfaOn ? text('Thiết lập lại', 'Set up again') : text('Bật xác thực hai lớp', 'Enable two-factor authentication')}</button>}
         </header>
-        {mfaJustEnabled && <p className="notice notice-success" role="status">Đã bật xác thực hai lớp. Hãy tạo mã khôi phục ở mục bên dưới để không bị khóa ngoài khi mất điện thoại.</p>}
+        {mfaJustEnabled && <p className="notice notice-success" role="status">{text('Đã bật xác thực hai lớp. Hãy tạo mã khôi phục ở mục bên dưới để không bị khóa ngoài khi mất điện thoại.', 'Two-factor authentication is enabled. Create recovery codes below so you can sign in if you lose your phone.')}</p>}
         {error?.at === 'mfa' && <ErrorNotice error={error.error} />}
         {open === 'mfa' && !secret && (
           <form className="account-body account-confirm" onSubmit={setup}>
-            <input aria-label="Mật khẩu hiện tại" type="password" value={stepUpPassword} onChange={(e) => setStepUpPassword(e.target.value)} placeholder="Mật khẩu hiện tại" autoComplete="current-password" required />
-            {mfaOn && <input aria-label="Mã MFA hiện tại" value={stepUpOtp} onChange={(e) => setStepUpOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Mã MFA hiện tại" inputMode="numeric" autoComplete="one-time-code" required />}
-            <button className="button button-primary" type="submit" disabled={busy || !stepUpPassword || (mfaOn && stepUpOtp.length !== 6)}>Tiếp tục</button>
-            <button className="text-button" type="button" onClick={() => { setOpen(null); setStepUpPassword(''); setStepUpOtp(''); setError(undefined) }}>Hủy</button>
+            <input aria-label={text('Mật khẩu hiện tại', 'Current password')} type="password" value={stepUpPassword} onChange={(e) => setStepUpPassword(e.target.value)} placeholder={text('Mật khẩu hiện tại', 'Current password')} autoComplete="current-password" required />
+            {mfaOn && <input aria-label={text('Mã MFA hiện tại', 'Current MFA code')} value={stepUpOtp} onChange={(e) => setStepUpOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder={text('Mã MFA hiện tại', 'Current MFA code')} inputMode="numeric" autoComplete="one-time-code" required />}
+            <button className="button button-primary" type="submit" disabled={busy || !stepUpPassword || (mfaOn && stepUpOtp.length !== 6)}>{text('Tiếp tục', 'Continue')}</button>
+            <button className="text-button" type="button" onClick={() => { setOpen(null); setStepUpPassword(''); setStepUpOtp(''); setError(undefined) }}>{text('Hủy', 'Cancel')}</button>
           </form>
         )}
         {secret && (
           <ol className="account-body account-steps">
             <li>
-              <strong>Thêm tài khoản trong ứng dụng xác thực</strong>
-              <p>Chọn "nhập mã thiết lập" rồi nhập mã dưới đây. Không gửi mã này qua chat hoặc email.</p>
-              <div className="account-secret"><code>{secret}</code><button className="button button-secondary button-small" type="button" onClick={() => copy('secret', secret)}>{copied === 'secret' ? 'Đã chép' : 'Chép mã'}</button></div>
+              <strong>{text('Thêm tài khoản trong ứng dụng xác thực', 'Add an account in your authenticator app')}</strong>
+              <p>{text('Chọn "nhập mã thiết lập" rồi nhập mã dưới đây. Không gửi mã này qua chat hoặc email.', 'Choose “enter setup key” and enter the code below. Do not send this code through chat or email.')}</p>
+              <div className="account-secret"><code>{secret}</code><button className="button button-secondary button-small" type="button" onClick={() => copy('secret', secret)}>{copied === 'secret' ? text('Đã chép', 'Copied') : text('Chép mã', 'Copy code')}</button></div>
             </li>
             <li>
-              <strong>Nhập mã 6 số ứng dụng đang hiện</strong>
+              <strong>{text('Nhập mã 6 số ứng dụng đang hiện', 'Enter the 6-digit code shown in the app')}</strong>
               <form className="account-confirm" onSubmit={confirm}>
                 <input aria-label="Mã 6 chữ số" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" inputMode="numeric" autoComplete="one-time-code" required />
-                <button className="button button-primary" type="submit" disabled={busy || otp.length !== 6}>Xác nhận và bật</button>
-                <button className="text-button" type="button" onClick={() => { setSecret(''); setOtp(''); setError(undefined) }}>Hủy</button>
+                <button className="button button-primary" type="submit" disabled={busy || otp.length !== 6}>{text('Xác nhận và bật', 'Confirm and enable')}</button>
+                <button className="text-button" type="button" onClick={() => { setSecret(''); setOtp(''); setError(undefined) }}>{text('Hủy', 'Cancel')}</button>
               </form>
             </li>
           </ol>
@@ -10990,21 +11214,21 @@ function AccountPage() {
 
       <section className="panel account-section">
         <header>
-          <div><h3>Mã khôi phục</h3><p>{mfaOn ? 'Dùng thay mã 6 số khi bạn mất điện thoại. Mỗi mã dùng một lần; tạo bộ mới thì bộ cũ hết hiệu lực.' : 'Dùng thay mã 6 số khi bạn mất điện thoại. Cần bật xác thực hai lớp trước.'}</p></div>
+          <div><h3>{text('Mã khôi phục', 'Recovery codes')}</h3><p>{mfaOn ? text('Dùng thay mã 6 số khi bạn mất điện thoại. Mỗi mã dùng một lần; tạo bộ mới thì bộ cũ hết hiệu lực.', 'Use these instead of a 6-digit code if you lose your phone. Each code works once; creating a new set invalidates the old set.') : text('Dùng thay mã 6 số khi bạn mất điện thoại. Cần bật xác thực hai lớp trước.', 'Use these instead of a 6-digit code if you lose your phone. Enable two-factor authentication first.')}</p></div>
         </header>
         {error?.at === 'codes' && <ErrorNotice error={error.error} />}
         {mfaOn && codes.length === 0 && (
           <form className="account-body account-confirm" onSubmit={generateCodes}>
-            <input aria-label="Mật khẩu hiện tại để tạo mã khôi phục" type="password" value={codePassword} onChange={(e) => setCodePassword(e.target.value)} placeholder="Mật khẩu hiện tại" autoComplete="current-password" required />
-            <input aria-label="Mã MFA hiện tại để tạo mã khôi phục" value={codeOtp} onChange={(e) => setCodeOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Mã MFA hiện tại" inputMode="numeric" autoComplete="one-time-code" required />
-            <button className="button button-secondary" type="submit" disabled={busy || !codePassword || codeOtp.length !== 6}>Tạo bộ mã mới</button>
+            <input aria-label={text('Mật khẩu hiện tại để tạo mã khôi phục', 'Current password for recovery codes')} type="password" value={codePassword} onChange={(e) => setCodePassword(e.target.value)} placeholder={text('Mật khẩu hiện tại', 'Current password')} autoComplete="current-password" required />
+            <input aria-label={text('Mã MFA hiện tại để tạo mã khôi phục', 'Current MFA code for recovery codes')} value={codeOtp} onChange={(e) => setCodeOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder={text('Mã MFA hiện tại', 'Current MFA code')} inputMode="numeric" autoComplete="one-time-code" required />
+            <button className="button button-secondary" type="submit" disabled={busy || !codePassword || codeOtp.length !== 6}>{text('Tạo bộ mã mới', 'Create new codes')}</button>
           </form>
         )}
         {codes.length > 0 && (
           <div className="account-body">
-            <p className="notice notice-warn">Các mã này chỉ hiện một lần. Hãy lưu vào nơi an toàn trước khi rời trang.</p>
+            <p className="notice notice-warn">{text('Các mã này chỉ hiện một lần. Hãy lưu vào nơi an toàn trước khi rời trang.', 'These codes are shown only once. Store them safely before leaving this page.')}</p>
             <div className="account-codes">{codes.map((code) => <code key={code}>{code}</code>)}</div>
-            <button className="button button-secondary button-small" type="button" onClick={() => copy('codes', codes.join('\n'))}>{copied === 'codes' ? 'Đã chép' : 'Chép tất cả'}</button>
+            <button className="button button-secondary button-small" type="button" onClick={() => copy('codes', codes.join('\n'))}>{copied === 'codes' ? text('Đã chép', 'Copied') : text('Chép tất cả', 'Copy all')}</button>
           </div>
         )}
       </section>
@@ -11013,16 +11237,18 @@ function AccountPage() {
 }
 
 const feedbackStatusWords: Record<string, string> = { PENDING: 'chờ Project Owner', ACCEPTED: 'đã nhận', REJECTED: 'chưa nhận' }
+const feedbackStatusWordsEn: Record<string, string> = { PENDING: 'waiting for Project Owner', ACCEPTED: 'accepted', REJECTED: 'not accepted' }
 const feedbackTransportWords: Record<string, string> = { WEB: 'web', TELEGRAM: 'Telegram', AGENT: 'agent' }
 
 function FeedbackFiles({ item }: { item: FeedbackItem }) {
+  const { text } = useLocale()
   if (item.files.length === 0) return null
   return (
     <ul className="feedback-files">
       {item.files.map((file) => {
         const href = `/api/v1/feedback/${item.id}/files/${file.id}`
         const image = file.mime_type.startsWith('image/')
-        return <li key={file.id}><a href={href} target="_blank" rel="noreferrer" title={file.name || file.mime_type}>{image ? <img src={href} alt={file.name || 'ảnh góp ý'} loading="lazy" /> : <span className="feedback-file-doc"><FileText size={14} /> {file.name || 'PDF'}</span>}</a></li>
+        return <li key={file.id}><a href={href} target="_blank" rel="noreferrer" title={file.name || file.mime_type}>{image ? <img src={href} alt={file.name || text('ảnh góp ý', 'feedback image')} loading="lazy" /> : <span className="feedback-file-doc"><FileText size={14} /> {file.name || 'PDF'}</span>}</a></li>
       })}
     </ul>
   )
@@ -11030,6 +11256,7 @@ function FeedbackFiles({ item }: { item: FeedbackItem }) {
 
 // Accept or reject one suggestion, from the approvals block or the Góp ý page (FR-FBK-03).
 function FeedbackDecide({ row, onDone }: { row: FeedbackItem; onDone: () => void }) {
+  const { text } = useLocale()
   const [rejecting, setRejecting] = useState(false)
   const [note, setNote] = useState('')
   const [error, setError] = useState<unknown>()
@@ -11041,16 +11268,16 @@ function FeedbackDecide({ row, onDone }: { row: FeedbackItem; onDone: () => void
       {error != null && <ErrorNotice error={error} />}
       {rejecting ? (
         <div className="feedback-reject">
-          <textarea rows={2} aria-label="Lý do chưa nhận" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Một dòng cho người góp ý: vì sao chưa làm, hoặc cần gì thêm" />
+          <textarea rows={2} aria-label={text('Lý do chưa nhận', 'Reason for not accepting')} value={note} onChange={(event) => setNote(event.target.value)} placeholder={text('Một dòng cho người góp ý: vì sao chưa làm, hoặc cần gì thêm', 'One line for the contributor: why it is not being accepted, or what else is needed')} />
           <span className="waiting-actions">
-            <button type="button" className="button button-primary button-small" disabled={note.trim().length < 3 || busy} onClick={() => reject.mutate(note.trim())}>Gửi lý do</button>
-            <button type="button" className="text-button" onClick={() => { setRejecting(false); setNote('') }}>Thôi</button>
+            <button type="button" className="button button-primary button-small" disabled={note.trim().length < 3 || busy} onClick={() => reject.mutate(note.trim())}>{text('Gửi lý do', 'Send reason')}</button>
+            <button type="button" className="text-button" onClick={() => { setRejecting(false); setNote('') }}>{text('Thôi', 'Cancel')}</button>
           </span>
         </div>
       ) : (
         <span className="waiting-actions">
-          <button type="button" className="button button-primary button-small" disabled={busy} onClick={() => accept.mutate()}>Nhận thành Intake</button>
-          <button type="button" className="button button-secondary button-small" disabled={busy} onClick={() => { setRejecting(true); setNote('') }}>Chưa nhận</button>
+          <button type="button" className="button button-primary button-small" disabled={busy} onClick={() => accept.mutate()}>{text('Nhận thành Intake', 'Accept as Intake')}</button>
+          <button type="button" className="button button-secondary button-small" disabled={busy} onClick={() => { setRejecting(true); setNote('') }}>{text('Chưa nhận', 'Do not accept')}</button>
         </span>
       )}
     </>
@@ -11058,13 +11285,14 @@ function FeedbackDecide({ row, onDone }: { row: FeedbackItem; onDone: () => void
 }
 
 function FeedbackCard({ row, decide, onDone, linkIntake }: { row: FeedbackItem; decide: boolean; onDone: () => void; linkIntake: boolean }) {
+  const { locale, text } = useLocale()
   return (
     <li className={`feedback-card is-${row.status.toLowerCase()}`}>
-      <div className="feedback-head"><strong>{row.member_name || 'nhân sự'}</strong><small>{row.project_name} · qua {feedbackTransportWords[row.transport] || row.transport} · {formatDate(row.created_at)} · <span className={`status feedback-status-${row.status.toLowerCase()}`}>{feedbackStatusWords[row.status] || row.status}</span></small></div>
+      <div className="feedback-head"><strong>{row.member_name || text('nhân sự', 'team member')}</strong><small>{row.project_name} · {text('qua', 'via')} {feedbackTransportWords[row.transport] || row.transport} · {formatDate(row.created_at, locale)} · <span className={`status feedback-status-${row.status.toLowerCase()}`}>{(locale === 'en' ? feedbackStatusWordsEn : feedbackStatusWords)[row.status] || row.status}</span></small></div>
       <p className="feedback-text">{row.text}</p>
       <FeedbackFiles item={row} />
-      {row.status === 'ACCEPTED' && <p className="field-help">Đã thành yêu cầu {linkIntake && row.intake_id ? <Link to={`/intakes/${row.intake_id}`}>{row.intake_public_id}</Link> : row.intake_public_id || ''}{row.decided_by_name ? ` · ${row.decided_by_name}` : ''}{row.decided_at ? ` · ${formatDate(row.decided_at)}` : ''}{row.decision_note ? ` · ${row.decision_note}` : ''}</p>}
-      {row.status === 'REJECTED' && <p className="field-help">Chưa nhận{row.decided_by_name ? ` (${row.decided_by_name})` : ''}: {row.decision_note}</p>}
+      {row.status === 'ACCEPTED' && <p className="field-help">{text('Đã thành yêu cầu', 'Converted to request')} {linkIntake && row.intake_id ? <Link to={`/intakes/${row.intake_id}`}>{row.intake_public_id}</Link> : row.intake_public_id || ''}{row.decided_by_name ? ` · ${row.decided_by_name}` : ''}{row.decided_at ? ` · ${formatDate(row.decided_at, locale)}` : ''}{row.decision_note ? ` · ${row.decision_note}` : ''}</p>}
+      {row.status === 'REJECTED' && <p className="field-help">{text('Chưa nhận', 'Not accepted')}{row.decided_by_name ? ` (${row.decided_by_name})` : ''}: {row.decision_note}</p>}
       {decide && row.status === 'PENDING' && <FeedbackDecide row={row} onDone={onDone} />}
     </li>
   )
@@ -11072,14 +11300,15 @@ function FeedbackCard({ row, decide, onDone, linkIntake }: { row: FeedbackItem; 
 
 // The owner's part on the approvals page: suggestions waiting, read and decided before anything becomes a request (FR-FBK-02, FR-FBK-03).
 function FeedbackQueue({ projectFilter }: { projectFilter: string }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const pending = useQuery({ queryKey: ['feedback', 'PENDING'], queryFn: () => api<FeedbackItem[]>('/feedback?status=PENDING&limit=100'), refetchInterval: 60_000 })
   const done = () => { void queryClient.invalidateQueries({ queryKey: ['feedback'] }); void queryClient.invalidateQueries({ queryKey: ['intakes'] }); void queryClient.invalidateQueries({ queryKey: ['alert-intakes'] }) }
   const rows = (pending.data || []).filter((row) => projectFilter === 'ALL' || row.project_id === projectFilter)
   if (pending.isLoading || rows.length === 0) return null
   return (
-    <section className="panel feedback-queue" aria-label="Góp ý chờ nhận">
-      <div className="panel-heading"><div><h2>Góp ý từ nhân sự <span className="status">{rows.length}</span></h2><p>Chưa phải yêu cầu: nhận thì thành Intake kênh "Góp ý" và AI đọc; chưa nhận thì ghi một dòng để người góp ý biết. Toàn bộ góp ý, kể cả đã quyết, ở trang <Link to="/gop-y">Góp ý</Link>.</p></div></div>
+    <section className="panel feedback-queue" aria-label={text('Góp ý chờ nhận', 'Feedback awaiting review')}>
+      <div className="panel-heading"><div><h2>{text('Góp ý từ nhân sự', 'Team feedback')} <span className="status">{rows.length}</span></h2><p>{text('Chưa phải yêu cầu: nhận thì thành Intake kênh "Góp ý" và AI đọc; chưa nhận thì ghi một dòng để người góp ý biết. Toàn bộ góp ý, kể cả đã quyết, ở trang', 'This is not yet a request: accepting it creates an Intake in the Feedback channel for AI processing; otherwise, leave one line explaining the decision. All feedback, including decided items, is available on the')} <Link to="/feedback">{text('Góp ý', 'Feedback')}</Link>{text('.', ' page.')}</p></div></div>
       <ul className="feedback-list">{rows.map((row) => <FeedbackCard key={row.id} row={row} decide onDone={done} linkIntake />)}</ul>
     </section>
   )
@@ -11092,7 +11321,8 @@ let hintSeq = 0
 // ⓘ next to a label: opens on hover, keyboard focus, or a tap (tap again to close). The first open on a page is
 // counted, so the week shows which hints people reach for.
 function Hint({ k }: { k: HintKey }) {
-  const hint = ALL_HINTS[k]
+  const { locale, text } = useLocale()
+  const hint = locale === 'en' ? HINTS_EN[k] : ALL_HINTS[k]
   const [open, setOpen] = useState(false)
   const [id] = useState(() => `hint-${++hintSeq}`)
   const counted = useRef(false)
@@ -11123,8 +11353,8 @@ function Hint({ k }: { k: HintKey }) {
   }, [open, id])
   return (
     <span className={open ? 'hint is-open' : 'hint'} data-hint={id} onMouseEnter={count}>
-      <button ref={anchor} type="button" aria-label={`Giải thích: ${hint.label}`} aria-describedby={id} aria-expanded={open} onFocus={count} onClick={(event) => { event.preventDefault(); event.stopPropagation(); count(); setOpen((value) => !value) }}><Info size={13} aria-hidden="true" /></button>
-      <span role="tooltip" id={id} className={pos.above ? 'hint-tip is-above' : 'hint-tip'} style={{ top: pos.top, left: pos.left, width: pos.width }}><strong>{hint.what}</strong><span>{hint.do}</span><Link to={`/huong-dan#${k}`} onClick={() => setOpen(false)}>Hướng dẫn nhanh</Link></span>
+      <button ref={anchor} type="button" aria-label={text(`Giải thích: ${hint.label}`, `About: ${hint.label}`)} aria-describedby={id} aria-expanded={open} onFocus={count} onClick={(event) => { event.preventDefault(); event.stopPropagation(); count(); setOpen((value) => !value) }}><Info size={13} aria-hidden="true" /></button>
+      <span role="tooltip" id={id} className={pos.above ? 'hint-tip is-above' : 'hint-tip'} style={{ top: pos.top, left: pos.left, width: pos.width }}><strong>{hint.what}</strong><span>{hint.do}</span><Link to={`/guide#${k}`} onClick={() => setOpen(false)}>{text('Hướng dẫn nhanh', 'Quick guide')}</Link></span>
     </span>
   )
 }
@@ -11132,7 +11362,8 @@ function Hint({ k }: { k: HintKey }) {
 // Three lines at the top of a page the first time a person opens it; "Đã hiểu" is remembered on the server.
 function PageIntro({ k }: { k: PageIntroKey }) {
   const queryClient = useQueryClient()
-  const intro = ALL_INTROS[k]
+  const { locale, text } = useLocale()
+  const intro = locale === 'en' ? INTROS_EN[k] : ALL_INTROS[k]
   const read = useQuery({ queryKey: ['hints'], queryFn: () => api<{ dismissed: string[] }>('/hints'), staleTime: 300_000 })
   const dismiss = useMutation({
     mutationFn: () => api<{ dismissed: string[] }>(`/hints/page.${k}/dismiss`, { method: 'POST' }),
@@ -11146,8 +11377,8 @@ function PageIntro({ k }: { k: PageIntroKey }) {
         <ul>{intro.lines.map((line) => <li key={line}>{line}</li>)}</ul>
       </div>
       <div className="page-intro-actions">
-        <Link to="/huong-dan" className="text-button">Hướng dẫn nhanh</Link>
-        <button type="button" className="button button-secondary button-small" disabled={dismiss.isPending} onClick={() => dismiss.mutate()}>Đã hiểu</button>
+        <Link to="/guide" className="text-button">{text('Hướng dẫn nhanh', 'Quick guide')}</Link>
+        <button type="button" className="button button-secondary button-small" disabled={dismiss.isPending} onClick={() => dismiss.mutate()}>{text('Đã hiểu', 'Got it')}</button>
       </div>
     </aside>
   )
@@ -11172,7 +11403,7 @@ function GuidePage() {
     </div>
     <div className="guide-release-callout">
       <strong>Trang công khai</strong>
-      <p>Người chưa đăng nhập mở <a href="/huong-dan?lang=en">/huong-dan</a> sẽ thấy bản hướng dẫn công khai (không có số liệu, nút mở trang hay phần này). Bản tĩnh cùng nội dung được dựng lên GitHub Pages của repo public.</p>
+      <p>Người chưa đăng nhập mở <a href="/guide?lang=en">/guide</a> sẽ thấy bản hướng dẫn công khai (không có số liệu, nút mở trang hay phần này). Bản tĩnh cùng nội dung được dựng lên GitHub Pages của repo public.</p>
     </div>
   </section> : undefined
   return (
@@ -12735,6 +12966,7 @@ function WorkDetailPanel({ workId, decides, members, onChanged, onDone, onOpen, 
 // Everyone's door: say what a project you are on (or manage) needs, with pictures; see what became of it. Owners
 // and the CTO also read and decide the suggestions of the projects they manage here (FR-FBK-01..03).
 function FeedbackPage() {
+  const { text: tr } = useLocale()
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const decides = user?.role === 'CTO' || user?.role === 'PROJECT_OWNER'
@@ -12763,17 +12995,17 @@ function FeedbackPage() {
   const submit = async () => {
     setError(undefined)
     try {
-      setStage('Đang gửi góp ý…')
+      setStage(tr('Đang gửi góp ý…', 'Sending feedback…'))
       const created = await api<FeedbackItem>('/feedback', { method: 'POST', body: JSON.stringify({ project: chosen, text: text.trim() }) })
       for (let index = 0; index < files.length; index += 1) {
-        setStage(`Đang tải ảnh ${index + 1}/${files.length}…`)
+        setStage(tr(`Đang tải ảnh ${index + 1}/${files.length}…`, `Uploading file ${index + 1}/${files.length}…`))
         const body = new FormData()
         body.append('file', files[index])
         await api(`/feedback/${created.id}/files`, { method: 'POST', body })
       }
       setText(''); setFiles([])
       if (fileRef.current) fileRef.current.value = ''
-      setStage('Đã gửi. Project Owner của dự án sẽ nhận hoặc trả lời; kết quả hiện ở danh sách dưới và qua Telegram nếu bạn đã gắn.')
+      setStage(tr('Đã gửi. Project Owner của dự án sẽ nhận hoặc trả lời; kết quả hiện ở danh sách dưới và qua Telegram nếu bạn đã gắn.', 'Sent. The Project Owner will accept or reply; the result appears below and through Telegram if connected.'))
       refresh()
     } catch (caught) {
       setStage(null); setError(caught)
@@ -12783,36 +13015,36 @@ function FeedbackPage() {
   const pendingManaged = managedRows.filter((row) => row.status === 'PENDING')
   return (
     <>
-      <PageHeader title="Góp ý" helper={[
-        'Thấy lỗi, thấy việc nên làm cho dự án mình đang ở hoặc mình quản: ghi ở đây, kèm ảnh màn hình nếu có.',
-        'Góp ý chưa phải yêu cầu. Project Owner của dự án đọc rồi nhận (thành Intake, AI đọc) hoặc trả lời vì sao chưa.',
-        'Cũng gửi được qua Telegram: nhắn "góp ý <mã dự án> ..." hoặc gửi ảnh cho bot; agent dùng tool suggest_intake.',
-        ...(decides ? ['Góp ý của dự án anh/chị quản nằm ở khối dưới cùng, kể cả đã quyết; góp ý đang chờ cũng hiện trên "Chờ phê duyệt".'] : []),
+      <PageHeader title={tr('Góp ý', 'Feedback')} helper={[
+        tr('Thấy lỗi, thấy việc nên làm cho dự án mình đang ở hoặc mình quản: ghi ở đây, kèm ảnh màn hình nếu có.', 'Report bugs or improvements for a project you belong to or manage, and attach screenshots when useful.'),
+        tr('Góp ý chưa phải yêu cầu. Project Owner của dự án đọc rồi nhận (thành Intake, AI đọc) hoặc trả lời vì sao chưa.', 'Feedback is not yet a request. The Project Owner reviews it, accepts it as an AI-processed Intake, or explains why it is not accepted.'),
+        tr('Cũng gửi được qua Telegram: nhắn "góp ý <mã dự án> ..." hoặc gửi ảnh cho bot; agent dùng tool suggest_intake.', 'You can also submit through Telegram by messaging "feedback <project code> ..." or sending an image to the bot; agents use the suggest_intake tool.'),
+        ...(decides ? [tr('Góp ý của dự án anh/chị quản nằm ở khối dưới cùng, kể cả đã quyết; góp ý đang chờ cũng hiện trên "Chờ phê duyệt".', 'Feedback for projects you manage appears in the bottom section, including decided items; pending feedback also appears under "Pending approval".')] : []),
       ]} />
       <PageIntro k="feedback" />
       <section className="panel feedback-form">
-        <div className="panel-heading"><div><h2>Góp ý mới <Hint k="feedback.new" /></h2></div></div>
-        {loading ? <LoadingBlock /> : projects.length === 0 ? <p className="field-help">{decides ? 'Chưa quản dự án phần mềm nào và tài khoản chưa gắn nhân sự.' : 'Bạn chưa thuộc dự án phần mềm nào; nhờ CTO thêm ở Cài đặt › Nhân sự.'}</p> : (
+        <div className="panel-heading"><div><h2>{tr('Góp ý mới', 'New feedback')} <Hint k="feedback.new" /></h2></div></div>
+        {loading ? <LoadingBlock /> : projects.length === 0 ? <p className="field-help">{decides ? tr('Chưa quản dự án phần mềm nào và tài khoản chưa gắn nhân sự.', 'You do not manage a software project and your account is not linked to a team member.') : tr('Bạn chưa thuộc dự án phần mềm nào; nhờ CTO thêm ở Cài đặt › Nhân sự.', 'You do not belong to a software project; ask the CTO to add you under Settings > Team.')}</p> : (
           <div className="feedback-fields">
-            <label>Dự án<select value={chosen} onChange={(event) => setProjectId(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-            <label>Điều nên làm<textarea rows={5} value={text} maxLength={20000} onChange={(event) => setText(event.target.value)} placeholder="Màn nào, bước nào, thấy gì, mong gì. Càng cụ thể càng dễ nhận." /></label>
-            <label>Ảnh hoặc PDF (tối đa 3, mỗi tệp 5 MB)<input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple onChange={(event) => setFiles(Array.from(event.target.files || []).slice(0, 3))} /></label>
+            <label>{tr('Dự án', 'Project')}<select value={chosen} onChange={(event) => setProjectId(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+            <label>{tr('Điều nên làm', 'What should be done')}<textarea rows={5} value={text} maxLength={20000} onChange={(event) => setText(event.target.value)} placeholder={tr('Màn nào, bước nào, thấy gì, mong gì. Càng cụ thể càng dễ nhận.', 'Which screen or step, what you saw, and what you expected. Specific feedback is easier to accept.')} /></label>
+            <label>{tr('Ảnh hoặc PDF (tối đa 3, mỗi tệp 5 MB)', 'Images or PDFs (up to 3 files, 5 MB each)')}<input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple onChange={(event) => setFiles(Array.from(event.target.files || []).slice(0, 3))} /></label>
             {files.length > 0 && <p className="field-help">{files.map((file) => file.name).join(' · ')}</p>}
-            <div className="project-brief-foot"><span className="field-help">{stage || 'Không ghi tên khách, số điện thoại hay nội dung tin nhắn thật; mô tả bằng lời.'}</span><button type="button" className="button button-primary" disabled={text.trim().length < 5 || !chosen || (stage !== null && stage.startsWith('Đang'))} onClick={() => { void submit() }}>Gửi góp ý</button></div>
+            <div className="project-brief-foot"><span className="field-help">{stage || tr('Không ghi tên khách, số điện thoại hay nội dung tin nhắn thật; mô tả bằng lời.', 'Do not include client names, phone numbers, or real message content; describe it in your own words.')}</span><button type="button" className="button button-primary" disabled={text.trim().length < 5 || !chosen || (stage !== null && (stage.startsWith('Đang') || stage.startsWith('Sending') || stage.startsWith('Uploading')))} onClick={() => { void submit() }}>{tr('Gửi góp ý', 'Send feedback')}</button></div>
             {error != null && <ErrorNotice error={error} />}
           </div>
         )}
       </section>
       <section className="panel feedback-mine">
-        <div className="panel-heading"><div><h2>Góp ý của tôi</h2><p>Mới nhất trước.</p></div></div>
-        {mine.isLoading ? <LoadingBlock /> : (mine.data || []).length === 0 ? <p className="field-help">Chưa có góp ý nào.</p> : (
+        <div className="panel-heading"><div><h2>{tr('Góp ý của tôi', 'My feedback')}</h2><p>{tr('Mới nhất trước.', 'Newest first.')}</p></div></div>
+        {mine.isLoading ? <LoadingBlock /> : (mine.data || []).length === 0 ? <p className="field-help">{tr('Chưa có góp ý nào.', 'No feedback yet.')}</p> : (
           <ul className="feedback-list">{(mine.data || []).map((row) => <FeedbackCard key={row.id} row={row} decide={false} onDone={refresh} linkIntake={decides} />)}</ul>
         )}
       </section>
       {decides && (
         <section className="panel feedback-managed">
-          <div className="panel-heading"><div><h2>Góp ý trong dự án tôi quản{pendingManaged.length > 0 ? <> <span className="status">{pendingManaged.length} chờ</span></> : null}</h2><p>Của nhân sự trong các dự án anh/chị quản, kể cả đã nhận hay chưa nhận.</p></div></div>
-          {managed.isLoading ? <LoadingBlock /> : managedRows.length === 0 ? <p className="field-help">Chưa có góp ý nào trong dự án anh/chị quản.</p> : (
+          <div className="panel-heading"><div><h2>{tr('Góp ý trong dự án tôi quản', 'Feedback in projects I manage')}{pendingManaged.length > 0 ? <> <span className="status">{tr(`${pendingManaged.length} chờ`, `${pendingManaged.length} waiting`)}</span></> : null}</h2><p>{tr('Của nhân sự trong các dự án anh/chị quản, kể cả đã nhận hay chưa nhận.', 'Feedback from people in your managed projects, including accepted and declined items.')}</p></div></div>
+          {managed.isLoading ? <LoadingBlock /> : managedRows.length === 0 ? <p className="field-help">{tr('Chưa có góp ý nào trong dự án anh/chị quản.', 'No feedback in your managed projects yet.')}</p> : (
             <ul className="feedback-list">{managedRows.map((row) => <FeedbackCard key={row.id} row={row} decide onDone={refresh} linkIntake />)}</ul>
           )}
         </section>
@@ -12835,6 +13067,11 @@ function NotFoundPage() {
   return <EmptyState icon={<CircleHelp size={20} />} title="Không tìm thấy trang" text="Đường dẫn này không tồn tại trong Private Intake." />
 }
 
+function LegacyRouteRedirect({ to }: { to: string }) {
+  const location = useLocation()
+  return <Navigate to={`${to}${location.search}${location.hash}`} replace />
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -12851,19 +13088,24 @@ export default function App() {
           <Route path="approvals" element={<ApprovalQueuePage />} />
           <Route path="meetings" element={<MeetingsPage />} />
           <Route path="changelog" element={<ChangelogPage />} />
-          <Route path="tuan-qua" element={<WeekPage />} />
-          <Route path="nghiem-thu" element={<AcceptancePage />} />
+          <Route path="last-week" element={<WeekPage />} />
+          <Route path="acceptance" element={<AcceptancePage />} />
           <Route path="viec-rieng" element={<PersonalTasksPage />} />
           <Route path="viec-cua-toi" element={<MyDayPage />} />
-          <Route path="ke-hoach-nguoi" element={<MemberPlanRoute />} />
-          <Route path="gop-y" element={<FeedbackPage />} />
+          <Route path="people-planning" element={<MemberPlanRoute />} />
+          <Route path="feedback" element={<FeedbackPage />} />
           <Route element={<BetaOnly />}>
             <Route path="viec" element={<WorkBoardPage />} />
             <Route path="tuan-nay" element={<WeekBoardPage />} />
             <Route path="duyet" element={<ReviewPage />} />
             <Route path="nguon" element={<WatchSourcesPage />} />
           </Route>
-          <Route path="huong-dan" element={<GuidePage />} />
+          <Route path="guide" element={<GuidePage />} />
+          <Route path="tuan-qua" element={<LegacyRouteRedirect to="/last-week" />} />
+          <Route path="nghiem-thu" element={<LegacyRouteRedirect to="/acceptance" />} />
+          <Route path="ke-hoach-nguoi" element={<LegacyRouteRedirect to="/people-planning" />} />
+          <Route path="gop-y" element={<LegacyRouteRedirect to="/feedback" />} />
+          <Route path="huong-dan" element={<LegacyRouteRedirect to="/guide" />} />
           <Route element={<ProjectManagerOnly />}>
             <Route path="projects" element={<ManagedProjectsPage />} />
             <Route path="projects/:code" element={<ProjectDetailsPage />} />

@@ -4,7 +4,7 @@ import { ALL_HINTS, ALL_INTROS } from './hints'
 import { HINTS_EN, INTROS_EN } from './hints_en'
 import { Locale, useLocale } from './i18n'
 
-// The user guide in one place (FR-UI-18): the signed-in page, the public page at /huong-dan and the static copy on
+// The user guide in one place (FR-UI-18): the signed-in page, the public page at /guide and the static copy on
 // GitHub Pages all render this module, so a change to the words reaches the three at once.
 // Every text is a pair [Vietnamese, English].
 
@@ -247,7 +247,7 @@ const PAGE_GROUPS: readonly { index: string; title: Bi; description: Bi; pages: 
         actions: [{ label: ['Trạng thái', 'Status'], text: ['Báo PLANNED, Đang làm, Xong hoặc Bị chặn cho Project Owner và CTO.', 'Tells the Project Owner and the CTO: Planned, In progress, Done or Blocked.'] }, { label: ['Thêm bằng chứng', 'Add evidence'], text: ['Gắn kết quả để Nghiệm thu không phải đoán việc đã xong ở đâu.', 'Attach the result so Acceptance does not have to guess where the work is.'] }, { label: ['Đề xuất việc', 'Propose work'], text: ['Đưa việc ngoài kế hoạch vào hàng chờ để Project Owner xếp hoặc bỏ qua.', 'Puts unplanned work in the queue for the Project Owner to schedule or skip.'] }], hintPage: 'my_day',
       },
       {
-        key: 'acceptance', title: ['Nghiệm thu', 'Acceptance'], route: '/nghiem-thu', audience: AUDIENCE_LEADS, roles: LEADS, purpose: ['Kiểm việc được báo xong, đối chiếu bằng chứng và xác nhận hoặc trả lại với lý do cụ thể.', 'Check work reported as done, compare it with the evidence and confirm it or return it with a clear reason.'],
+        key: 'acceptance', title: ['Nghiệm thu', 'Acceptance'], route: '/acceptance', audience: AUDIENCE_LEADS, roles: LEADS, purpose: ['Kiểm việc được báo xong, đối chiếu bằng chứng và xác nhận hoặc trả lại với lý do cụ thể.', 'Check work reported as done, compare it with the evidence and confirm it or return it with a clear reason.'],
         steps: [['Mở Intake và bằng chứng từ thẻ.', 'Open the Intake and the evidence from the card.'], ['Nếu đúng, xác nhận hoàn tất; nếu thiếu bằng chứng, ghi rõ lý do vẫn nghiệm thu.', 'If it is right, confirm it; if evidence is missing, write why you accept it anyway.'], ['Nếu chưa đúng, trả lại và mô tả điều phải sửa.', 'If it is not right, send it back and describe what to fix.']],
         actions: [{ label: ['Đúng là xong', 'Really done'], text: ['Ghi nghiệm thu, cập nhật trạng thái xuyên suốt và xếp lệnh đóng Issue nếu có.', 'Records acceptance, updates the status everywhere and queues closing the Issue if there is one.'] }, { label: ['Chưa xong', 'Not done'], text: ['Đưa việc về kế hoạch đang mở dưới dạng Làm lại, kèm lý do.', 'Puts the work back on the open plan as Rework, with the reason.'] }, { label: ['Đã kiểm, đã triển khai', 'Checked and deployed'], text: ['CTO xác nhận lịch sử xử lý do người hoặc agent ghi.', 'The CTO confirms the work log written by a person or an agent.'] }, { label: ['Thêm 5 việc', 'Five more'], text: ['Lấy thêm việc vào mẫu nghiệm thu hôm nay khi hàng chờ còn dài.', 'Adds more work to today\'s acceptance sample when the queue is long.'] }],
       },
@@ -257,7 +257,7 @@ const PAGE_GROUPS: readonly { index: string; title: Bi; description: Bi; pages: 
         actions: [{ label: ['Quét hộp thư', 'Scan mailbox'], text: ['CTO yêu cầu kiểm tra thư mới ngay thay vì chờ lịch.', 'The CTO asks for a mailbox check now instead of waiting for the schedule.'] }, { label: ['Xem thư gốc', 'View original'], text: ['Mở nội dung mã hóa có audit để đối chiếu với dữ liệu AI trích.', 'Opens the encrypted original, with an audit entry, to compare with what AI extracted.'] }, { label: ['Sửa task', 'Edit task'], text: ['Chỉnh tiêu đề, trạng thái, giờ hoặc Issue khi AI đọc chưa đúng.', 'Corrects the title, status, hours or Issue when AI read it wrong.'] }],
       },
       {
-        key: 'week-summary', title: ['Tuần qua', 'Last week'], route: '/tuan-qua', audience: AUDIENCE_LEADS, roles: LEADS, purpose: ['Xem tuần bằng số: giờ đã xếp, giờ báo cáo, việc xong, nghiệm thu và điểm nghẽn quy trình.', 'The week in numbers: planned hours, reported hours, work done, acceptance and process bottlenecks.'],
+        key: 'week-summary', title: ['Tuần qua', 'Last week'], route: '/last-week', audience: AUDIENCE_LEADS, roles: LEADS, purpose: ['Xem tuần bằng số: giờ đã xếp, giờ báo cáo, việc xong, nghiệm thu và điểm nghẽn quy trình.', 'The week in numbers: planned hours, reported hours, work done, acceptance and process bottlenecks.'],
         steps: [['Chọn tuần và phạm vi dự án.', 'Pick the week and the project scope.'], ['Đọc chênh lệch giữa kế hoạch, báo cáo và nghiệm thu.', 'Read the gaps between plan, reports and acceptance.'], ['Mở mục bất thường để xử lý ở trang nguồn thay vì sửa số liệu tổng hợp.', 'Open anything unusual and fix it at its source page, not in the totals.']],
         actions: [{ label: ['Chọn tuần', 'Pick week'], text: ['Đổi khoảng báo cáo theo tuần làm việc.', 'Changes the reporting range by working week.'] }, { label: ['Lọc dự án', 'Project filter'], text: ['Xem toàn bộ phạm vi hoặc một dự án cụ thể.', 'Shows the whole scope or one project.'] }],
       },
@@ -276,7 +276,7 @@ const PAGE_GROUPS: readonly { index: string; title: Bi; description: Bi; pages: 
         actions: [{ label: ['Thêm việc riêng', 'Add personal task'], text: ['Tạo việc hành chính, gặp đối tác hoặc học; số giờ làm giảm giờ trống của bạn.', 'Create admin work, a partner meeting or study time; its hours reduce your free time.'] }, { label: ['Nhắc lúc', 'Remind at'], text: ['Bot Telegram nhắc riêng đúng giờ nếu tài khoản đã liên kết.', 'The Telegram bot reminds you privately on time if your account is linked.'] }, { label: ['Khôi phục', 'Restore'], text: ['Đưa việc đã bỏ trở lại ô Lên lịch.', 'Puts a dropped task back in the Schedule box.'] }],
       },
       {
-        key: 'feedback', title: ['Góp ý', 'Feedback'], route: '/gop-y', audience: ['Mọi thành viên', 'Every member'], roles: EVERYONE, purpose: ['Gửi điều dự án nên làm mà chưa cần tự viết thành yêu cầu chính thức.', 'Send something the project should do without writing a formal request yourself.'],
+        key: 'feedback', title: ['Góp ý', 'Feedback'], route: '/feedback', audience: ['Mọi thành viên', 'Every member'], roles: EVERYONE, purpose: ['Gửi điều dự án nên làm mà chưa cần tự viết thành yêu cầu chính thức.', 'Send something the project should do without writing a formal request yourself.'],
         steps: [['Mô tả bằng lời của bạn, có thể kèm ảnh.', 'Describe it in your own words, with a picture if useful.'], ['Project Owner nhận thì góp ý thành Intake và AI đọc.', 'When the Project Owner accepts it, it becomes an Intake and AI reads it.'], ['Nếu chưa nhận, người gửi thấy lý do.', 'If it is not accepted, the sender sees why.']],
         actions: [{ label: ['Gửi góp ý', 'Send feedback'], text: ['Tạo đề xuất chờ Project Owner; không tự tạo Intake ngay.', 'Creates a proposal for the Project Owner; it does not create an Intake right away.'] }, { label: ['Nhận thành Intake', 'Accept as Intake'], text: ['Project Owner chuyển góp ý thành yêu cầu chính thức.', 'The Project Owner turns the feedback into a formal request.'] }, { label: ['Chưa nhận', 'Decline'], text: ['Từ chối kèm một lý do ngắn cho người gửi.', 'Declines with a short reason for the sender.'] }], hintPage: 'feedback',
       },
@@ -442,7 +442,7 @@ export function AccessResultList({ system, ok, checks }: { system: 'GITLAB' | 'G
           )
         })}
       </ul>
-      {!ok && <p><a className="text-button" href="/huong-dan#guide-token-mistakes" target="_blank" rel="noreferrer">{t(['Xem các lỗi thường gặp khi tạo token', 'See common token mistakes'])}</a></p>}
+      {!ok && <p><a className="text-button" href="/guide#guide-token-mistakes" target="_blank" rel="noreferrer">{t(['Xem các lỗi thường gặp khi tạo token', 'See common token mistakes'])}</a></p>}
     </div>
   )
 }
@@ -601,7 +601,7 @@ export function GuideContent({ app }: { app?: GuideAppContext }) {
   )
 }
 
-// The page a visitor without an account sees, both at /huong-dan and on GitHub Pages.
+// The page a visitor without an account sees, both at /guide and on GitHub Pages.
 export function PublicGuidePage({ variant }: { variant: 'app' | 'pages' }) {
   const { locale, setLocale } = useLocale()
   const t = (value: Bi) => pick(locale, value)
@@ -611,7 +611,7 @@ export function PublicGuidePage({ variant }: { variant: 'app' | 'pages' }) {
   return (
     <div className="public-guide">
       <header className="public-guide-bar">
-        <a className="public-guide-brand" href={variant === 'app' ? '/huong-dan' : './'}>
+        <a className="public-guide-brand" href={variant === 'app' ? '/guide' : './'}>
           <img src={variant === 'app' ? '/icon.svg' : 'icon.svg'} alt="" width={28} height={28} /><strong>Intake</strong>
         </a>
         <div className="public-guide-actions">

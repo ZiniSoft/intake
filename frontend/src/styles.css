@@ -2968,15 +2968,17 @@ button.strip-item:hover, .strip-item.active { border-color: var(--zs-ink); box-s
   .ai-ready-needs, .ai-ready-status { grid-column: 2; }
 }
 
-/* Public guide (FR-UI-18): /huong-dan without a session and the static GitHub Pages build. */
+/* Public guide (FR-UI-18): /guide without a session and the static GitHub Pages build. */
 .public-guide { min-height: 100vh; background: var(--cream); color: var(--ink); }
 .public-guide-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px max(16px, calc((100% - 1120px) / 2)); border-bottom: 1px solid var(--line); background: var(--white); }
 .public-guide-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font-size: 16px; text-decoration: none; }
 .public-guide-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.public-guide-lang { display: inline-flex; overflow: hidden; border: 1px solid var(--line); border-radius: var(--control-radius); }
-.public-guide-lang button { min-height: var(--control-height-sm); padding: 0 10px; border: 0; background: var(--white); color: var(--muted); cursor: pointer; font: inherit; font-size: var(--control-font-size-sm); font-weight: 600; }
-.public-guide-lang button + button { border-left: 1px solid var(--line); }
-.public-guide-lang button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.public-guide-lang, .locale-switch { display: inline-flex; overflow: hidden; flex: 0 0 auto; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--white); }
+.public-guide-lang button, .locale-switch button { min-height: var(--control-height-sm); padding: 0 10px; border: 0; background: var(--white); color: var(--muted); cursor: pointer; font: inherit; font-size: var(--control-font-size-sm); font-weight: 600; }
+.public-guide-lang button + button, .locale-switch button + button { border-left: 1px solid var(--line); }
+.public-guide-lang button[aria-pressed="true"], .locale-switch button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.locale-switch-auth { position: fixed; top: 18px; right: 18px; z-index: 3; }
+.locale-switch-topbar button { min-width: 34px; padding: 0 7px; }
 .public-guide-main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 40px; }
 .public-guide-hero { margin-bottom: 18px; }
 .public-guide-hero h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.25; }

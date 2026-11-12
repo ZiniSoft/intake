@@ -39,7 +39,7 @@ Dự án này dùng một chuẩn giao diện cố định. Việc của bạn l
 1. **Không viết màu hay cỡ chữ.** Mọi giá trị nằm trong `src/tokens.css`. Trong CSS chỉ dùng `var(--...)`.
 2. **Không viết chữ trong code.** Mọi chữ hiện trên màn hình là một khóa trong `src/i18n/vi.ts` **và** `src/i18n/en.ts`, lấy ra bằng `t('...')`.
 3. **Không tự làm nút, ô nhập, thẻ, bảng, hộp thoại.** Trong `src/pages` không có `<button>`, `<input>`, `<select>`, `<textarea>`, `<dialog>`, `<table>`; dùng component trong `src/ui`.
-4. **Không thêm kiểu component mới trong một trang.** Thiếu thứ gì thì thêm vào `src/ui`, thêm vào phòng trưng bày, rồi mới dùng. Nói rõ việc này trong báo cáo.
+4. **Không thêm kiểu component mới trong một trang.** Nếu thiếu component, dừng và xin người dùng duyệt thay đổi chuẩn trước; sau khi được duyệt mới thêm vào `src/ui`, thêm vào phòng trưng bày, rồi dùng.
 5. **Không thêm thư viện giao diện** (Tailwind, MUI, Ant, thư viện biểu đồ, thư viện icon khác `lucide-react`).
 6. **Không sửa `src/tokens.css`, `src/ui/`, `src/shell/` để làm cho một màn hình vừa ý.** Thay đổi ở đó là thay đổi chuẩn và cần người quyết định.
 

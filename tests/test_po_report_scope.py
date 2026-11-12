@@ -71,6 +71,7 @@ def test_the_owner_sees_their_part_of_a_shared_report_and_cannot_confirm_the_who
         assert listed[mixed["id"]]["item_count"] == 1 and listed[mixed["id"]]["hidden_items"] == 1 and listed[mixed["id"]]["can_review"] is False
         detail = po.get(f"/api/v1/reports/daily/{mixed['id']}").json()["data"]
         assert [item["title"] for item in detail["items"]] == ["Việc của Orbit"]
+        assert po.get(f"/api/v1/reports/daily/{mixed['id']}/raw").status_code == 403
         assert po.post(f"/api/v1/reports/daily/{mixed['id']}/review", json={"decision": "CONFIRMED"}).status_code == 403
         ember_item = next(item for item in cto.get(f"/api/v1/reports/daily/{mixed['id']}").json()["data"]["items"] if item["title"] == "Việc của Ember")
         assert po.post(f"/api/v1/reports/daily/{mixed['id']}/items/{ember_item['id']}/issue", json={"no_issue_reason": "MEETING"}).status_code == 404

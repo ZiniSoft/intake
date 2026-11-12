@@ -48,7 +48,7 @@ Route = Literal["RESPONSE", "WORK", "PLANE", "GITLAB", "GITHUB", "NEEDS_INFO"]
 class IntakeCreate(BaseModel):
     project_id: str = Field(..., description="UUID or project code")
     channel: Channel
-    raw_text: str | None = None
+    raw_text: str | None = Field(default=None, max_length=50_000)
     sender_reference: str | None = None
     received_at: datetime | None = None
     # Only the CTO's value counts: acceptance of this work always comes back to the CTO (FR-PLAN-39).
@@ -3260,6 +3260,7 @@ class BootstrapAccountIn(BaseModel):
 class BootstrapIn(BaseModel):
     cto: BootstrapAccountIn
     owner: BootstrapAccountIn | None = None
+    locale: Literal["en", "vi"] = "en"
 
 
 class AiProviderIn(BaseModel):

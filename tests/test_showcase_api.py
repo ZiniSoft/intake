@@ -16,10 +16,12 @@ KEY = "test-showcase-item"
 
 def _catalog(samples=None):
     return {
-        "version": 1, "groups": {"g": "Nhóm thử"},
+        "version": 1, "groups": {"g": "Nhóm thử"}, "groups_en": {"g": "Test group"},
         "items": [{
             "key": KEY, "kind": "real", "group": "g", "name": "Showcase thử", "summary": "Mục thử", "project_code": "showcase-test",
+            "name_en": "Sample showcase", "summary_en": "Sample item",
             "intake_key": "SCT", "repo_url": "https://github.com/example/example", "languages": ["Python"], "license": "MIT",
+            "license_en": "MIT",
             "default_enabled": False, "sample_requests": samples or [],
         }],
     }
@@ -79,6 +81,17 @@ def test_item_starts_off_and_toggle_creates_then_restores_the_same_project(catal
     with get_session() as session:
         rows = session.scalars(select(Project).where(Project.code == "showcase-test")).all()
         assert [row.id for row in rows] == [project_id]
+
+
+def test_catalog_text_follows_requested_locale(catalog):
+    english = cto.get("/api/v1/showcase?locale=en")
+    assert english.status_code == 200
+    assert english.json()["data"]["groups"]["g"] == "Test group"
+    assert english.json()["data"]["items"][0]["name"] == "Sample showcase"
+    vietnamese = cto.get("/api/v1/showcase?locale=vi")
+    assert vietnamese.json()["data"]["groups"]["g"] == "Nhóm thử"
+    assert vietnamese.json()["data"]["items"][0]["name"] == "Showcase thử"
+    assert cto.get("/api/v1/showcase?locale=fr").status_code == 422
 
 
 def test_samples_are_created_once_marked_and_removable(catalog):

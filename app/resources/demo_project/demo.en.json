@@ -1,0 +1,73 @@
+{
+  "project": {
+    "code": "demo",
+    "intake_key": "DEM",
+    "name": "Sample project",
+    "kind": "SOFTWARE",
+    "demo_repo_url": "https://github.com/ZiniSoft/minigames"
+  },
+  "members": [
+    {"key": "linh", "display_name": "Maya Sample", "role": "Developer"},
+    {"key": "binh", "display_name": "Noah Sample", "role": "Developer"},
+    {"key": "chau", "display_name": "Avery Sample", "role": "QA"}
+  ],
+  "owner": "linh",
+  "intakes": [
+    {
+      "channel": "EMAIL",
+      "raw": "Hi team, the puzzle game freezes when I reach level 5 on my phone. Reopening it does not help.",
+      "type": "BUG", "priority": "P1", "status": "PENDING_APPROVAL", "route": "GITLAB",
+      "title": "Puzzle game freezes on level 5 on mobile",
+      "summary": "A player reports that the mobile web game stops responding on level 5 and still fails after reopening.",
+      "details": {
+        "where": "Level 5 in the mobile web game",
+        "steps": ["Open the game on a phone", "Play until level 5", "Observe that the screen freezes"],
+        "expected": "Level 5 loads and the player can continue normally.",
+        "acceptance": ["A player can finish level 5 on mobile without the game freezing"],
+        "clarifications": [
+          {"question": "Which phone and browser are affected?", "answer": "iPhone 12 and Safari.", "skipped": false}
+        ]
+      }
+    },
+    {
+      "channel": "EMAIL",
+      "raw": "Please add a quick way to mute the background music. I often play in shared spaces.",
+      "type": "FEATURE", "priority": "P2", "status": "PENDING_APPROVAL", "route": "GITLAB",
+      "title": "Add a background music mute control",
+      "summary": "Players need a quick way to mute background music when playing in shared spaces.",
+      "details": {
+        "expected": "A music toggle is available and its setting persists after a reload.",
+        "subtasks": ["Add the toggle to the home screen", "Save the setting in the browser"],
+        "acceptance": ["Music remains muted after reloading the page"],
+        "clarifications": [
+          {"question": "Should the control appear on the home screen or during play?", "answer": "Both, if possible.", "skipped": false}
+        ]
+      }
+    },
+    {
+      "channel": "MANUAL",
+      "raw": "The high-score table does not sort consistently when two players have the same score.",
+      "type": "BUG", "priority": "P3", "status": "NEEDS_INFORMATION", "route": "NEEDS_INFO",
+      "title": "High-score table sorts tied scores inconsistently",
+      "summary": "Players with the same score appear in an unstable order in the high-score table.",
+      "details": {
+        "open_questions": ["For tied scores, should the player who reached the score first or last appear higher?"]
+      }
+    },
+    {
+      "channel": "EMAIL",
+      "raw": "Can the game be played without an internet connection?",
+      "type": "TASK", "priority": "P3", "status": "APPROVED", "route": "RESPONSE", "approved": true,
+      "title": "Answer whether the game works offline",
+      "summary": "A player asks whether the game works without an internet connection. A response using the available information has been approved.",
+      "details": {
+        "expected": "Explain clearly which parts require an internet connection and which do not."
+      }
+    }
+  ],
+  "plan": [
+    {"member": "linh", "slot": "MORNING", "hours": 4, "work_type": "DEVELOPMENT", "primary": true, "title": "Fix the level 5 freeze"},
+    {"member": "binh", "slot": "MORNING", "hours": 3, "work_type": "DEVELOPMENT", "primary": true, "title": "Add the music mute control"},
+    {"member": "chau", "slot": "AFTERNOON", "hours": 2, "work_type": "QA", "primary": true, "title": "Test level 5 on mobile"}
+  ]
+}

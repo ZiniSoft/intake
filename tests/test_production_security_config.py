@@ -17,6 +17,7 @@ VALID_PRODUCTION = {
     "cto_initial_password": "unique-cto-bootstrap-password",
     "project_owner_initial_password": "",
     "cookie_secure": True,
+    "allow_subject_header_auth": False,
 }
 
 
@@ -31,6 +32,7 @@ VALID_PRODUCTION = {
         ({"cto_initial_password": "dev-cto-password"}, "CTO_INITIAL_PASSWORD"),
         ({"cto_initial_password": "short"}, "CTO_INITIAL_PASSWORD"),
         ({"cookie_secure": False}, "COOKIE_SECURE"),
+        ({"allow_subject_header_auth": True}, "ALLOW_SUBJECT_HEADER_AUTH"),
         ({"project_owner_initial_password": "dev-owner-password"}, "PROJECT_OWNER_INITIAL_PASSWORD"),
         ({"project_owner_initial_password": "change-me-owner-password"}, "PROJECT_OWNER_INITIAL_PASSWORD"),
     ],

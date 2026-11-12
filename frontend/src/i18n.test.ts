@@ -8,9 +8,10 @@ describe('locale selection', () => {
     expect(resolveLocale('?lang=vi', 'en')).toBe('vi')
   })
 
-  it('falls back to the stored preference and then Vietnamese', () => {
+  it('falls back to the stored preference and then English', () => {
     expect(resolveLocale('', 'en')).toBe('en')
-    expect(resolveLocale('', null)).toBe('vi')
+    expect(resolveLocale('', 'vi')).toBe('vi')
+    expect(resolveLocale('', null)).toBe('en')
   })
 
   it('returns the text for the selected locale', () => {

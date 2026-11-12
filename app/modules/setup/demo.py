@@ -22,6 +22,7 @@ from app.models import (
 from app.services.raw_crypto import encrypt
 
 DEMO_BUNDLE = Path(__file__).resolve().parents[2] / "resources" / "demo_project" / "demo.json"
+DEMO_BUNDLE_EN = Path(__file__).resolve().parents[2] / "resources" / "demo_project" / "demo.en.json"
 DEMO_FLAG = "demo"
 CHANNELS = {"ZALO", "WHATSAPP", "EMAIL", "MEETING", "MANUAL", "AGENT", "TELEGRAM", "FEEDBACK"}
 STATUSES = {"PENDING_APPROVAL", "NEEDS_INFORMATION", "APPROVED"}
@@ -117,7 +118,8 @@ def load_demo_project(actor_id: str, bundle_path: Path = DEMO_BUNDLE) -> dict[st
                 approved_route=row["route"] if approved else None, version=1, created_by=actor_id, created_at=now, updated_at=now,
             ))
             session.add(SourceMessage(
-                id=str(uuid4()), intake_id=item_id, channel=row["channel"], sender_reference_ciphertext=encrypt("Người dùng mẫu"),
+                id=str(uuid4()), intake_id=item_id, channel=row["channel"],
+                sender_reference_ciphertext=encrypt("Sample user" if bundle_path == DEMO_BUNDLE_EN else "Người dùng mẫu"),
                 raw_content_ciphertext=encrypt(row["raw"]), received_at=now, purge_after=now + timedelta(days=90), created_at=now,
             ))
 
